@@ -1,0 +1,179 @@
+/* Piece Lookup screen (js/lookup-ui.js): a full-screen dialog over Shipping. */
+
+dialog.lookup {
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+dialog.lookup[open] { display: flex; flex-direction: column; }
+dialog.lookup::backdrop { background: var(--bg); }
+
+.lookup-head {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  padding: max(10px, env(safe-area-inset-top)) 12px 10px;
+  background: var(--surface-1);
+  border-bottom: 2px solid var(--border);
+}
+.lookup-head h1 { margin: 0; flex: 1; font-size: 1.3rem; color: var(--accent); }
+.lookup-head [data-close] { font-size: 1.5rem; padding: 0 14px; }
+.lk-tabs { display: flex; gap: 6px; }
+.lk-tabs .btn.active, .lk-filters .btn.active { border-color: var(--accent); color: var(--accent); }
+
+.lookup-bar {
+  display: flex;
+  gap: var(--gap);
+  padding: 10px 12px;
+  background: var(--surface-1);
+  border-bottom: 2px solid var(--border);
+}
+.lookup-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  padding: 0 14px;
+  min-height: 64px;
+  border: 3px dashed var(--flag);
+  border-radius: var(--radius);
+  background: var(--bg);
+  cursor: text;
+}
+.lookup-field:focus-within { border: 3px solid var(--ok); }
+#lookup-input {
+  flex: 1;
+  min-width: 0;
+  height: 52px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 1.5rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  caret-color: var(--ok);
+}
+#lookup-input:focus { outline: none; }
+
+.lookup-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 14px 12px calc(24px + env(safe-area-inset-bottom));
+}
+
+.lk-empty { max-width: 720px; margin: 24px auto; text-align: center; }
+.lk-empty .lk-chips { justify-content: center; }
+.lk-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 16px; }
+.lk-chip { flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; max-width: 100%; }
+.lk-chip .muted { font-size: 0.8rem; font-weight: 400; }
+.lk-strong { font-family: var(--mono); font-weight: 700; }
+.lk-multi { margin: 0 0 10px; color: var(--accent); font-weight: 700; }
+.lk-none, .lk-hint, .lk-source { margin: 8px 0 0; font-size: 0.85rem; }
+
+/* One card per job the mark is on */
+.lk-card {
+  margin-bottom: 14px;
+  padding: 16px;
+  background: var(--surface-1);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+}
+.lk-card.flagged { border-color: var(--flag); background: var(--flag-bg); }
+.lk-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--gap); }
+.lk-mark { font-family: var(--mono); font-size: 2rem; font-weight: 800; line-height: 1.1; }
+.lk-card.flagged .lk-mark { color: var(--flag); }
+.lk-job { color: var(--text-muted); font-family: var(--mono); }
+.lk-desc { margin: 8px 0 12px; font-size: 1.1rem; }
+
+.lk-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px 16px;
+  margin: 0 0 14px;
+}
+.lk-fact dt { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
+.lk-fact dd { margin: 2px 0 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.lk-pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border: 2px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.lk-pill.lg { padding: 6px 14px; font-size: 1rem; }
+.lk-pill.ok { border-color: var(--ok); color: var(--ok); }
+.lk-pill.info { border-color: var(--accent); color: var(--accent); }
+.lk-pill.flag { border-color: var(--flag); color: var(--flag); }
+.lk-pill.bad { border-color: var(--danger); color: var(--danger); }
+.lk-pill.muted { color: var(--text-muted); }
+
+.lk-progress { margin-bottom: 12px; }
+.lk-counts { display: flex; flex-wrap: wrap; gap: 6px 18px; font-variant-numeric: tabular-nums; }
+.lk-counts b { font-size: 1.15rem; }
+.lk-flag { color: var(--flag); }
+.lk-bar { display: block; height: 10px; margin: 8px 0; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.lk-bar > span { display: block; height: 100%; background: var(--ok); }
+.lk-bar.over > span { background: var(--danger); }
+
+.lk-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.lk-table th {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.lk-table td { padding: 0 8px; height: var(--tap); border-bottom: 1px solid var(--border); }
+.lk-table .num { text-align: right; }
+.lk-table tbody tr { cursor: pointer; }
+.lk-table tbody tr:active { background: var(--surface-2); }
+.lk-marks tr.flagged td:first-child { color: var(--flag); box-shadow: inset 6px 0 0 var(--flag); }
+.lk-marks tr.over td { color: var(--danger); }
+.lk-marks td.muted { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.lk-fields { margin-top: 12px; }
+.lk-fields summary { min-height: var(--tap); display: flex; align-items: center; color: var(--text-muted); cursor: pointer; }
+.lk-fields dl { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px 16px; margin: 0; }
+.lk-fields dt { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
+.lk-fields dd { margin: 0; word-break: break-word; }
+
+/* Jobs view */
+.lk-jobs-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap); margin-bottom: 12px; }
+.lk-jobs-head p { flex: 1; min-width: 240px; margin: 0; }
+.lk-jobs-head h2 { margin: 0; }
+.lk-jobs { list-style: none; margin: 0; padding: 0; }
+.lk-job-row { display: flex; gap: 8px; margin-bottom: 10px; }
+.lk-job-open { flex: 1; min-width: 0; flex-direction: column; align-items: stretch; gap: 4px; padding: 12px 14px; text-align: left; }
+.lk-job-name { font-size: 1.15rem; font-weight: 800; }
+.lk-job-meta { font-size: 0.85rem; font-weight: 400; }
+.lk-job-open .lk-counts { font-weight: 400; }
+.lk-job-dl { font-size: 1.4rem; }
+.lk-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+
+/* Phone width */
+@media (max-width: 600px) {
+  .lk-placements th:nth-child(4), .lk-placements td:nth-child(4),
+  .lk-marks th:nth-child(2), .lk-marks td:nth-child(2),
+  .lk-marks th:nth-child(3), .lk-marks td:nth-child(3),
+  .lk-marks th:nth-child(6), .lk-marks td:nth-child(6) { display: none; }
+  .lookup-head h1 { font-size: 1.05rem; }
+  .lookup-field .stat-label, .lookup-bar [data-keypad] span:last-child { display: none; }
+  .lk-mark { font-size: 1.5rem; }
+  .lk-card { padding: 12px; }
+  .lk-table td, .lk-table th { padding-left: 4px; padding-right: 4px; }
+}

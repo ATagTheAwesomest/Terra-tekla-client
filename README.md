@@ -42,6 +42,26 @@ The API must allow the app's origin in its `CORS_ORIGINS` (for GitHub Pages,
   not confirmed against a real server yet, so the parser looks for the
   `ProductionControlJob` and `Assembly` elements wherever they sit.
 
+## Piece lookup
+
+**Piece lookup** (home tile, or the menu inside Shipping) answers "what is
+this piece?" for any mark: scan it or type it on the keypad. It shows, per job
+the mark is on, the description, weight per piece, quantity, size, length,
+grade, sequence and drawing from the saved part list, every load on this
+iPad that holds it (stack, row, scan time), how many are on loads, checked
+onto the truck and shipped, and when it was last scanned here. Tap a load to
+open it in Shipping. An unknown mark lists marks that contain what was typed.
+
+The **Jobs** view lists every job this iPad knows of with its piece count and
+weight, and how many pieces are loaded, on the truck and shipped. Tap a job to
+see each mark with what's left to load. Part lists missing on this iPad can be
+downloaded from there while online.
+
+It is read-only and works offline from the saved part lists and loads. The
+counts are what this iPad has recorded, not PowerFab's shipping status.
+Whether a load has shipped is decided in one place, `loadShippedAt()` in
+`js/lookup.js`.
+
 ## Run locally
 
 Any static file server works, served over `http://localhost` or HTTPS
@@ -74,6 +94,8 @@ Safari tabs after a week of no use, so always run it from the home screen.
 | `js/server-ui.js` | Server settings dialog, setup QR show/scan, job and part sync |
 | `js/vendor/` | `qrcode.js` (QR generator, MIT) and `jsQR.js` (QR reader, Apache-2.0) |
 | `tools/setup-qr.mjs` | Makes a setup QR from `.env` |
+| `js/lookup.js` | Piece lookup and job overview data: a mark across part lists and loads |
+| `js/lookup-ui.js` | Piece Lookup screen (home tile and menu): Piece and Jobs views, `css/lookup.css` |
 | `js/check.js` | Truck check logic: matches check scans to the load's pieces |
 | `js/check-ui.js` | Truck check screen: checklist, extras, undo and start over |
 | `js/mobile.js` | Phone layout toggle and its own stack/row markup (`css/mobile.css`) |
