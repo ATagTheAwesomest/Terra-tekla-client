@@ -176,6 +176,15 @@ export function setMenu(open) {
   $('#scrim').hidden = !open;
 }
 
+// Home screen menu: server settings and update. The home screen sits above
+// the shipping drawers, so this one has its own higher layer (see app.css).
+function setHomeMenu(open) {
+  $('#home-menu').classList.toggle('open', open);
+  $('#home-menu').setAttribute('aria-hidden', String(!open));
+  $('#btn-home-menu').setAttribute('aria-expanded', String(open));
+  $('#scrim').hidden = !open;
+}
+
 export function showNewLoadDialog() {
   setDrawer(false);
   $('#input-load-name').value = '';
@@ -220,6 +229,8 @@ async function refreshUpdateBadge() {
   const check = await checkForUpdate();
   $('#update-badge').hidden = !check?.available;
   $('#menu-badge').hidden = !check?.available;
+  $('#home-update-badge').hidden = !check?.available;
+  $('#home-menu-badge').hidden = !check?.available;
   return check;
 }
 
@@ -278,7 +289,7 @@ function bindEvents() {
   $('#btn-truck-check').addEventListener('click', () => setMode(isChecking() ? 'load' : 'check'));
   $('#btn-loads').addEventListener('click', () => setDrawer(true));
   $('#btn-drawer-close').addEventListener('click', () => setDrawer(false));
-  $('#scrim').addEventListener('click', () => { setDrawer(false); setMenu(false); });
+  $('#scrim').addEventListener('click', () => { setDrawer(false); setMenu(false); setHomeMenu(false); });
   $('#btn-menu').addEventListener('click', () => setMenu(true));
   $('#btn-menu-close').addEventListener('click', () => setMenu(false));
   $('#menu').addEventListener('click', (e) => { if (e.target.closest('.menu-item')) setMenu(false); });
@@ -303,6 +314,11 @@ function bindEvents() {
     if (tile === 'shipping') setHome(false);
     else if (tile === 'server') openServerSettings();
   });
+  $('#btn-home-menu').addEventListener('click', () => setHomeMenu(true));
+  $('#btn-home-menu-close').addEventListener('click', () => setHomeMenu(false));
+  $('#home-menu').addEventListener('click', (e) => { if (e.target.closest('.menu-item')) setHomeMenu(false); });
+  $('#btn-home-server').addEventListener('click', openServerSettings);
+  $('#btn-home-update').addEventListener('click', showUpdateDialog);
   $('#btn-update').addEventListener('click', showUpdateDialog);
   $('#btn-update-cancel').addEventListener('click', () => $('#dlg-update').close());
   $('#btn-update-go').addEventListener('click', runForceUpdate);

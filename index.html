@@ -28,7 +28,12 @@
 </head>
 <body class="at-home">
   <section class="home" id="home">
-    <h1 class="home-title">TERRA</h1>
+    <div class="home-head">
+      <h1 class="home-title">TERRA</h1>
+      <button class="btn btn-ghost btn-menu" id="btn-home-menu" type="button" aria-controls="home-menu" aria-expanded="false" aria-label="Menu">
+        <span class="icon" aria-hidden="true">&#9776;</span><span class="badge badge-dot" id="home-menu-badge" hidden></span>
+      </button>
+    </div>
     <div class="home-tiles">
       <button class="btn home-tile" type="button" data-module="shipping">
         <span class="home-tile-icon" aria-hidden="true">&#128666;</span>
@@ -131,6 +136,18 @@
     </button>
     <button class="btn btn-block menu-item menu-toggle" id="btn-layout" type="button" aria-pressed="false">
       <span class="icon" aria-hidden="true">&#128241;</span><span>Phone layout</span><span class="toggle-state" id="layout-state">Off</span>
+    </button>
+  </aside>
+  <aside class="drawer drawer-right home-menu" id="home-menu" aria-label="Home menu" aria-hidden="true">
+    <div class="drawer-head">
+      <h2>Menu</h2>
+      <button class="btn btn-ghost" id="btn-home-menu-close" type="button" aria-label="Close">&times;</button>
+    </div>
+    <button class="btn btn-block menu-item" id="btn-home-server" type="button">
+      <span class="icon" aria-hidden="true">&#128273;</span><span>Server settings</span>
+    </button>
+    <button class="btn btn-block menu-item" id="btn-home-update" type="button">
+      <span class="icon" aria-hidden="true">&#8635;</span><span>Update app</span><span class="badge" id="home-update-badge" hidden>New</span>
     </button>
   </aside>
   <div class="screen-flash" id="screen-flash" aria-hidden="true"></div>
