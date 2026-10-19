@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>TERRA</title>
+  <meta name="description" content="TERRA shop-floor client for PowerFab: shipping, load planning and piece tracking.">
+  <meta name="theme-color" content="#121212">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="TERRA">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/check.css">
+  <link rel="stylesheet" href="css/mobile.css">
+  <link rel="stylesheet" href="css/print.css">
+  <script src="version.js"></script>
+  <script src="js/vendor/qrcode.js"></script>
+  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/export-ui.js"></script>
+  <script type="module" src="js/manage.js"></script>
+</head>
+<body class="at-home">
+  <section class="home" id="home">
+    <h1 class="home-title">TERRA</h1>
+    <div class="home-tiles">
+      <button class="btn home-tile" type="button" data-module="shipping">
+        <span class="home-tile-icon" aria-hidden="true">&#128666;</span>
+        <span class="home-tile-name">Shipping</span>
+        <span class="muted">Loads, stacks, truck check, tickets</span>
+      </button>
+      <button class="btn home-tile" type="button" data-module="server">
+        <span class="home-tile-icon" aria-hidden="true">&#128273;</span>
+        <span class="home-tile-name">Server settings</span>
+        <span class="muted">API address and key, setup QR</span>
+      </button>
+      <div class="home-tile home-tile-soon">
+        <span class="home-tile-icon" aria-hidden="true">&#43;</span>
+        <span class="home-tile-name">More coming</span>
+      </div>
+    </div>
+  </section>
+
+  <header class="topbar" id="topbar">
+    <button class="btn btn-ghost btn-home" id="btn-home" type="button" aria-label="Home">
+      <span class="icon" aria-hidden="true">&#8962;</span>
+    </button>
+    <button class="btn btn-ghost" id="btn-loads" type="button" aria-controls="drawer" aria-expanded="false">
+      <span class="icon" aria-hidden="true">&#9776;</span><span>Loads</span>
+    </button>
+    <div class="stats" id="stats">
+      <div class="stat stat-load"><span class="stat-label">Load</span><span class="stat-value" id="stat-load">&mdash;</span><span class="stat-sub" id="stat-job"></span><span class="mode-badge" id="mode-badge" hidden>Truck check</span></div>
+      <div class="stat"><span class="stat-label">Sequences</span><span class="stat-value" id="stat-seq">&mdash;</span></div>
+      <div class="stat"><span class="stat-label">Pieces</span><span class="stat-value" id="stat-pieces">0</span></div>
+      <div class="stat"><span class="stat-label">Weight</span><span class="stat-value" id="stat-weight">0 lbs</span></div>
+    </div>
+    <button class="btn btn-ghost btn-menu" id="btn-menu" type="button" aria-controls="menu" aria-expanded="false" aria-label="Menu">
+      <span class="icon" aria-hidden="true">&#9776;</span><span class="badge badge-dot" id="menu-badge" hidden></span>
+    </button>
+  </header>
+
+  <section class="scanbar unfocused" id="scanbar" hidden>
+    <label class="scan-field" for="scan-input">
+      <span class="scan-meta">
+        <span class="stat-label" id="scan-label">Scanning into</span>
+        <span class="scan-stack" id="scan-stack">&mdash;</span>
+        <span class="scan-hint" id="scan-hint">Tap here to resume scanning</span>
+      </span>
+      <input id="scan-input" type="text" inputmode="none" enterkeyhint="enter" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" aria-label="Scan or type a mark">
+    </label>
+    <button class="btn btn-lg" id="btn-keypad" type="button"><span class="icon" aria-hidden="true">&#9783;</span><span>Keypad</span></button>
+    <button class="btn btn-lg btn-primary" id="btn-new-stack" type="button">+ New Stack</button>
+    <button class="btn btn-lg btn-primary" id="btn-check-done" type="button" hidden>Done checking</button>
+  </section>
+  <div class="colhead" id="colhead" hidden aria-hidden="true">
+    <span></span><span>#</span><span>Mark</span><span>Description</span><span class="colhead-num">Weight</span><span></span>
+  </div>
+
+  <main class="workspace" id="workspace"></main>
+
+  <footer class="statusbar">
+    <span id="status-offline">Starting&hellip;</span>
+    <span id="status-parts"></span>
+    <span id="status-storage"></span>
+    <span id="status-version"></span>
+  </footer>
+
+  <div class="scrim" id="scrim" hidden></div>
+  <aside class="drawer" id="drawer" aria-label="Saved loads" aria-hidden="true">
+    <div class="drawer-head">
+      <h2>Loads</h2>
+      <button class="btn btn-ghost" id="btn-drawer-close" type="button" aria-label="Close">&times;</button>
+    </div>
+    <button class="btn btn-primary btn-block" id="btn-new-load-drawer" type="button">+ New Load</button>
+    <ul class="load-list" id="load-list"></ul>
+    <button class="btn btn-block" id="btn-manage-loads" type="button">Manage loads</button>
+  </aside>
+  <aside class="drawer drawer-right" id="menu" aria-label="Menu" aria-hidden="true">
+    <div class="drawer-head">
+      <h2>Menu</h2>
+      <button class="btn btn-ghost" id="btn-menu-close" type="button" aria-label="Close">&times;</button>
+    </div>
+    <button class="btn btn-block menu-item" id="btn-truck-check" type="button">
+      <span class="icon" aria-hidden="true">&#10003;</span><span id="truck-check-label">Truck check</span>
+    </button>
+    <button class="btn btn-block menu-item" id="btn-share" type="button">
+      <span class="icon" aria-hidden="true">&#8679;</span><span>Share load file</span>
+    </button>
+    <button class="btn btn-block menu-item" id="btn-print" type="button">
+      <span class="icon" aria-hidden="true">&#9113;</span><span>Print shipping ticket</span>
+    </button>
+    <button class="btn btn-block menu-item" id="btn-server" type="button">
+      <span class="icon" aria-hidden="true">&#128273;</span><span>Server settings</span>
+    </button>
+    <button class="btn btn-block menu-item" id="btn-update" type="button">
+      <span class="icon" aria-hidden="true">&#8635;</span><span>Update app</span><span class="badge" id="update-badge" hidden>New</span>
+    </button>
+    <button class="btn btn-block menu-item menu-toggle" id="btn-layout" type="button" aria-pressed="false">
+      <span class="icon" aria-hidden="true">&#128241;</span><span>Phone layout</span><span class="toggle-state" id="layout-state">Off</span>
+    </button>
+  </aside>
+  <div class="screen-flash" id="screen-flash" aria-hidden="true"></div>
+
+  <dialog class="modal" id="dlg-new-load">
+    <form method="dialog" id="form-new-load">
+      <h2>New Load</h2>
+      <label for="input-load-name">Load name</label>
+      <input id="input-load-name" name="name" autocomplete="off" autocapitalize="characters" spellcheck="false" required maxlength="60">
+      <fieldset class="job-choice" id="new-load-jobs">
+        <legend>Job (production control)</legend>
+        <div class="job-list" id="new-load-job-list"></div>
+        <button class="btn btn-block" type="button" id="btn-refresh-jobs">&#8635; Refresh jobs</button>
+      </fieldset>
+      <p class="field-error" id="new-load-error" role="alert"></p>
+      <div class="modal-actions">
+        <button class="btn" type="button" id="btn-new-load-cancel">Cancel</button>
+        <button class="btn btn-primary" type="submit">Create</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal manage" id="dlg-manage">
+    <div class="manage-head">
+      <h2>Manage loads</h2>
+      <button class="btn btn-primary" type="button" id="btn-manage-new">+ New Load</button>
+      <button class="btn btn-ghost" type="button" id="btn-manage-close" aria-label="Close">&times;</button>
+    </div>
+    <p class="muted manage-note">Hold the delete button for 7.5 seconds to delete a load and everything in it.</p>
+    <ul class="manage-list" id="manage-list"></ul>
+  </dialog>
+
+  <dialog class="modal server" id="dlg-server">
+    <form id="form-server" autocomplete="off">
+      <h2>Server settings</h2>
+      <p class="muted">Saved on this device only. Nothing about the server is built into the app.</p>
+      <label for="server-url">API address</label>
+      <input id="server-url" type="text" inputmode="url" placeholder="https://api.example.com" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <label for="server-key">API key</label>
+      <div class="server-key-row">
+        <input id="server-key" type="password" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <button class="btn" type="button" id="btn-server-key-show">Show</button>
+      </div>
+      <label for="server-setup">Or scan a setup code with the barcode scanner</label>
+      <input id="server-setup" type="text" placeholder="TERRACFG:…" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <video id="server-video" playsinline muted hidden></video>
+      <div id="server-qr" class="server-qr" hidden></div>
+      <p class="server-result" id="server-result" role="status"></p>
+      <div class="modal-actions server-actions">
+        <button class="btn" type="button" id="btn-server-camera">Scan QR with camera</button>
+        <button class="btn" type="button" id="btn-server-qr">Show setup QR</button>
+        <button class="btn" type="button" id="btn-server-close">Close</button>
+        <button class="btn btn-primary" type="submit">Save &amp; test</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="dlg-update">
+    <h2>Update</h2>
+    <p id="update-text">Checking&hellip;</p>
+    <p class="muted">Saved loads and server settings stay on this iPad. Only the app files are refreshed.</p>
+    <div class="modal-actions">
+      <button class="btn" type="button" id="btn-update-cancel">Close</button>
+      <button class="btn btn-primary" type="button" id="btn-update-go">Force Update</button>
+    </div>
+  </dialog>
+
+  <dialog class="modal keypad" id="dlg-keypad">
+    <h2 id="keypad-title">Manual entry</h2>
+    <div class="keypad-display placeholder" id="keypad-display" aria-live="polite">Type a mark</div>
+    <p class="muted keypad-note" id="keypad-note"></p>
+    <div class="keypad-body">
+      <div class="keypad-digits" id="keypad-digits"></div>
+      <div class="keypad-letters" id="keypad-letters"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-lg" type="button" id="keypad-cancel">Cancel</button>
+      <button class="btn btn-lg btn-primary" type="button" id="keypad-ok">Add</button>
+    </div>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>
