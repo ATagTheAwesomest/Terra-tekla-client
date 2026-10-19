@@ -607,7 +607,11 @@ h1, h2, h3 { margin: 0 0 var(--gap); font-weight: 700; letter-spacing: 0.02em; }
   padding: max(24px, env(safe-area-inset-top)) 24px 24px;
   background: var(--bg);
 }
-.home-title { margin: 8px 0 24px; color: var(--accent); letter-spacing: 0.2em; }
+.home-head { display: flex; align-items: center; justify-content: space-between; gap: var(--gap); margin-bottom: 24px; }
+.home-head .btn-menu { min-width: 64px; font-size: 1.5rem; }
+.home-menu { z-index: 32; }
+body.at-home .scrim { z-index: 31; }
+.home-title { margin: 8px 0 0; color: var(--accent); letter-spacing: 0.2em; }
 .home-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--gap); }
 .home-tile {
   display: flex;
