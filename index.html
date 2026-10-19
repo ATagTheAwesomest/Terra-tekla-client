@@ -17,12 +17,14 @@
   <link rel="stylesheet" href="css/app.css">
   <link rel="stylesheet" href="css/check.css">
   <link rel="stylesheet" href="css/mobile.css">
+  <link rel="stylesheet" href="css/lookup.css">
   <link rel="stylesheet" href="css/print.css">
   <script src="version.js"></script>
   <script src="js/vendor/qrcode.js"></script>
   <script type="module" src="js/app.js"></script>
   <script type="module" src="js/export-ui.js"></script>
   <script type="module" src="js/manage.js"></script>
+  <script type="module" src="js/lookup-ui.js"></script>
 </head>
 <body class="at-home">
   <section class="home" id="home">
@@ -32,6 +34,11 @@
         <span class="home-tile-icon" aria-hidden="true">&#128666;</span>
         <span class="home-tile-name">Shipping</span>
         <span class="muted">Loads, stacks, truck check, tickets</span>
+      </button>
+      <button class="btn home-tile" type="button" data-module="lookup">
+        <span class="home-tile-icon" aria-hidden="true">&#128269;</span>
+        <span class="home-tile-name">Piece lookup</span>
+        <span class="muted">Any mark: job, size, loads, shipped; job progress</span>
       </button>
       <button class="btn home-tile" type="button" data-module="server">
         <span class="home-tile-icon" aria-hidden="true">&#128273;</span>
@@ -106,6 +113,9 @@
     </div>
     <button class="btn btn-block menu-item" id="btn-truck-check" type="button">
       <span class="icon" aria-hidden="true">&#10003;</span><span id="truck-check-label">Truck check</span>
+    </button>
+    <button class="btn btn-block menu-item" id="btn-lookup" type="button">
+      <span class="icon" aria-hidden="true">&#128269;</span><span>Piece lookup</span>
     </button>
     <button class="btn btn-block menu-item" id="btn-share" type="button">
       <span class="icon" aria-hidden="true">&#8679;</span><span>Share load file</span>
