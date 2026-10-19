@@ -34,6 +34,8 @@ export function buildLoadText(load) {
     `CREATED: ${formatDateTime(load.createdAt)}`,
     `TOTAL_PIECES: ${totals.pieces}`,
     `TOTAL_WEIGHT: ${plainWeight(totals.weight)}`,
+    ...(load.pfLoad ? [`POWERFAB_LOAD: ${load.pfLoad}`] : []),
+    ...(load.shippedAt ? [`SHIPPED: ${formatDateTime(load.shippedAt)}`] : []),
     '}',
   ];
   for (const stack of load.stacks) {
@@ -103,6 +105,10 @@ export function renderPrintTicket(load, printedAt = new Date()) {
     { class: 'pt-summary' },
     el('dt', null, 'Load'), el('dd', null, load.name),
     el('dt', null, 'Job'), el('dd', null, jobLabel(load)),
+    load.pfLoad ? el('dt', null, 'PowerFab load') : null,
+    load.pfLoad ? el('dd', null, load.pfLoad) : null,
+    load.shippedAt ? el('dt', null, 'Shipped') : null,
+    load.shippedAt ? el('dd', null, formatDateTime(load.shippedAt)) : null,
     el('dt', null, 'Created'), el('dd', null, formatDateTime(load.createdAt)),
     el('dt', null, 'Printed'), el('dd', null, formatDateTime(printedAt)),
     el('dt', null, 'Sequences'), el('dd', null, sequences.length ? sequences.join(', ') : jobHasSequences(load.job) ? 'None' : 'None (job has no sequences)'),

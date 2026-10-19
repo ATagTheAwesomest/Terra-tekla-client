@@ -16,6 +16,7 @@
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="stylesheet" href="css/app.css">
   <link rel="stylesheet" href="css/check.css">
+  <link rel="stylesheet" href="css/shipping.css">
   <link rel="stylesheet" href="css/mobile.css">
   <link rel="stylesheet" href="css/lookup.css">
   <link rel="stylesheet" href="css/print.css">
@@ -65,7 +66,7 @@
       <span class="icon" aria-hidden="true">&#9776;</span><span>Loads</span>
     </button>
     <div class="stats" id="stats">
-      <div class="stat stat-load"><span class="stat-label">Load</span><span class="stat-value" id="stat-load">&mdash;</span><span class="stat-sub" id="stat-job"></span><span class="mode-badge" id="mode-badge" hidden>Truck check</span></div>
+      <div class="stat stat-load"><span class="stat-label">Load</span><span class="stat-value" id="stat-load">&mdash;</span><span class="stat-sub" id="stat-job"></span><span class="stat-sub" id="stat-pf"></span><span class="mode-badge" id="mode-badge" hidden>Truck check</span><span class="mode-badge ship-badge" id="ship-badge" hidden>Shipped</span></div>
       <div class="stat"><span class="stat-label">Sequences</span><span class="stat-value" id="stat-seq">&mdash;</span></div>
       <div class="stat"><span class="stat-label">Pieces</span><span class="stat-value" id="stat-pieces">0</span></div>
       <div class="stat"><span class="stat-label">Weight</span><span class="stat-value" id="stat-weight">0 lbs</span></div>
@@ -122,6 +123,9 @@
     <button class="btn btn-block menu-item" id="btn-lookup" type="button">
       <span class="icon" aria-hidden="true">&#128269;</span><span>Piece lookup</span>
     </button>
+    <button class="btn btn-block menu-item" id="btn-ship-status" type="button">
+      <span class="icon" aria-hidden="true">&#128666;</span><span>Shipping status</span>
+    </button>
     <button class="btn btn-block menu-item" id="btn-share" type="button">
       <span class="icon" aria-hidden="true">&#8679;</span><span>Share load file</span>
     </button>
@@ -161,6 +165,11 @@
         <legend>Job (production control)</legend>
         <div class="job-list" id="new-load-job-list"></div>
         <button class="btn btn-block" type="button" id="btn-refresh-jobs">&#8635; Refresh jobs</button>
+      </fieldset>
+      <fieldset class="job-choice" id="new-load-pf" hidden>
+        <legend>PowerFab load</legend>
+        <div class="job-list" id="new-load-pf-list"></div>
+        <p class="muted" id="new-load-pf-note"></p>
       </fieldset>
       <p class="field-error" id="new-load-error" role="alert"></p>
       <div class="modal-actions">
@@ -203,6 +212,37 @@
         <button class="btn btn-primary" type="submit">Save &amp; test</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog class="modal ship-block" id="dlg-ship-block">
+    <form method="dialog">
+      <p class="ship-block-kicker">You can&rsquo;t ship that</p>
+      <h2 id="ship-block-title"></h2>
+      <p class="ship-block-mark" id="ship-block-mark"></p>
+      <p class="ship-block-msg" id="ship-block-msg"></p>
+      <p class="muted" id="ship-block-source"></p>
+      <div class="modal-actions">
+        <button class="btn btn-lg btn-hold" type="button" id="btn-ship-override" data-hold="override" data-hold-ms="1500">Hold to add anyway</button>
+        <button class="btn btn-lg btn-primary" value="cancel" id="btn-ship-block-ok">Don&rsquo;t add</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal ship" id="dlg-ship">
+    <h2>Shipping status</h2>
+    <p id="ship-summary"></p>
+    <fieldset class="job-choice">
+      <legend>PowerFab load</legend>
+      <div class="job-list" id="ship-pf-list"></div>
+      <p class="muted" id="ship-pf-note"></p>
+      <button class="btn btn-block" type="button" id="btn-ship-refresh">&#8635; Refresh from PowerFab</button>
+    </fieldset>
+    <div id="ship-compare"></div>
+    <p class="muted" id="ship-mark-note"></p>
+    <div class="modal-actions">
+      <button class="btn btn-hold" type="button" id="btn-ship-mark" data-hold="ship" data-hold-ms="3000">Hold to mark shipped</button>
+      <button class="btn btn-primary" type="button" id="btn-ship-close">Close</button>
+    </div>
   </dialog>
 
   <dialog class="modal" id="dlg-update">

@@ -13,16 +13,14 @@
 import { checkStatus } from './check.js';
 import { jobHasSequences } from './model.js';
 import { jobKey, normalizeMark } from './parts.js';
+import { isShipped } from './piece-status.js';
 
 // ---- Piece status adapter ----------------------------------------------------
 //
-// The one place that decides whether a load has shipped. The real-load
-// shipping work (js/piece-status.js) owns this; until it lands, a load counts
-// as shipped when it carries a shipped time or status. Swap this function for
-// that module's answer when it exists.
+// The one place that decides whether a load has shipped, answered by
+// js/piece-status.js (a load marked shipped on this tablet).
 export function loadShippedAt(load) {
-  const s = load?.shippedAt ?? load?.shipped?.at ?? (load?.shipped === true || load?.status === 'shipped' ? load.updatedAt : null);
-  return s || null;
+  return isShipped(load) ? load.shippedAt : null;
 }
 
 // ---- Helpers -------------------------------------------------------------------

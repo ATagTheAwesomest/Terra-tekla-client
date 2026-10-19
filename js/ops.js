@@ -3,6 +3,7 @@
 // caller persists with store.saveLoad(). No DOM here.
 
 import { createItem, createStack, defaultStackName, isJobNumber } from './model.js';
+import { setLoaded } from './piece-status.js';
 
 export function findStack(load, stackId) {
   return load.stacks.find((s) => s.id === stackId) ?? null;
@@ -34,6 +35,7 @@ export function addScan(load, rawMark, { manual = false } = {}) {
   if (!load.stacks.length) load.stacks.push(createStack(load.name, 1));
   const stack = activeStack(load);
   const item = createItem(rawMark, { manual, job: load.job });
+  setLoaded(item, item.scannedAt);
   stack.items.push(item);
   load.activeStackId = stack.id;
   return item;

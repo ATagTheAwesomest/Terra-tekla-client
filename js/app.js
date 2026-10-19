@@ -8,6 +8,7 @@ import { checkSummary } from './check.js';
 import { initLayout, isMobile, renderStacksMobile } from './mobile.js';
 import { focusScanner, initScanner, renderScanbar } from './scanner.js';
 import { initStacks, renderStacks } from './stacks.js';
+import { initShipping, loadOpened, renderNewLoadPf, renderShipStat, shipSummary, showBlock, vetCurrentScan } from './shipping-ui.js';
 import { ensureJobParts, initServer, jobOptionsHtml, openServerSettings, refreshJobs, serverStatus } from './server-ui.js';
 import * as store from './store.js';
 import { APP_VERSION, checkForUpdate, forceUpdate, registerServiceWorker } from './updater.js';
@@ -60,6 +61,7 @@ export function renderStats() {
   $('#truck-check-label').textContent = isChecking() ? 'Back to loading' : 'Truck check';
   $('#stat-pieces').textContent = totals.pieces.toLocaleString('en-US');
   $('#stat-weight').textContent = formatWeight(totals.weight);
+  renderShipStat(load);
 }
 
 export function renderWorkspace() {
@@ -111,6 +113,7 @@ export async function openLoad(id) {
   render();
   focusScanner();
   if (state.load?.job) syncParts(state.load.job);
+  loadOpened(state.load);
 }
 
 // Pulls the job's part list (cached, then fresh) and redraws for the counts.
@@ -154,7 +157,7 @@ async function renderLoadList() {
     const when = new Date(l.updatedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
     return `<li><button class="btn load-row${l.id === state.load?.id ? ' active' : ''}" type="button" data-load-id="${l.id}">
       <span>${escapeHtml(l.name)}</span>
-      <span class="load-row-meta">${escapeHtml(jobLabel(l))} &middot; ${t.pieces} pcs &middot; ${formatWeight(t.weight)} &middot; ${when}</span>
+      <span class="load-row-meta">${escapeHtml(jobLabel(l) + shipSummary(l))} &middot; ${t.pieces} pcs &middot; ${formatWeight(t.weight)} &middot; ${when}</span>
       ${checkSummary(l) ? `<span class="load-row-meta check-meta-line">${escapeHtml(checkSummary(l))}</span>` : ''}
     </button></li>`;
   }).join('');
@@ -189,6 +192,7 @@ export function showNewLoadDialog() {
   setDrawer(false);
   $('#input-load-name').value = '';
   renderJobChoices();
+  renderNewLoadPf();
   $('#new-load-error').textContent = JOB_NUMBERS.length ? '' : 'No jobs yet. Tap Refresh jobs while connected to the server.';
   $('#dlg-new-load').showModal();
   $('#input-load-name').focus();
@@ -212,6 +216,7 @@ async function submitNewLoad(event) {
     return;
   }
   const load = createLoad(name, job);
+  load.pfLoad = $('#form-new-load').elements.pfload?.value || null;
   await store.saveLoad(load);
   $('#dlg-new-load').close();
   document.getElementById('dlg-manage')?.close();
@@ -221,6 +226,7 @@ async function submitNewLoad(event) {
   focusScanner();
   toast(`Created ${name}`);
   syncParts(job);
+  loadOpened(load);
 }
 
 // ---- Updates -------------------------------------------------------------
@@ -281,11 +287,13 @@ function bindEvents() {
     get load() { return state.load; },
     get checking() { return isChecking(); },
     save: saveCurrentLoad, render, toast, setMode, checkScan: submitCheck,
+    vetScan: (raw) => vetCurrentScan(state.load, raw), blockScan: showBlock,
   };
   initLayout(render);
   initScanner(ctx);
   initStacks(ctx);
   initCheck(ctx);
+  initShipping(ctx);
   $('#btn-truck-check').addEventListener('click', () => setMode(isChecking() ? 'load' : 'check'));
   $('#btn-loads').addEventListener('click', () => setDrawer(true));
   $('#btn-drawer-close').addEventListener('click', () => setDrawer(false));

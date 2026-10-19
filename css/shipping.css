@@ -1,0 +1,70 @@
+/* Shipping against PowerFab loads (js/shipping-ui.js): the "you can't ship
+   that" warning, the shipping status dialog, override tags on rows and the
+   shipped header badge. Colours come from css/app.css and css/check.css. */
+
+/* "You can't ship that" */
+.modal.ship-block {
+  width: min(560px, 94vw);
+  border: 3px solid var(--bad);
+  box-shadow: 0 0 60px rgba(255, 59, 59, 0.35);
+}
+.ship-block-kicker {
+  margin: 0 0 4px;
+  color: var(--bad);
+  font-size: 0.85rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.ship-block h2 { margin: 0 0 12px; font-size: 1.8rem; }
+.ship-block-mark {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: var(--bad-bg);
+  color: var(--bad);
+  font-family: var(--mono);
+  font-size: 1.6rem;
+  font-weight: 800;
+}
+.ship-block-msg { font-size: 1.1rem; line-height: 1.45; }
+.ship-block .modal-actions { flex-wrap: wrap; }
+.ship-block .modal-actions .btn { flex: 1 1 200px; }
+.ship-block [hidden] { display: none; }
+
+/* Tag on a piece that was added past a check */
+.item-override {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--bad);
+  color: #000;
+  font-family: var(--font);
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.item-mark:has(.item-override) { flex-wrap: wrap; white-space: normal; }
+
+/* Header: PowerFab load line and Shipped badge */
+#stat-pf { color: var(--text-muted); }
+#stat-pf:empty { display: none; }
+.ship-badge { background: var(--accent); }
+body.load-shipped .topbar { border-bottom-color: var(--accent); }
+
+/* Shipping status dialog */
+.modal.ship { width: min(640px, 96vw); max-height: 92vh; overflow-y: auto; }
+.modal .job-option.disabled { opacity: 0.45; }
+.modal .job-option .muted { margin-left: 6px; font-size: 0.85rem; }
+.ship-ok { color: var(--ok); font-weight: 700; }
+.ship-diff { color: var(--flag); font-weight: 700; }
+.ship-compare { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+.ship-compare th, .ship-compare td { padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: right; }
+.ship-compare th:first-child, .ship-compare td:first-child { text-align: left; font-family: var(--mono); }
+.ship-compare tr.diff td { color: var(--flag); }
+
+@media print {
+  .item-override { border: 1px solid #000; background: none; color: #000; }
+}

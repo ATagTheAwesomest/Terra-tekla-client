@@ -62,6 +62,38 @@ counts are what this iPad has recorded, not PowerFab's shipping status.
 Whether a load has shipped is decided in one place, `loadShippedAt()` in
 `js/lookup.js`.
 
+## Shipping against PowerFab loads
+
+Read only: nothing is ever written to PowerFab. Everything below is kept on
+the tablet.
+
+- **PowerFab loads.** A job's loads (trucks) come from
+  `POST /api/powerfab/GetLoads` and are cached in localStorage
+  (`terra.pfloads.<job>`), refreshed when a load is opened and from
+  **Shipping status** in the menu. A new tablet load can be linked to one of
+  them (shipped ones, and ones another tablet load already uses, can't be
+  picked); the link can be changed later in **Shipping status**, which also
+  compares what PowerFab has on that truck with what was scanned.
+- **Checks on every scan** (`js/ship-check.js`): a piece is blocked with a
+  red "You can't ship that" warning when the load is already shipped, the
+  linked PowerFab load has shipped, the mark isn't on the job's part list, all
+  of the job's quantity has shipped, or the rest of it is on other loads
+  (PowerFab trucks or other tablet loads). Quantities are the part list's
+  `TotalQuantity`. Offline, the checks use the saved copies. Holding **Hold to
+  add anyway** adds the piece with an **Override** tag; the reason and time
+  are saved on the piece and shown in its details.
+- **Shipped on the tablet.** **Shipping status → Hold to mark shipped** locks
+  the load; its pieces then count as shipped for every other load. The export
+  and shipping ticket carry `POWERFAB_LOAD` and `SHIPPED`.
+- **Piece status** (`js/piece-status.js`), shared with the coming Material
+  step: each piece is `material` (laid out on the floor) or `loaded` (scanned
+  onto the truck), and reads `shipped` once its load is shipped. Scans in
+  Shipping are `loaded`; pieces saved earlier read as `loaded`.
+- **Not confirmed yet:** the real `GetLoads` reply layout. `js/pf-loads.js`
+  documents exactly what the parser assumes (load number field names, shipped
+  flags, a `MainMark` plus quantity per piece, and that "Remaining…" material
+  isn't on a truck). Check it against one real reply before relying on it.
+
 ## Run locally
 
 Any static file server works, served over `http://localhost` or HTTPS
@@ -96,6 +128,10 @@ Safari tabs after a week of no use, so always run it from the home screen.
 | `tools/setup-qr.mjs` | Makes a setup QR from `.env` |
 | `js/lookup.js` | Piece lookup and job overview data: a mark across part lists and loads |
 | `js/lookup-ui.js` | Piece Lookup screen (home tile and menu): Piece and Jobs views, `css/lookup.css` |
+| `js/pf-loads.js` | PowerFab loads per job: GetLoads request, tolerant parser, offline cache |
+| `js/ship-check.js` | The "can this piece ship" checks run before every scan |
+| `js/shipping-ui.js` | Can't-ship warning and override, Shipping status dialog, PowerFab load picker |
+| `js/piece-status.js` | Shared piece status: material, loaded, shipped |
 | `js/check.js` | Truck check logic: matches check scans to the load's pieces |
 | `js/check-ui.js` | Truck check screen: checklist, extras, undo and start over |
 | `js/mobile.js` | Phone layout toggle and its own stack/row markup (`css/mobile.css`) |

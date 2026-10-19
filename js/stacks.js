@@ -9,6 +9,7 @@ import {
   removeStack, renameStack, setActiveStack, setItemWeight,
 } from './ops.js';
 import { focusScanner, openKeypad } from './scanner.js';
+import { STATUS_LABELS, pieceStatus } from './piece-status.js';
 import { bindHold } from './hold.js';
 
 export const ITEM_HOLD_MS = 1500;
@@ -37,10 +38,17 @@ export function renderDetail(it, count, job) {
     ['Piece weight', formatWeight(it.weight)],
   ];
   if (count) rows.push(['Piece', `${count.n} of ${count.of}`]);
+  if (it.status) rows.push(['Status', STATUS_LABELS[pieceStatus(it)]]);
   if (it.manual) rows.push(['Entry', 'Typed on keypad']);
+  if (it.override) rows.push(['Check overridden', `${formatScanTime(it.override.at)}. ${it.override.reason}`]);
   if (!part) rows.push(['Master list', 'Not found']);
   for (const [label, value] of part?.fields ?? []) rows.push([label, value]);
   return `<dl class="item-detail">${rows.map(([k, v]) => `<div><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd></div>`).join('')}</dl>`;
+}
+
+// Red tag on a piece added past a shipping check (js/ship-check.js).
+export function overrideBadge(it) {
+  return it.override ? ` <span class="item-override" title="${escapeHtml(it.override.reason)}">Override</span>` : '';
 }
 
 function renderItem(it, i, count, job) {
@@ -55,7 +63,7 @@ function renderItem(it, i, count, job) {
     <li class="item${flagged ? ' flagged' : ''}${expanded.has(it.id) ? ' expanded' : ''}" data-item-id="${it.id}">
       <span class="item-drag" data-drag aria-label="Drag to move" title="Drag to move">&#10303;</span>
       <span class="item-index">${i + 1}</span>
-      <span class="item-mark">${escapeHtml(it.mark)}</span>
+      <span class="item-mark">${escapeHtml(it.mark)}${overrideBadge(it)}</span>
       <span class="item-desc">${countBadge}${escapeHtml(it.description || (it.matched ? '' : 'Not in job part list'))}</span>
       ${weight}
       <span class="item-actions">
