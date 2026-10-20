@@ -81,6 +81,14 @@ body.load-shipped .topbar { border-bottom-color: var(--accent); }
 .ship-pill.material { border-color: var(--material); color: var(--material); }
 .ship-pill.loaded { border-color: var(--ok); color: var(--ok); }
 .ship-pill.shipped { border-color: var(--accent); color: var(--accent); }
+.ship-pill.flagged { border-color: var(--flag); color: var(--flag); }
+
+/* Scans flagged as not assigned to the load (Load step check) */
+.stack.flagged { border-color: var(--flag); }
+.stack.flagged > .stack-head { background: var(--flag-bg); }
+.stack.flagged .stack-name { color: var(--flag); }
+.ship-item.is-flagged { box-shadow: inset 6px 0 0 var(--flag); background: var(--flag-bg); }
+.ship-item.is-flagged .item-mark { color: var(--flag); }
 
 /* "Not added" */
 .modal.ship-block {

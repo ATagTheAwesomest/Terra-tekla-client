@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 
 import { LB_PER_KG } from '../js/api.js';
 import { parseLoads, parseRemaining } from '../js/pf-loads.js';
-import { claimsText, cleanMark, loadSequences, loadTotals, pickRemaining, takeRemaining, toLoad } from '../js/shipping.js';
+import { claimsText, cleanMark, flagScan, loadSequences, loadTotals, pickRemaining, takeRemaining, toLoad, unflag } from '../js/shipping.js';
 
 const live = JSON.parse(readFileSync(new URL('./fixtures/epm001_live.json', import.meta.url), 'utf8'));
 const lbs = (kg) => Math.round(kg * LB_PER_KG * 100) / 100;
@@ -76,4 +76,17 @@ test('the Load step loads a piece already assigned to the load before adding a n
   assert.equal(toLoad(load, 'A1').truckId, load.items[1].truckId);
   assert.equal(toLoad(load, 'A3'), null); // both A3 are loaded
   assert.equal(cleanMark(' a1- '), 'A1');
+});
+
+test('Load step check: unassigned scans are flagged and counted, and come off as they are assigned', () => {
+  let list = [];
+  list = flagScan(list, 'A9');
+  list = flagScan(list, 'B2');
+  list = flagScan(list, 'A9');
+  assert.deepEqual(list, [{ mark: 'A9', count: 2 }, { mark: 'B2', count: 1 }]);
+  list = unflag(list, 'A9', 1); // one assigned and loaded
+  assert.deepEqual(list, [{ mark: 'A9', count: 1 }, { mark: 'B2', count: 1 }]);
+  list = unflag(list, 'A9'); // removed from the list
+  list = unflag(list, 'ZZ'); // not flagged: nothing happens
+  assert.deepEqual(list, [{ mark: 'B2', count: 1 }]);
 });
