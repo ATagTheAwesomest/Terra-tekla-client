@@ -54,13 +54,28 @@ export function flashFeedback(kind, row) {
 }
 
 // Adds one mark to the active stack, saves, and shows feedback. During a
-// truck check the mark checks a piece off instead.
+// truck check the mark checks a piece off instead. A piece that can't ship
+// (js/ship-check.js) flashes red and asks first; holding the override adds it
+// with the reason logged on the piece.
 export function submitMark(raw, { manual = false } = {}) {
   const load = ctx.load;
   if (!load) return null;
   if (ctx.checking) return ctx.checkScan(raw, { manual });
+  if (!String(raw ?? '').trim()) return null;
+  const verdict = ctx.vetScan?.(raw);
+  if (verdict) {
+    flashFeedback('bad');
+    ctx.blockScan(verdict, () => addMark(raw, { manual, override: verdict }));
+    return null;
+  }
+  return addMark(raw, { manual });
+}
+
+function addMark(raw, { manual, override = null }) {
+  const load = ctx.load;
   const item = addScan(load, raw, { manual });
   if (!item) return null;
+  if (override) item.override = { code: override.code, reason: `${override.title}: ${override.message}`, at: new Date().toISOString() };
   ctx.save();
   const row = document.querySelector(`[data-item-id="${item.id}"]`);
   row?.scrollIntoView({ block: 'nearest' });

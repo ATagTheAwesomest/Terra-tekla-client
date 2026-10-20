@@ -1,0 +1,43 @@
+/* Current job bar (js/current-job.js): fixed along the very top of every
+   screen, above the home screen and the Shipping header. */
+
+:root { --jobbar-h: 52px; }
+
+body.has-jobbar { padding-top: calc(env(safe-area-inset-top) + var(--jobbar-h)); }
+
+.jobbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  height: calc(env(safe-area-inset-top) + var(--jobbar-h));
+  padding: env(safe-area-inset-top) max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  border-bottom: 2px solid var(--accent);
+  background: var(--surface-1);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.jobbar-label { color: var(--text-muted); font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
+.jobbar-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1.25rem; font-weight: 800; color: var(--accent); }
+.jobbar-change { color: var(--text-muted); font-weight: 700; }
+.jobbar.missing { border-bottom-color: var(--flag); }
+.jobbar.missing .jobbar-name { color: var(--flag); }
+
+/* The home screen and the side drawers start below the bar. */
+body.has-jobbar .home { top: calc(env(safe-area-inset-top) + var(--jobbar-h)); padding-top: 24px; }
+body.has-jobbar .drawer { top: calc(env(safe-area-inset-top) + var(--jobbar-h)); padding-top: 16px; }
+
+.modal.jobpick { width: min(560px, 94vw); max-height: 90vh; overflow-y: auto; }
+
+@media print {
+  .jobbar { display: none !important; }
+  body.has-jobbar { padding-top: 0; }
+}

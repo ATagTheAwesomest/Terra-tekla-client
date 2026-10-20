@@ -10,7 +10,7 @@
 
 import { formatWeight, isFlagged, pieceCounts, stackTotals } from './model.js';
 import { activeStack } from './ops.js';
-import { ITEM_HOLD_MS, STACK_HOLD_MS, escapeHtml, expanded, renderDetail } from './stacks.js';
+import { ITEM_HOLD_MS, STACK_HOLD_MS, escapeHtml, expanded, overrideBadge, renderDetail } from './stacks.js';
 
 const LAYOUT_KEY = 'terra.layout';
 
@@ -52,7 +52,7 @@ function renderItem(it, i, count, job) {
     <li class="m-item${flagged ? ' flagged' : ''}${open ? ' expanded' : ''}" data-item-id="${it.id}">
       <div class="m-item-top">
         <span class="m-index">${i + 1}</span>
-        <span class="item-mark">${escapeHtml(it.mark)}</span>
+        <span class="item-mark">${escapeHtml(it.mark)}${overrideBadge(it)}</span>
         <span class="m-weight">${formatWeight(it.weight)}</span>
       </div>
       <div class="m-item-desc">${countBadge}<span>${escapeHtml(it.description || (it.matched ? '' : 'Not in job part list'))}</span></div>

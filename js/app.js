@@ -2,13 +2,15 @@
 // flow, updates.
 
 import { partCount } from './parts.js';
-import { JOB_NUMBERS, createLoad, jobHasSequences, jobLabel, loadSequences, loadTotals, formatWeight, refreshPieceWeights } from './model.js';
+import { createLoad, jobHasSequences, jobLabel, loadSequences, loadTotals, formatWeight, refreshPieceWeights } from './model.js';
 import { enterCheck, initCheck, renderCheck, submitCheck } from './check-ui.js';
 import { checkSummary } from './check.js';
 import { initLayout, isMobile, renderStacksMobile } from './mobile.js';
 import { focusScanner, initScanner, renderScanbar } from './scanner.js';
 import { initStacks, renderStacks } from './stacks.js';
-import { ensureJobParts, initServer, jobOptionsHtml, openServerSettings, refreshJobs, serverStatus } from './server-ui.js';
+import { initShipping, loadOpened, renderNewLoadPf, renderShipStat, shipSummary, showBlock, vetCurrentScan } from './shipping-ui.js';
+import { getCurrentJob, initCurrentJob, isCurrentJob, jobsChanged, onCurrentJobChange, openJobPicker, requireCurrentJob, setCurrentJob } from './current-job.js';
+import { ensureJobParts, initServer, openServerSettings, refreshJobs, serverStatus } from './server-ui.js';
 import * as store from './store.js';
 import { APP_VERSION, checkForUpdate, forceUpdate, registerServiceWorker } from './updater.js';
 
@@ -60,17 +62,23 @@ export function renderStats() {
   $('#truck-check-label').textContent = isChecking() ? 'Back to loading' : 'Truck check';
   $('#stat-pieces').textContent = totals.pieces.toLocaleString('en-US');
   $('#stat-weight').textContent = formatWeight(totals.weight);
+  renderShipStat(load);
 }
 
 export function renderWorkspace() {
   const ws = $('#workspace');
   $('#colhead').hidden = !state.load || isChecking() || isMobile();
   if (!state.load) {
-    ws.innerHTML = `
+    ws.innerHTML = getCurrentJob() ? `
       <div class="empty">
         <h1>No load open</h1>
-        <p class="muted">Create a load to start scanning, or open a saved one from Loads.</p>
+        <p class="muted">Job ${escapeHtml(getCurrentJob())}. Create a load to start scanning, or open one from Loads or Manage loads.</p>
         <button class="btn btn-primary btn-lg" type="button" data-action="new-load">+ New Load</button>
+      </div>` : `
+      <div class="empty">
+        <h1>Pick a job first</h1>
+        <p class="muted">Loads belong to a job. Choose the job and its loads show up here.</p>
+        <button class="btn btn-primary btn-lg" type="button" data-action="pick-job">Pick a job</button>
       </div>`;
     return;
   }
@@ -111,6 +119,7 @@ export async function openLoad(id) {
   render();
   focusScanner();
   if (state.load?.job) syncParts(state.load.job);
+  loadOpened(state.load);
 }
 
 // Pulls the job's part list (cached, then fresh) and redraws for the counts.
@@ -143,10 +152,11 @@ export async function saveCurrentLoad() {
 }
 
 async function renderLoadList() {
-  const loads = await store.listLoads();
+  const all = await store.listLoads();
+  const loads = all.filter((l) => isCurrentJob(l.job));
   const list = $('#load-list');
   if (!loads.length) {
-    list.innerHTML = '<li class="muted">No saved loads yet.</li>';
+    list.innerHTML = `<li class="muted">${getCurrentJob() ? 'No tablet loads for this job yet. Manage loads also shows its PowerFab loads.' : 'Pick a job to see its loads.'}</li>`;
     return;
   }
   list.innerHTML = loads.map((l) => {
@@ -154,7 +164,7 @@ async function renderLoadList() {
     const when = new Date(l.updatedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
     return `<li><button class="btn load-row${l.id === state.load?.id ? ' active' : ''}" type="button" data-load-id="${l.id}">
       <span>${escapeHtml(l.name)}</span>
-      <span class="load-row-meta">${escapeHtml(jobLabel(l))} &middot; ${t.pieces} pcs &middot; ${formatWeight(t.weight)} &middot; ${when}</span>
+      <span class="load-row-meta">${escapeHtml(jobLabel(l) + shipSummary(l))} &middot; ${t.pieces} pcs &middot; ${formatWeight(t.weight)} &middot; ${when}</span>
       ${checkSummary(l) ? `<span class="load-row-meta check-meta-line">${escapeHtml(checkSummary(l))}</span>` : ''}
     </button></li>`;
   }).join('');
@@ -187,9 +197,11 @@ function setHomeMenu(open) {
 
 export function showNewLoadDialog() {
   setDrawer(false);
+  if (!requireCurrentJob()) return;
   $('#input-load-name').value = '';
-  renderJobChoices();
-  $('#new-load-error').textContent = JOB_NUMBERS.length ? '' : 'No jobs yet. Tap Refresh jobs while connected to the server.';
+  $('#new-load-job').textContent = getCurrentJob();
+  renderNewLoadPf();
+  $('#new-load-error').textContent = '';
   $('#dlg-new-load').showModal();
   $('#input-load-name').focus();
 }
@@ -206,12 +218,14 @@ async function submitNewLoad(event) {
     error.textContent = `A load named “${name}” already exists.`;
     return;
   }
-  const job = $('#form-new-load').elements.job?.value;
+  const job = getCurrentJob();
   if (!job) {
-    error.textContent = 'Pick a job number.';
+    error.textContent = 'Pick a job first.';
     return;
   }
   const load = createLoad(name, job);
+  load.job = job;
+  load.pfLoad = $('#form-new-load').elements.pfload?.value || null;
   await store.saveLoad(load);
   $('#dlg-new-load').close();
   document.getElementById('dlg-manage')?.close();
@@ -221,6 +235,17 @@ async function submitNewLoad(event) {
   focusScanner();
   toast(`Created ${name}`);
   syncParts(job);
+  loadOpened(load);
+}
+
+// A different job was picked: the open load (another job's) closes, and the
+// most recent load of the new job opens if it has one.
+async function switchJob(job) {
+  setDrawer(false);
+  setMenu(false);
+  const mine = (await store.listLoads()).find((l) => isCurrentJob(l.job));
+  await openLoad(mine?.id ?? null);
+  if (job) toast(`Job ${job}`);
 }
 
 // ---- Updates -------------------------------------------------------------
@@ -270,22 +295,19 @@ function renderStatus() {
 
 // ---- Boot ----------------------------------------------------------------
 
-function renderJobChoices() {
-  const selected = $('#form-new-load').elements.job?.value;
-  $('#new-load-job-list').innerHTML = jobOptionsHtml(selected);
-}
-
 function bindEvents() {
-  initServer({ jobsChanged: () => { renderJobChoices(); renderStatus(); } });
+  initServer({ jobsChanged: () => { jobsChanged(); renderStatus(); } });
   const ctx = {
     get load() { return state.load; },
     get checking() { return isChecking(); },
     save: saveCurrentLoad, render, toast, setMode, checkScan: submitCheck,
+    vetScan: (raw) => vetCurrentScan(state.load, raw), blockScan: showBlock,
   };
   initLayout(render);
   initScanner(ctx);
   initStacks(ctx);
   initCheck(ctx);
+  initShipping(ctx);
   $('#btn-truck-check').addEventListener('click', () => setMode(isChecking() ? 'load' : 'check'));
   $('#btn-loads').addEventListener('click', () => setDrawer(true));
   $('#btn-drawer-close').addEventListener('click', () => setDrawer(false));
@@ -302,16 +324,14 @@ function bindEvents() {
   });
   $('#workspace').addEventListener('click', (e) => {
     if (e.target.closest('[data-action="new-load"]')) showNewLoadDialog();
+    if (e.target.closest('[data-action="pick-job"]')) openJobPicker();
   });
   $('#form-new-load').addEventListener('submit', submitNewLoad);
   $('#btn-new-load-cancel').addEventListener('click', () => $('#dlg-new-load').close());
-  $('#btn-refresh-jobs').addEventListener('click', async () => {
-    if (await refreshJobs()) $('#new-load-error').textContent = '';
-  });
   $('#btn-home').addEventListener('click', () => setHome(true));
   $('#home').addEventListener('click', (e) => {
     const tile = e.target.closest('[data-module]')?.dataset.module;
-    if (tile === 'shipping') setHome(false);
+    if (tile === 'shipping') { if (requireCurrentJob()) setHome(false); }
     else if (tile === 'server') openServerSettings();
   });
   $('#btn-home-menu').addEventListener('click', () => setHomeMenu(true));
@@ -331,7 +351,14 @@ async function boot() {
   bindEvents();
   const recovered = await store.recover();
   store.requestPersistence();
-  await openLoad(store.getActiveLoadId());
+  initCurrentJob({ refresh: () => refreshJobs() });
+  // The load that was open comes back only if it belongs to the current job.
+  // With no job chosen yet, its job becomes the current one.
+  const active = store.getActiveLoadId();
+  const activeLoad = active ? await store.getLoad(active) : null;
+  if (activeLoad?.job && !getCurrentJob()) setCurrentJob(activeLoad.job);
+  await openLoad(activeLoad && (!activeLoad.job || isCurrentJob(activeLoad.job)) ? active : null);
+  onCurrentJobChange(switchJob);
   renderStatus();
   if (recovered) toast(`Recovered ${recovered} unsaved load${recovered === 1 ? '' : 's'}.`);
   await registerServiceWorker();

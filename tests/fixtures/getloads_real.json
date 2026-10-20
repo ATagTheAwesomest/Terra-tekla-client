@@ -1,0 +1,84 @@
+{
+ "Successful": "1",
+ "JobNumber": "25-351",
+ "Destination": {
+  "DestinationName": "Jobsite",
+  "Load": [
+   {
+    "LoadNumber": "2",
+    "DateShipped": "2026-10-13",
+    "AssignedQuantity": "49",
+    "LoadedQuantity": "49",
+    "Material": [
+     {
+      "MainMark": "52311001",
+      "PieceMark": "52311001",
+      "Sequence": "5231",
+      "AssignedQuantity": "1",
+      "LoadedQuantity": "1"
+     },
+     {
+      "MainMark": "52311002",
+      "PieceMark": "52311002",
+      "Sequence": "5231",
+      "AssignedQuantity": "7",
+      "LoadedQuantity": "7"
+     },
+     {
+      "MainMark": "52311003",
+      "PieceMark": "52311003",
+      "Sequence": "5231",
+      "AssignedQuantity": "5",
+      "LoadedQuantity": "5"
+     }
+    ]
+   },
+   {
+    "LoadNumber": "3",
+    "AssignedQuantity": "46",
+    "LoadedQuantity": "45",
+    "Material": [
+     {
+      "MainMark": "52321002",
+      "PieceMark": "52321002",
+      "Sequence": "5232",
+      "AssignedQuantity": "1",
+      "LoadedQuantity": "1"
+     },
+     {
+      "MainMark": "52321007",
+      "PieceMark": "52321007",
+      "Sequence": "5232",
+      "AssignedQuantity": "3",
+      "LoadedQuantity": "3"
+     },
+     {
+      "MainMark": "52323012",
+      "PieceMark": "52323012",
+      "Sequence": "5232",
+      "AssignedQuantity": "1",
+      "LoadedQuantity": "0"
+     }
+    ]
+   }
+  ],
+  "Remaining": {
+   "MaterialRemaining": [
+    {
+     "MainMark": "52311004",
+     "PieceMark": "52311004",
+     "Sequence": "5231",
+     "TotalQuantity": "1",
+     "Quantity": "1"
+    },
+    {
+     "MainMark": "52311005",
+     "PieceMark": "52311005",
+     "Sequence": "5231",
+     "TotalQuantity": "10",
+     "Quantity": "6"
+    }
+   ]
+  }
+ }
+}
