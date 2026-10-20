@@ -9,7 +9,7 @@ import {
   removeStack, renameStack, setActiveStack, setItemWeight,
 } from './ops.js';
 import { focusScanner, openKeypad } from './scanner.js';
-import { STATUS_LABELS, pieceStatus } from './piece-status.js';
+import { MATERIAL, STATUS_LABELS, pieceStatus } from './piece-status.js';
 import { bindHold } from './hold.js';
 
 export const ITEM_HOLD_MS = 1500;
@@ -46,9 +46,11 @@ export function renderDetail(it, count, job) {
   return `<dl class="item-detail">${rows.map(([k, v]) => `<div><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd></div>`).join('')}</dl>`;
 }
 
-// Red tag on a piece added past a shipping check (js/ship-check.js).
+// Tags after a mark: red Override when added past a shipping check
+// (js/ship-check.js), blue Material while not loaded yet (js/material.js).
 export function overrideBadge(it) {
-  return it.override ? ` <span class="item-override" title="${escapeHtml(it.override.reason)}">Override</span>` : '';
+  return (it.override ? ` <span class="item-override" title="${escapeHtml(it.override.reason)}">Override</span>` : '')
+    + (it.status === MATERIAL ? ' <span class="item-material" title="On the load as material, not loaded yet">Material</span>' : '');
 }
 
 function renderItem(it, i, count, job) {
@@ -60,7 +62,7 @@ function renderItem(it, i, count, job) {
     ? `<button class="btn item-weight item-weight-edit" type="button" data-action="weight" title="Set weight">${formatWeight(it.weight)} <span aria-hidden="true">&#9998;</span></button>`
     : `<span class="item-weight">${formatWeight(it.weight)}</span>`;
   return `
-    <li class="item${flagged ? ' flagged' : ''}${expanded.has(it.id) ? ' expanded' : ''}" data-item-id="${it.id}">
+    <li class="item${flagged ? ' flagged' : ''}${it.status === MATERIAL ? ' is-material' : ''}${expanded.has(it.id) ? ' expanded' : ''}" data-item-id="${it.id}">
       <span class="item-drag" data-drag aria-label="Drag to move" title="Drag to move">&#10303;</span>
       <span class="item-index">${i + 1}</span>
       <span class="item-mark">${escapeHtml(it.mark)}${overrideBadge(it)}</span>

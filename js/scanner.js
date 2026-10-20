@@ -6,6 +6,7 @@
 // dialog, which never focuses a text field either.
 
 import { addScan, addStack, activeStack } from './ops.js';
+import { addMaterial } from './material.js';
 import { isFlagged } from './model.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -62,6 +63,9 @@ export function submitMark(raw, { manual = false } = {}) {
   if (!load) return null;
   if (ctx.checking) return ctx.checkScan(raw, { manual });
   if (!String(raw ?? '').trim()) return null;
+  // Load step: a piece already on the load as material is loaded, not added.
+  const picked = ctx.pickMaterial?.(raw);
+  if (picked) return picked;
   const verdict = ctx.vetScan?.(raw);
   if (verdict) {
     flashFeedback('bad');
@@ -73,7 +77,7 @@ export function submitMark(raw, { manual = false } = {}) {
 
 function addMark(raw, { manual, override = null }) {
   const load = ctx.load;
-  const item = addScan(load, raw, { manual });
+  const item = (ctx.material ? addMaterial : addScan)(load, raw, { manual });
   if (!item) return null;
   if (override) item.override = { code: override.code, reason: `${override.title}: ${override.message}`, at: new Date().toISOString() };
   ctx.save();
@@ -98,7 +102,8 @@ export function renderScanbar() {
   if (!load) return;
   const checking = ctx.checking;
   $('#scanbar').classList.toggle('checking', checking);
-  $('#scan-label').textContent = checking ? 'Truck check' : 'Scanning into';
+  $('#scanbar').classList.toggle('adding-material', Boolean(ctx.material));
+  $('#scan-label').textContent = checking ? 'Truck check' : ctx.material ? 'Adding material to' : 'Loading into';
   $('#scan-stack').textContent = checking ? load.name : activeStack(load)?.name ?? '—';
   $('#btn-new-stack').hidden = checking;
   $('#btn-check-done').hidden = !checking;

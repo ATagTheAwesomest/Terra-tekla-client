@@ -103,10 +103,19 @@ the tablet.
 - **Shipped on the tablet.** **Shipping status → Hold to mark shipped** locks
   the load; its pieces then count as shipped for every other load. The export
   and shipping ticket carry `POWERFAB_LOAD` and `SHIPPED`.
-- **Piece status** (`js/piece-status.js`), shared with the coming Material
-  step: each piece is `material` (laid out on the floor) or `loaded` (scanned
-  onto the truck), and reads `shipped` once its load is shipped. Scans in
-  Shipping are `loaded`; pieces saved earlier read as `loaded`.
+- **Piece status** (`js/piece-status.js`): each piece is `material` (on the
+  load but not on the truck, like PowerFab's assigned quantity) or `loaded`
+  (scanned onto the truck), and reads `shipped` once its load is shipped.
+  Pieces saved before this read as `loaded`.
+- **Add material / Load** (`js/material.js`, `js/material-ui.js`): a switch
+  above the stacks picks what a scan does, mirroring PowerFab's assigned vs
+  loaded quantity. **Add material** puts pieces on the load as material (blue
+  tag), e.g. as they're laid out on the floor. **Load** loads a piece that's
+  already material on the load when it's scanned again on the truck; a mark
+  with no material waiting goes straight on as loaded. Every added piece goes
+  through the shipping checks above. The bar shows loaded vs total, how much
+  is still material, a **Show material only** filter, and a hold-to-undo for
+  the last piece loaded from material. Tablet only; nothing is written.
 - **GetLoads reply** (confirmed against a real reply, job 25-351): loads sit
   under `Destination.Load`, each with `LoadNumber`, `DateShipped` (only once
   shipped) and `Material` pieces with `MainMark`, `AssignedQuantity` and
@@ -153,6 +162,8 @@ Safari tabs after a week of no use, so always run it from the home screen.
 | `js/ship-check.js` | The "can this piece ship" checks run before every scan |
 | `js/shipping-ui.js` | Can't-ship warning and override, Shipping status dialog, PowerFab load picker |
 | `js/piece-status.js` | Shared piece status: material, loaded, shipped |
+| `js/material.js` | Add material and load-from-material on a load, counts, undo |
+| `js/material-ui.js` | The Add material / Load switch and bar above the stacks (`css/material.css`) |
 | `js/check.js` | Truck check logic: matches check scans to the load's pieces |
 | `js/check-ui.js` | Truck check screen: checklist, extras, undo and start over |
 | `js/mobile.js` | Phone layout toggle and its own stack/row markup (`css/mobile.css`) |
