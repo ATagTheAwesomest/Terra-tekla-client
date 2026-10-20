@@ -174,8 +174,10 @@ export function parseJobs(reply) {
     .sort((a, b) => b.number.localeCompare(a.number, 'en', { numeric: true }));
 }
 
+// Every job this API user can reach, open or closed. (GetProductionControlJobs
+// lists open jobs only and came back empty for the test user.)
 export async function fetchJobs() {
-  return { jobs: parseJobs(await powerfab('GetProductionControlJobs')), fetchedAt: new Date().toISOString() };
+  return { jobs: parseJobs(await powerfab('ProductionControlJob_Get', {})), fetchedAt: new Date().toISOString() };
 }
 
 // ---- Assemblies (the job's part list) ----------------------------------------

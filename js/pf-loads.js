@@ -37,8 +37,13 @@ function describe(row) {
 
 // ---- Parsing ---------------------------------------------------------------
 
+// Loaded / Returned history on a truck item: one object, or a list of them.
+const entries = (v) => asList(v).map((e) => ({ id: text(e.ID), qty: int(e.Quantity) })).filter((e) => e.id);
+
 // Load { id, number, shipped, shipDate, items: TruckItem[], pieces, loaded, weight }
-// TruckItem { truckId, itemId, mark, sequence, qty, loaded, returned, weightEach, description }
+// TruckItem { truckId, itemId, mark, sequence, qty, loaded, returned, loads, returns, weightEach, description }
+//   loads / returns: [{ id, qty }] from the Loaded / Returned entries; Unload and
+//   Unreturn name one of these by ID.
 export function parseLoads(reply) {
   const loads = findAll(reply, 'ProductionControlLoad').map((l) => {
     const items = asList(l.Material).map((m) => ({
@@ -49,6 +54,8 @@ export function parseLoads(reply) {
       qty: int(m.Quantity),
       loaded: int(m.QuantityLoaded),
       returned: int(m.QuantityReturned),
+      loads: entries(m.Loaded),
+      returns: entries(m.Returned),
       weightEach: kgToLbs(m.ShippingWeightEach),
       description: describe(m),
     })).filter((it) => it.truckId && it.mark);
@@ -100,12 +107,11 @@ export async function readRemaining(pcid) {
   return parseRemaining(await powerfab('ProductionControlLoadRemaining_Get', { ProductionControlID: Number(pcid) }));
 }
 
-// Next free load number and the default destination group for a new load.
+// Next free load number and the default capacity for a new load.
 export async function readNewLoadOptions(pcid) {
   const reply = await powerfab('ProductionControlLoad_InputOptions_Get', { ProductionControlID: Number(pcid) });
   const opts = findAll(reply, 'InputOptions')[0] ?? {};
-  const group = findAll(opts, 'ShippingDestinationGroup').find((g) => text(g.ShippingDestinationGroupID));
-  return { nextNumber: text(opts.NextLoadNumber), destinationGroupId: text(group?.ShippingDestinationGroupID), capacity: text(opts.DefaultCapacity) };
+  return { nextNumber: text(opts.NextLoadNumber), capacity: text(opts.DefaultCapacity) };
 }
 
 export async function isLoadNumberTaken(pcid, number) {
@@ -120,16 +126,17 @@ const today = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-// Creates a load. Capacity (kg) is required; the job's default is used.
-// Returns its ProductionControlLoadID.
-export async function createLoad(pcid, { number, destinationGroupId, capacity }) {
+// Creates a load going to the jobsite (no destination group: on EPM-001 a load
+// to the galvanizer group refused every piece). Capacity (kg) is required; the
+// job's default is used. Returns its ProductionControlLoadID.
+export async function createLoad(pcid, { number, capacity }) {
   const reply = await powerfab('ProductionControlLoad_Insert', {
     ProductionControlID: Number(pcid),
     LoadNumber: String(number),
-    ShippingDestinationGroupID: Number(destinationGroupId),
+    ShippingDestinationGroupID: '',
     Capacity: Number(capacity),
   });
-  const id = text(findAll(reply, 'ResultData')[0]?.ProductionControlLoadID ?? reply?.ProductionControlLoadID);
+  const id = text(findAll(reply, 'ProductionControlLoad')[0]?.ProductionControlLoadID);
   if (!id) throw new Error('PowerFab did not return the new load.');
   return id;
 }
@@ -142,6 +149,7 @@ export function deleteLoad(loadId) {
 export function addMaterial(loadId, row, qty = 1) {
   return powerfab('ProductionControlLoadMaterial_Add', {
     ProductionControlLoadID: Number(loadId),
+    LoadItemsOnAssign: 0,
     AddItem: [{ ProductionControlItemID: Number(row.itemId), SequenceID: Number(row.sequenceId), Quantity: qty }],
   });
 }
@@ -149,7 +157,7 @@ export function addMaterial(loadId, row, qty = 1) {
 export function removeMaterial(loadId, item) {
   return powerfab('ProductionControlLoadMaterial_Remove', {
     ProductionControlLoadID: Number(loadId),
-    RemoveItem: [{ ProductionControlItemTruckID: Number(item.truckId) }],
+    RemoveItem: [{ ProductionControlItemTruckID: Number(item.truckId), Quantity: item.qty }],
   });
 }
 
@@ -161,10 +169,13 @@ export function loadMaterial(loadId, item, qty = 1) {
   });
 }
 
-export function unloadMaterial(loadId, item, qty = 1) {
+// Takes the most recent load entry of a piece off the truck.
+export function unloadMaterial(loadId, item) {
+  const entry = item.loads.at(-1);
+  if (!entry) throw new Error(`PowerFab has no load record for ${item.mark}.`);
   return powerfab('ProductionControlLoadMaterial_Unload', {
     ProductionControlLoadID: Number(loadId),
-    UnloadItem: [{ ProductionControlItemTruckID: Number(item.truckId), Quantity: qty }],
+    UnloadItem: [{ ProductionControlItemTrucksLoadID: Number(entry.id), Quantity: entry.qty }],
   });
 }
 
@@ -179,13 +190,17 @@ export function unshipLoad(loadId) {
 export function returnMaterial(loadId, item, qty = 1) {
   return powerfab('ProductionControlLoadMaterial_Return', {
     ProductionControlLoadID: Number(loadId),
+    DateReturned: today(),
     ReturnItem: [{ ProductionControlItemTruckID: Number(item.truckId), Quantity: qty }],
   });
 }
 
-export function unreturnMaterial(loadId, item, qty = 1) {
+// Undoes the most recent return of a piece.
+export function unreturnMaterial(loadId, item) {
+  const entry = item.returns.at(-1);
+  if (!entry) throw new Error(`PowerFab has no return record for ${item.mark}.`);
   return powerfab('ProductionControlLoadMaterial_Unreturn', {
     ProductionControlLoadID: Number(loadId),
-    UnreturnItem: [{ ProductionControlItemTruckID: Number(item.truckId), Quantity: qty }],
+    UnreturnItem: [{ ProductionControlItemTrucksReturnID: Number(entry.id), Quantity: entry.qty }],
   });
 }

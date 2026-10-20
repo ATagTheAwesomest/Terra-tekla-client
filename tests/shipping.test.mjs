@@ -21,6 +21,10 @@ test('ProductionControlLoad_Get: loads with pieces, kg weights in lbs', () => {
   assert.equal(b.itemId, '8696');
   assert.equal(b.weightEach, lbs(797.2516955));
   assert.equal(b.description, 'W16x57 · A992');
+  // Unload names the load entry, not the truck item.
+  assert.equal(b.loads.length, 1);
+  assert.equal(b.loads[0].qty, 1);
+  assert.deepEqual(load.items[1].loads, []);
   assert.deepEqual(loadTotals(load), { pieces: 4, loaded: 3, weight: b.weightEach + load.items[1].weightEach + 2 * load.items[2].weightEach });
   assert.deepEqual(loadSequences(load), ['1']);
 });
