@@ -19,12 +19,12 @@
 // ShipDate, Quantity) in case a PowerFab version differs. A load is shipped
 // when it has a DateShipped or ShipDate, or Shipped/IsShipped is true.
 
-import { powerfab } from './api.js';
+import { pfValue, powerfab } from './api.js';
 import { jobKey, normalizeMark } from './parts.js';
 
 const LOADS_PREFIX = 'terra.pfloads.';
 
-const text = (v) => (typeof v === 'string' || typeof v === 'number' ? String(v).trim() : '');
+const text = pfValue;
 const first = (obj, keys) => keys.map((k) => text(obj?.[k])).find(Boolean) ?? '';
 
 function truthy(v) {

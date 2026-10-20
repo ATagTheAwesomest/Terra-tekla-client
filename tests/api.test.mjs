@@ -42,3 +42,40 @@ test('assemblies become parts with description from the main piece', () => {
   assert.equal(b2.description, 'Dwg E1');
   assert.equal(b2.qty, 0);
 });
+
+// The bridge sends a value with a unit as {"@UOM", "#text"}; older bridges
+// dropped the number and sent {"@UOM"} alone.
+test('PowerFab values: plain, with a unit, and unit with the number lost', async () => {
+  const { pfValue, pfUnit, pfDisplay } = await import('../js/api.js');
+  assert.equal(pfValue('123'), '123');
+  assert.equal(pfValue(123), '123');
+  assert.equal(pfValue({ '@UOM': 'kg', '#text': '123' }), '123');
+  assert.equal(pfValue({ '@UOM': 'kg' }), '');
+  assert.equal(pfUnit({ '@UOM': 'kg', '#text': '123' }), 'kg');
+  assert.equal(pfUnit('123'), '');
+  assert.equal(pfDisplay({ '@UOM': 'kg', '#text': '123' }), '123 kg');
+  assert.equal(pfDisplay({ '@UOM': 'kg' }), '');
+});
+
+test('assembly weights, lengths and quantities read in all three forms', () => {
+  const bom = (length) => ({ BillOfMaterial: { PieceMark: 'A1', Shape: 'W', Dimensions: '8x35', Length: length } });
+  const reply = {
+    Assembly: [
+      { MainMark: 'A1', Weight: '478.5', TotalQuantity: '2', BillOfMaterials: bom("13'-11") },
+      { MainMark: 'A2', Weight: { '@UOM': 'kg', '#text': '217' }, TotalQuantity: { '#text': '3' }, BillOfMaterials: bom({ '@UOM': 'in', '#text': '167' }) },
+      { MainMark: 'A3', Weight: { '@UOM': 'kg' }, TotalQuantity: 4, BillOfMaterials: bom({ '@UOM': 'in' }) },
+    ],
+  };
+  const [plain, withUnit, lost] = parseAssemblies(reply, '26123');
+  assert.deepEqual([plain.weight, plain.weightUnit, plain.qty, plain.lineWeight], [478.5, '', 2, 957]);
+  assert.equal(plain.description, "W8x35 · 13'-11");
+
+  assert.deepEqual([withUnit.weight, withUnit.weightUnit, withUnit.qty, withUnit.lineWeight], [217, 'kg', 3, 651]);
+  assert.equal(withUnit.description, 'W8x35 · 167 in');
+  assert.deepEqual(withUnit.fields.find(([k]) => k === 'Weight'), ['Weight', '217 kg']);
+
+  assert.deepEqual([lost.weight, lost.weightUnit, lost.qty, lost.lineWeight], [0, 'kg', 4, 0]);
+  assert.equal(lost.description, 'W8x35');
+  assert.equal(lost.fields.find(([k]) => k === 'Weight'), undefined);
+  assert.ok(!Number.isNaN(lost.weight));
+});

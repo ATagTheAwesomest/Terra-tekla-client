@@ -79,6 +79,23 @@ test('GetLoads: real PowerFab reply (trimmed from job 25-351)', () => {
   assert.equal(Object.keys(shipped.pieces).some((m) => m === '52311004'), false);
 });
 
+test('GetLoads: quantities read plain, with a unit, or with the number lost', () => {
+  const [load] = parseLoads({
+    Load: {
+      LoadNumber: { '#text': '7' },
+      Material: [
+        { MainMark: 'A1', AssignedQuantity: '2', LoadedQuantity: '1' },
+        { MainMark: 'A2', AssignedQuantity: { '@UOM': 'ea', '#text': '3' }, LoadedQuantity: { '@UOM': 'ea', '#text': '3' } },
+        { MainMark: 'A3', AssignedQuantity: { '@UOM': 'ea' }, LoadedQuantity: { '@UOM': 'ea' } },
+      ],
+    },
+  });
+  assert.equal(load.number, '7');
+  assert.deepEqual(load.pieces, { A1: 2, A2: 3, A3: 1 });
+  assert.deepEqual(load.loaded, { A1: 1, A2: 3, A3: 0 });
+  assert.equal(load.count, 6);
+});
+
 test('fetchLoads posts GetLoads read-only and caches for offline', async () => {
   setConfig({ url: 'https://api.test', key: 'k' });
   const calls = [];

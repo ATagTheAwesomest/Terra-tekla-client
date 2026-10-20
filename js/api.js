@@ -122,8 +122,28 @@ function objectsWith(node, keys, out = []) {
   return out;
 }
 
-const text = (v) => (typeof v === 'string' ? v.trim() : '');
-const num = (v) => Number.parseFloat(String(v ?? '').replace(/[^\d.-]/g, '')) || 0;
+// A PowerFab value arrives in one of three forms: plain ("478.5" or 478.5);
+// with a unit, {"@UOM": "kg", "#text": "478.5"}; or, from bridges older than
+// tekla-conversion-layer PR #2, {"@UOM": "kg"} with the number lost. The last
+// reads as missing ('' / 0), never NaN.
+export function pfValue(v) {
+  if (v && typeof v === 'object' && !Array.isArray(v)) v = v['#text'];
+  return typeof v === 'string' || typeof v === 'number' ? String(v).trim() : '';
+}
+
+// The unit PowerFab gave a value ("kg", "in"), or '' for a plain value.
+export function pfUnit(v) {
+  return v && typeof v === 'object' && typeof v['@UOM'] === 'string' ? v['@UOM'].trim() : '';
+}
+
+// The value with its unit, for display: "478.5 kg", or just "478.5".
+export function pfDisplay(v) {
+  const value = pfValue(v);
+  return value && [value, pfUnit(v)].filter(Boolean).join(' ');
+}
+
+const text = pfValue;
+const num = (v) => Number.parseFloat(pfValue(v).replace(/[^\d.-]/g, '')) || 0;
 
 // ---- Jobs ------------------------------------------------------------------
 
@@ -157,9 +177,10 @@ export async function fetchJobs() {
 
 // ---- Assemblies (the job's part list) ----------------------------------------
 
-// Leaf string fields of an object, for the expanded row view.
+// Leaf value fields of an object (with their unit, if any), for the expanded
+// row view.
 function leafFields(obj) {
-  return Object.entries(obj).filter(([, v]) => typeof v === 'string' && v.trim()).map(([k, v]) => [k, v.trim()]);
+  return Object.entries(obj).filter(([, v]) => !Array.isArray(v) && pfDisplay(v)).map(([k, v]) => [k, pfDisplay(v)]);
 }
 
 // One part per main mark, in the shape parts.js files: description from the
@@ -174,7 +195,7 @@ export function parseAssemblies(reply, job) {
     const bom = objectsWith(a.BillOfMaterials, ['PieceMark', 'Shape']);
     const main = bom.find((p) => normalizeMark(text(p.PieceMark)) === mark) ?? bom[0] ?? {};
     const size = `${text(main.Shape)}${text(main.Dimensions ?? main.Dimension).replace(/\s+/g, '')}`;
-    const description = [size, text(main.Length), text(main.Grade)].filter(Boolean).join(' · ')
+    const description = [size, pfDisplay(main.Length), text(main.Grade)].filter(Boolean).join(' · ')
       || text(a.DrawingNumber) && `Dwg ${text(a.DrawingNumber)}`;
     const qty = Number.parseInt(text(a.TotalQuantity) || text(a.AssemblyQuantity), 10) || 0;
     const sequences = findAll(a, 'AssemblySequence').map((s) => text(s.Sequence)).filter(Boolean);
@@ -182,7 +203,10 @@ export function parseAssemblies(reply, job) {
       mark,
       job: jobKey(job),
       description,
+      // Weights are taken as lbs everywhere in the app; the unit PowerFab
+      // sent is kept so a non-lbs job shows up instead of being converted.
       weight: Math.round(num(a.Weight) * 100) / 100,
+      weightUnit: pfUnit(a.Weight),
       lineWeight: Math.round(num(a.Weight) * qty * 100) / 100,
       qty,
       fields: [...leafFields(a), ...(sequences.length ? [['Sequences', sequences.join(', ')]] : []), ...leafFields(main).map(([k, v]) => [`BOM ${k}`, v])],
