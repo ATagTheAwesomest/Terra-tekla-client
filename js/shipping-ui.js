@@ -14,6 +14,7 @@ import { bindHold } from './hold.js';
 import { jobKey } from './parts.js';
 import * as pf from './pf-loads.js';
 import { flashFeedback, focusScanner } from './scanner.js';
+import * as stacks from './stack-store.js';
 import { claimsText, cleanMark, findLoad, flagScan, formatWeight, loadSequences, loadTotals, pickRemaining, takeRemaining, toLoad, unflag } from './shipping.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -143,6 +144,7 @@ export function scan(raw) {
       const item = toLoad(load, mark);
       if (item) {
         await pf.loadMaterial(load.id, item);
+        try { stacks.recordLoaded(load, item, mark); } catch (err) { toast(err.message, 5000); }
         return done(`${mark} loaded`);
       }
       unassigned.set(load.id, flagScan(unassigned.get(load.id) ?? [], mark));
@@ -174,6 +176,7 @@ function assignFlagged(mark) {
       const fresh = toLoad(findLoad(ship.loads, load.id), mark);
       if (!fresh) throw new Error(`${mark} was assigned to load ${load.number} but could not be found to load it. Refresh and load it.`);
       await pf.loadMaterial(load.id, fresh);
+      try { stacks.recordLoaded(load, fresh, mark); } catch (err) { toast(err.message, 5000); }
       unassigned.set(load.id, unflag(unassigned.get(load.id) ?? [], mark, 1));
     }
     done(`${mark} assigned and loaded`);
@@ -324,17 +327,51 @@ function renderLoad(load) {
         ${load.items.length ? '' : `<button class="btn btn-hold" type="button" data-hold="delete" data-hold-ms="${DELETE_HOLD_MS}">Hold 7.5 s to delete load</button>`}
       </div>
     </header>`;
+  const localStacks = renderLocalStacks(load);
   const flagged = flaggedSection(load);
   if (!load.items.length) {
-    return `${head}${flagged}<p class="stack-empty">Nothing is assigned to this load yet. Switch to Add material and scan pieces to assign them${step === STEP_LOAD ? ', then Load checks them onto the truck' : ''}.</p>`;
+    return `${head}${localStacks}${flagged}<p class="stack-empty">Nothing is assigned to this load yet. Switch to Add material and scan pieces to assign them${step === STEP_LOAD ? ', then Load checks them onto the truck' : ''}.</p>`;
   }
   const section = (title, items) => items.length
     ? `<section class="stack"><header class="stack-head"><span class="stack-name">${title}</span><span class="stack-stats"><b>${items.reduce((n, it) => n + it.qty, 0)}</b> pcs</span></header>
         <ol class="items">${items.map((it) => itemRow(it, load)).join('')}</ol></section>`
     : '';
   return load.shipped
-    ? head + section('Shipped', load.items)
-    : head + flagged + section('To load', toGo) + section('Loaded', loaded);
+    ? head + localStacks + section('Shipped', load.items)
+    : head + localStacks + flagged + section('To load', toGo) + section('Loaded', loaded);
+}
+
+function renderLocalStacks(load) {
+  let state;
+  try { state = stacks.get(load); } catch (err) {
+    return `<p class="ship-diff">${escapeHtml(err.message)}</p>`;
+  }
+  const total = state.stacks.reduce((n, stack) => n + stack.items.length, 0);
+  const stackMarkup = state.stacks.map((stack) => {
+    const active = stack.id === state.activeStackId;
+    const items = stack.items.map((item) => `<li class="local-stack-item">
+      <span class="item-mark">${escapeHtml(item.mark)}</span>
+      <span class="ship-item-seq">${item.sequence ? `Seq ${escapeHtml(item.sequence)}` : ''}</span>
+      <span class="item-desc">${escapeHtml(item.description)}</span>
+    </li>`).join('');
+    return `<section class="local-stack${active ? ' active' : ''}">
+      <header class="local-stack-head">
+        <span class="stack-name">${escapeHtml(stack.name)}</span>
+        <span class="stack-stats"><b>${stack.items.length}</b> pcs</span>
+        ${active ? '<span class="badge badge-open">Scanning here</span>' : `<button class="btn" type="button" data-stack-action="activate" data-stack-id="${escapeHtml(stack.id)}">Scan here</button>`}
+        <button class="btn" type="button" data-stack-action="rename" data-stack-id="${escapeHtml(stack.id)}" aria-label="Rename stack">Rename</button>
+        <button class="btn btn-danger" type="button" data-stack-action="delete" data-stack-id="${escapeHtml(stack.id)}" aria-label="Delete stack">Delete</button>
+      </header>
+      ${items ? `<ol class="local-stack-items">${items}</ol>` : '<p class="stack-empty">No loaded pieces tracked yet.</p>'}
+    </section>`;
+  }).join('');
+  return `<section class="stack local-stacks">
+    <header class="stack-head"><span class="stack-name">Stack tracking <span class="muted">(this iPad only)</span></span>
+      <span class="stack-stats"><b>${total}</b> tracked${load.loaded !== total ? ` · ${load.loaded} loaded in PowerFab` : ''}</span>
+      <button class="btn btn-primary" type="button" data-stack-action="new">+ Stack</button>
+    </header>
+    ${stackMarkup}
+  </section>`;
 }
 
 function renderWorkspace() {
@@ -471,10 +508,22 @@ function onHold(btn) {
   const actions = {
     ship: () => change(() => pf.shipLoad(load.id), { remaining: true }).then((ok) => ok && toast(`Load ${load.number} shipped`)),
     unship: () => change(() => pf.unshipLoad(load.id), { remaining: true }).then((ok) => ok && toast(`Load ${load.number} is open again`)),
-    delete: () => change(() => pf.deleteLoad(load.id)).then((ok) => ok && toast(`Load ${load.number} deleted`)),
-    unload: () => item && change(() => pf.unloadMaterial(load.id, item)).then((ok) => ok && toast(`${item.mark} taken off the truck`)),
+    delete: () => change(() => pf.deleteLoad(load.id)).then((ok) => {
+      if (!ok) return;
+      try { stacks.clear(load); } catch (err) { toast(err.message, 5000); }
+      toast(`Load ${load.number} deleted`);
+    }),
+    unload: () => item && change(() => pf.unloadMaterial(load.id, item)).then((ok) => {
+      if (!ok) return;
+      try { stacks.removeLoaded(load, item.mark); } catch (err) { toast(err.message, 5000); }
+      toast(`${item.mark} taken off the truck`);
+    }),
     remove: () => item && change(() => pf.removeMaterial(load.id, item), { remaining: true }).then((ok) => ok && toast(`${item.mark} taken off load ${load.number}`)),
-    return: () => item && change(() => pf.returnMaterial(load.id, item), { remaining: true }).then((ok) => ok && toast(`${item.mark} returned`)),
+    return: () => item && change(() => pf.returnMaterial(load.id, item), { remaining: true }).then((ok) => {
+      if (!ok) return;
+      try { stacks.removeLoaded(load, item.mark); } catch (err) { toast(err.message, 5000); }
+      toast(`${item.mark} returned`);
+    }),
     unreturn: () => item && change(() => pf.unreturnMaterial(load.id, item), { remaining: true }).then((ok) => ok && toast(`Return of ${item.mark} undone`)),
   };
   actions[btn.dataset.hold]?.();
@@ -487,6 +536,19 @@ export function canScan() {
 export function initShipping() {
   const ws = $('#workspace');
   ws.addEventListener('click', (e) => {
+    const stackAction = e.target.closest('[data-stack-action]')?.dataset.stackAction;
+    if (stackAction) {
+      const load = selectedLoad();
+      const stackId = e.target.closest('[data-stack-id]')?.dataset.stackId;
+      try {
+        if (stackAction === 'new') stacks.addStack(load);
+        else if (stackAction === 'activate') stacks.setActive(load, stackId);
+        else if (stackAction === 'rename') stacks.rename(load, stackId, window.prompt('Stack name') ?? '');
+        else if (stackAction === 'delete') stacks.removeStack(load, stackId);
+        render();
+      } catch (err) { toast(err.message, 5000); }
+      return;
+    }
     const action = e.target.closest('[data-action]')?.dataset.action;
     if (action === 'pick-job') openJobPicker();
     else if (action === 'new-load') showNewLoad();

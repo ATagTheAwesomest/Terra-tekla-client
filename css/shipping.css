@@ -37,6 +37,16 @@
 .load-row-name { display: flex; align-items: center; gap: 8px; font-weight: 700; }
 .load-row.shipped { opacity: 0.75; }
 .badge-open { background: var(--ok); color: #000; }
+.local-stacks { border-color: var(--accent); }
+.local-stacks > .stack-head { flex-wrap: wrap; }
+.local-stacks > .stack-head .stack-name { flex: 1 1 auto; }
+.local-stack { margin: 8px; border: 2px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.local-stack.active { border-color: var(--accent); }
+.local-stack-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; background: var(--surface-2); }
+.local-stack-head .stack-name { flex: 1 1 auto; }
+.local-stack-items { list-style: decimal; margin: 0; padding: 0 10px 0 36px; }
+.local-stack-item { display: grid; grid-template-columns: 6.5em 5.5em minmax(0, 1fr); gap: 0 8px; align-items: center; min-height: 44px; border-bottom: 1px solid var(--border); }
+.local-stack-item:last-child { border-bottom: 0; }
 /* Scan bar: step buttons and busy state */
 .scan-steps { display: flex; gap: 8px; }
 .scan-steps .btn-lg { padding: 0 20px; }

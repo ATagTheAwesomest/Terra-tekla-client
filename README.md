@@ -154,7 +154,8 @@ python3 -m http.server 8000
 | `js/current-job.js` | Current job state, the top bar and job picker every module follows |
 | `js/pf-loads.js` | PowerFab loads: reads, parsers and every shipping write command |
 | `js/shipping.js` | Pure helpers: which remaining row a scan takes, totals, sequences |
-| `js/shipping-ui.js` | Shipping screen: loads panel, scan handling, write queue, new load |
+| `js/shipping-ui.js` | Shipping screen: loads panel, scan handling, write queue, new load and local stacks |
+| `js/stack-store.js` | Local-only stack tracking keyed by PowerFab load ID |
 | `js/lookup.js` / `js/lookup-ui.js` | Piece lookup data and screen (`css/lookup.css`) |
 | `js/export.js` | Text export, share sheet and print ticket |
 | `js/scanner.js` | Always-focused scan field and on-screen keypad |
@@ -169,11 +170,13 @@ python3 -m http.server 8000
 
 ## What the device keeps
 
-Only settings: the server address and key (`terra.api`), the current job
-(`terra.currentJob`), the scan step (`terra.step`), the phone layout
-(`terra.layout`) and recent lookups (`terra.lookup.recent`). The caches older
-versions kept (`terra.jobs`, `terra.parts.*`, `terra.pfloads.*`) are removed on
-launch. Tablet-only loads, stacks, truck checks and overrides are gone. The
+The server address and key (`terra.api`), the current job (`terra.currentJob`),
+the scan step (`terra.step`), the phone layout (`terra.layout`), recent
+lookups (`terra.lookup.recent`) and stack tracking (`terra.local-stacks.v1`) are
+kept on this iPad. Stack tracking is a local overlay keyed by PowerFab load
+ID: successful Load-step scans are recorded in the selected stack, but no
+stack data is sent to Tekla/PowerFab. The caches older versions kept
+(`terra.jobs`, `terra.parts.*`, `terra.pfloads.*`) are removed on launch. The
 `terra-loads` IndexedDB database is left alone, since GitHub Pages shares it
 with terra-loads-web on the same iPad.
 

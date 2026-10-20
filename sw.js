@@ -29,6 +29,7 @@ const PRECACHE = [
   './js/pf-loads.js',
   './js/scanner.js',
   './js/server-ui.js',
+  './js/stack-store.js',
   './js/shipping.js',
   './js/shipping-ui.js',
   './js/updater.js',
