@@ -326,12 +326,12 @@ export function render() {
   renderScanbar();
 }
 
-// ---- Load panel (a drawer on narrow screens) --------------------------------
+// ---- Loads window (a dialog opened from the Loads button) ---------------------
 
 export function setPanel(open) {
-  $('#loads-panel').classList.toggle('open', open);
-  $('#btn-loads').setAttribute('aria-expanded', String(open));
-  $('#scrim').hidden = !open;
+  const dlg = $('#loads-panel');
+  if (open && !dlg.open) dlg.showModal();
+  else if (!open && dlg.open) dlg.close();
 }
 
 // ---- New load ----------------------------------------------------------------
@@ -448,8 +448,10 @@ export function initShipping() {
     render();
     focusScanner();
   });
-  $('#btn-loads').addEventListener('click', () => setPanel(!$('#loads-panel').classList.contains('open')));
+  $('#btn-loads').addEventListener('click', () => setPanel(true));
   $('#btn-loads-close').addEventListener('click', () => setPanel(false));
+  // A tap on the dimmed backdrop closes the window.
+  $('#loads-panel').addEventListener('click', (e) => { if (e.target === e.currentTarget) setPanel(false); });
   $('#btn-loads-refresh').addEventListener('click', () => refresh());
   $('#btn-new-load').addEventListener('click', showNewLoad);
   $('#form-new-load').addEventListener('submit', submitNewLoad);
