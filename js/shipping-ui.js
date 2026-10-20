@@ -6,6 +6,7 @@
 
 import { escapeHtml, toast } from './app.js';
 import { getConfig } from './api.js';
+import { getCurrentJob } from './current-job.js';
 import { bindHold } from './hold.js';
 import { jobKey, jobPartCount, lookupPart } from './parts.js';
 import { cachedLoads, fetchLoads, findPfLoad } from './pf-loads.js';
@@ -156,7 +157,7 @@ function pfNote(job) {
 // Call when the new-load dialog opens, and on every job change in it.
 export async function renderNewLoadPf() {
   const form = $('#form-new-load');
-  const job = form.elements.job?.value;
+  const job = getCurrentJob();
   const box = $('#new-load-pf');
   box.hidden = !job;
   if (!job) return;
@@ -168,7 +169,7 @@ export async function renderNewLoadPf() {
   draw();
   await readOthers(null);
   await refreshPfLoads(job);
-  if (form.elements.job?.value === job) draw();
+  if (getCurrentJob() === job) draw();
 }
 
 // ---- Shipping status dialog ------------------------------------------------------
@@ -232,7 +233,6 @@ export function initShipping(context) {
 
   const form = $('#form-new-load');
   form.addEventListener('change', (e) => {
-    if (e.target.name === 'job') renderNewLoadPf();
     if (e.target.name === 'pfload' && e.target.value && !$('#input-load-name').value.trim()) {
       $('#input-load-name').value = e.target.value.toUpperCase();
     }

@@ -68,3 +68,12 @@ body.load-shipped .topbar { border-bottom-color: var(--accent); }
 @media print {
   .item-override { border: 1px solid #000; background: none; color: #000; }
 }
+
+/* Manage Loads: PowerFab loads, tablet loads, other sections */
+.manage-job { margin-left: 8px; color: var(--accent); font-size: 1rem; font-weight: 700; }
+.manage-section { display: flex; flex-direction: column; gap: 2px; padding: 16px 0 6px; }
+.manage-section h3 { margin: 0; font-size: 1rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+.manage-section .muted { font-size: 0.85rem; }
+.pf-row { grid-template-columns: minmax(0, 1fr) auto; }
+.badge-open { background: var(--ok); color: #000; }
+.manage-row:not(:has(.job-select)) { grid-template-columns: minmax(0, 1fr) auto; }

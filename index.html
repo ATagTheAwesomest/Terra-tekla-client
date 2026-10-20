@@ -16,6 +16,7 @@
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="stylesheet" href="css/app.css">
   <link rel="stylesheet" href="css/check.css">
+  <link rel="stylesheet" href="css/current-job.css">
   <link rel="stylesheet" href="css/shipping.css">
   <link rel="stylesheet" href="css/mobile.css">
   <link rel="stylesheet" href="css/lookup.css">
@@ -161,11 +162,7 @@
       <h2>New Load</h2>
       <label for="input-load-name">Load name</label>
       <input id="input-load-name" name="name" autocomplete="off" autocapitalize="characters" spellcheck="false" required maxlength="60">
-      <fieldset class="job-choice" id="new-load-jobs">
-        <legend>Job (production control)</legend>
-        <div class="job-list" id="new-load-job-list"></div>
-        <button class="btn btn-block" type="button" id="btn-refresh-jobs">&#8635; Refresh jobs</button>
-      </fieldset>
+      <p class="new-load-job"><span class="muted">Job</span> <b id="new-load-job"></b></p>
       <fieldset class="job-choice" id="new-load-pf" hidden>
         <legend>PowerFab load</legend>
         <div class="job-list" id="new-load-pf-list"></div>
@@ -181,7 +178,8 @@
 
   <dialog class="modal manage" id="dlg-manage">
     <div class="manage-head">
-      <h2>Manage loads</h2>
+      <h2>Manage loads <span class="manage-job" id="manage-job"></span></h2>
+      <button class="btn" type="button" id="btn-manage-refresh">&#8635; Refresh</button>
       <button class="btn btn-primary" type="button" id="btn-manage-new">+ New Load</button>
       <button class="btn btn-ghost" type="button" id="btn-manage-close" aria-label="Close">&times;</button>
     </div>

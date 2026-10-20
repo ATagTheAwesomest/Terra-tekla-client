@@ -62,6 +62,24 @@ counts are what this iPad has recorded, not PowerFab's shipping status.
 Whether a load has shipped is decided in one place, `loadShippedAt()` in
 `js/lookup.js`.
 
+## Current job
+
+The app is job-first. A bar along the top of every screen shows the current
+job; tap it to pick another (**Refresh jobs** is in the picker). The choice is
+kept on the tablet (`terra.currentJob`). Shipping, the Loads drawer and
+**Manage loads** only show the current job's loads, and every new load is
+filed under it, with no per-load job picking. Opening Shipping with no job
+picked opens the picker first. Switching job closes the open load and opens the
+job's most recent one. A tablet load saved before jobs existed (no job) shows
+under "Not filed under a job" in Manage loads, with a picker to file it.
+`js/current-job.js` owns this; other modules use `getCurrentJob()`,
+`isCurrentJob(job)`, `onCurrentJobChange(fn)` and `requireCurrentJob()`.
+
+**Manage loads** lists, for the current job, the PowerFab loads (number,
+shipped date or open, pieces assigned and loaded, and the tablet load linked to
+it, with **Make tablet load** for one that has none) and then the tablet's own
+loads with their status.
+
 ## Shipping against PowerFab loads
 
 Read only: nothing is ever written to PowerFab. Everything below is kept on
@@ -130,6 +148,7 @@ Safari tabs after a week of no use, so always run it from the home screen.
 | `tools/setup-qr.mjs` | Makes a setup QR from `.env` |
 | `js/lookup.js` | Piece lookup and job overview data: a mark across part lists and loads |
 | `js/lookup-ui.js` | Piece Lookup screen (home tile and menu): Piece and Jobs views, `css/lookup.css` |
+| `js/current-job.js` | Current job state, the top bar and job picker every module follows |
 | `js/pf-loads.js` | PowerFab loads per job: GetLoads request, tolerant parser, offline cache |
 | `js/ship-check.js` | The "can this piece ship" checks run before every scan |
 | `js/shipping-ui.js` | Can't-ship warning and override, Shipping status dialog, PowerFab load picker |
