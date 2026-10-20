@@ -41,10 +41,11 @@ Which job is picked is the one thing kept on the tablet (`terra.currentJob`).
 
 ## Shipping
 
-Opening Shipping reads every load (truck) on the current job and lists them
-in the side panel (a drawer on portrait iPads and phones), with open or
-shipped and pieces loaded of assigned. Tap a load to work on it; **+ New**
-creates one in PowerFab and **&#8635;** reads the loads again.
+Opening Shipping reads every load (truck) on the current job. The **Loads**
+button in the top bar opens a Loads window listing them, with open or shipped
+and pieces loaded of assigned, so the main screen keeps its room. Tap a load to
+work on it (the window closes); **+ New** creates one in PowerFab and **&#8635;**
+reads the loads again.
 
 The scan bar has two steps, matching PowerFab's assigned and loaded
 quantities:
