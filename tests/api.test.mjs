@@ -42,3 +42,60 @@ test('assemblies become parts with description from the main piece', () => {
   assert.equal(b2.description, 'Dwg E1');
   assert.equal(b2.qty, 0);
 });
+
+// The bridge sends a value with a unit as {"@UOM", "#text"}; older bridges
+// dropped the number and sent {"@UOM"} alone.
+test('PowerFab values: plain, with a unit, and unit with the number lost', async () => {
+  const { pfValue, pfUnit, pfDisplay } = await import('../js/api.js');
+  assert.equal(pfValue('123'), '123');
+  assert.equal(pfValue(123), '123');
+  assert.equal(pfValue({ '@UOM': 'kg', '#text': '123' }), '123');
+  assert.equal(pfValue({ '@UOM': 'kg' }), '');
+  assert.equal(pfUnit({ '@UOM': 'kg', '#text': '123' }), 'kg');
+  assert.equal(pfUnit('123'), '');
+  assert.equal(pfDisplay({ '@UOM': 'kg', '#text': '123' }), '123 kg');
+  assert.equal(pfDisplay({ '@UOM': 'kg' }), '');
+});
+
+test('assembly weights, lengths and quantities read in all three forms', () => {
+  const bom = (length) => ({ BillOfMaterial: { PieceMark: 'A1', Shape: 'W', Dimensions: '8x35', Length: length } });
+  const reply = {
+    Assembly: [
+      { MainMark: 'A1', Weight: '478.5', TotalQuantity: '2', BillOfMaterials: bom("13'-11") },
+      { MainMark: 'A2', Weight: { '@UOM': 'kg', '#text': '217' }, TotalQuantity: { '#text': '3' }, BillOfMaterials: bom({ '@UOM': 'in', '#text': '167' }) },
+      { MainMark: 'A3', Weight: { '@UOM': 'kg' }, TotalQuantity: 4, BillOfMaterials: bom({ '@UOM': 'in' }) },
+    ],
+  };
+  const [plain, withUnit, lost] = parseAssemblies(reply, '26123');
+  assert.deepEqual([plain.weight, plain.weightUnit, plain.qty, plain.lineWeight], [478.5, '', 2, 957]);
+  assert.equal(plain.description, "W8x35 · 13'-11");
+
+  assert.deepEqual([withUnit.weight, withUnit.weightUnit, withUnit.qty, withUnit.lineWeight], [478.4, 'kg', 3, 1435.21]);
+  assert.equal(withUnit.description, 'W8x35 · 167 in');
+  assert.deepEqual(withUnit.fields.find(([k]) => k === 'Weight'), ['Weight', '217 kg']);
+
+  assert.deepEqual([lost.weight, lost.weightUnit, lost.qty, lost.lineWeight], [0, 'kg', 4, 0]);
+  assert.equal(lost.description, 'W8x35');
+  assert.equal(lost.fields.find(([k]) => k === 'Weight'), undefined);
+  assert.ok(!Number.isNaN(lost.weight));
+});
+
+test('weights in kg are converted to lbs; lb kept; an unknown unit is kept and flagged', () => {
+  const reply = {
+    Assembly: [
+      { MainMark: 'K1', Weight: { '@UOM': 'kg', '#text': '100' }, TotalQuantity: '2' },
+      { MainMark: 'L1', Weight: { '@UOM': 'lbs', '#text': '100' }, TotalQuantity: '2' },
+      { MainMark: 'U1', Weight: { '@UOM': 't', '#text': '1.5' }, TotalQuantity: '2' },
+    ],
+  };
+  const [kg, lb, unknown] = parseAssemblies(reply, '26123');
+  assert.deepEqual([kg.weight, kg.lineWeight, kg.weightUnit, kg.weightUnitUnknown], [220.46, 440.92, 'kg', undefined]);
+  assert.deepEqual(kg.fields.find(([k]) => k === 'Weight'), ['Weight', '100 kg']);
+  assert.deepEqual(kg.fields.find(([k]) => k === 'Weight (lbs)'), ['Weight (lbs)', '220.46']);
+
+  assert.deepEqual([lb.weight, lb.lineWeight, lb.weightUnit, lb.weightUnitUnknown], [100, 200, 'lbs', undefined]);
+  assert.equal(lb.fields.find(([k]) => k === 'Weight (lbs)'), undefined);
+
+  assert.deepEqual([unknown.weight, unknown.lineWeight, unknown.weightUnit, unknown.weightUnitUnknown], [1.5, 3, 't', true]);
+  assert.deepEqual(unknown.fields.find(([k]) => k === 'Weight unit'), ['Weight unit', 't not recognised, weight not converted']);
+});

@@ -122,8 +122,43 @@ function objectsWith(node, keys, out = []) {
   return out;
 }
 
-const text = (v) => (typeof v === 'string' ? v.trim() : '');
-const num = (v) => Number.parseFloat(String(v ?? '').replace(/[^\d.-]/g, '')) || 0;
+// A PowerFab value arrives in one of three forms: plain ("478.5" or 478.5);
+// with a unit, {"@UOM": "kg", "#text": "478.5"}; or, from bridges older than
+// tekla-conversion-layer PR #2, {"@UOM": "kg"} with the number lost. The last
+// reads as missing ('' / 0), never NaN.
+export function pfValue(v) {
+  if (v && typeof v === 'object' && !Array.isArray(v)) v = v['#text'];
+  return typeof v === 'string' || typeof v === 'number' ? String(v).trim() : '';
+}
+
+// The unit PowerFab gave a value ("kg", "in"), or '' for a plain value.
+export function pfUnit(v) {
+  return v && typeof v === 'object' && typeof v['@UOM'] === 'string' ? v['@UOM'].trim() : '';
+}
+
+// The value with its unit, for display: "478.5 kg", or just "478.5".
+export function pfDisplay(v) {
+  const value = pfValue(v);
+  return value && [value, pfUnit(v)].filter(Boolean).join(' ');
+}
+
+const text = pfValue;
+
+export const LB_PER_KG = 2.20462262;
+const LB_UNITS = /^(lb|lbs|pound|pounds|#)$/i;
+const KG_UNITS = /^(kg|kgs|kilogram|kilograms)$/i;
+
+// A PowerFab weight in lbs, the unit the whole app works in: no unit or a
+// pound unit is taken as is, kilograms are converted. Any other unit keeps
+// its number and comes back with known: false so the part can be flagged.
+export function weightInLbs(v) {
+  const n = num(v);
+  const unit = pfUnit(v);
+  if (!unit || LB_UNITS.test(unit)) return { lbs: n, unit, known: true };
+  if (KG_UNITS.test(unit)) return { lbs: n * LB_PER_KG, unit, known: true };
+  return { lbs: n, unit, known: false };
+}
+const num = (v) => Number.parseFloat(pfValue(v).replace(/[^\d.-]/g, '')) || 0;
 
 // ---- Jobs ------------------------------------------------------------------
 
@@ -157,9 +192,10 @@ export async function fetchJobs() {
 
 // ---- Assemblies (the job's part list) ----------------------------------------
 
-// Leaf string fields of an object, for the expanded row view.
+// Leaf value fields of an object (with their unit, if any), for the expanded
+// row view.
 function leafFields(obj) {
-  return Object.entries(obj).filter(([, v]) => typeof v === 'string' && v.trim()).map(([k, v]) => [k, v.trim()]);
+  return Object.entries(obj).filter(([, v]) => !Array.isArray(v) && pfDisplay(v)).map(([k, v]) => [k, pfDisplay(v)]);
 }
 
 // One part per main mark, in the shape parts.js files: description from the
@@ -174,18 +210,26 @@ export function parseAssemblies(reply, job) {
     const bom = objectsWith(a.BillOfMaterials, ['PieceMark', 'Shape']);
     const main = bom.find((p) => normalizeMark(text(p.PieceMark)) === mark) ?? bom[0] ?? {};
     const size = `${text(main.Shape)}${text(main.Dimensions ?? main.Dimension).replace(/\s+/g, '')}`;
-    const description = [size, text(main.Length), text(main.Grade)].filter(Boolean).join(' · ')
+    const description = [size, pfDisplay(main.Length), text(main.Grade)].filter(Boolean).join(' · ')
       || text(a.DrawingNumber) && `Dwg ${text(a.DrawingNumber)}`;
     const qty = Number.parseInt(text(a.TotalQuantity) || text(a.AssemblyQuantity), 10) || 0;
     const sequences = findAll(a, 'AssemblySequence').map((s) => text(s.Sequence)).filter(Boolean);
+    const w = weightInLbs(a.Weight);
+    // The Weight field keeps what PowerFab sent ("217 kg"); these say what the
+    // app made of it.
+    const weightNotes = w.unit && !LB_UNITS.test(w.unit)
+      ? [w.known ? ['Weight (lbs)', String(Math.round(w.lbs * 100) / 100)] : ['Weight unit', `${w.unit} not recognised, weight not converted`]]
+      : [];
     parts.push({
       mark,
       job: jobKey(job),
       description,
-      weight: Math.round(num(a.Weight) * 100) / 100,
-      lineWeight: Math.round(num(a.Weight) * qty * 100) / 100,
+      weight: Math.round(w.lbs * 100) / 100,
+      weightUnit: w.unit,
+      ...(w.known ? {} : { weightUnitUnknown: true }),
+      lineWeight: Math.round(w.lbs * qty * 100) / 100,
       qty,
-      fields: [...leafFields(a), ...(sequences.length ? [['Sequences', sequences.join(', ')]] : []), ...leafFields(main).map(([k, v]) => [`BOM ${k}`, v])],
+      fields: [...leafFields(a), ...weightNotes, ...(sequences.length ? [['Sequences', sequences.join(', ')]] : []), ...leafFields(main).map(([k, v]) => [`BOM ${k}`, v])],
     });
   }
   return parts;
