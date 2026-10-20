@@ -31,10 +31,10 @@ on for Shipping's changes to go through.
 ## Current job
 
 The app is job-first. A bar along the top of every screen shows the current
-job; tap it to pick another. The picker lists PowerFab's open jobs
-(`GetProductionControlJobs`, **Refresh jobs** re-reads them). PowerFab lists
-open jobs only, so a closed job such as the test job EPM-001 is typed into
-**Or type a job number**; it is checked with `MaxTruck` before it is used.
+job; tap it to pick another. The picker lists every job the API user can
+reach, open or closed (`ProductionControlJob_Get`; **Refresh jobs** re-reads
+them). A job can also be typed into **Or type a job number**; it is checked
+with `MaxTruck` before it is used.
 Which job is picked is the one thing kept on the tablet (`terra.currentJob`).
 `js/current-job.js` owns this; other modules use `getCurrentJob()`,
 `isCurrentJob(job)`, `onCurrentJobChange(fn)` and `requireCurrentJob()`.
@@ -61,8 +61,15 @@ than the job has. With several sequences the lowest one with pieces left is
 used, and the row shows which. A mark with none left shows a red "Not added"
 card saying why (not on the job, already shipped, or on which loads it is).
 Each row has **Load** (tap), **Unload** or **Remove** (hold 1.5 s). The load
-has **Hold to ship** (3 s), and once shipped **Hold to unship** and, per piece,
-**Return** / **Undo return**. An empty load can be deleted (hold 7.5 s).
+has **Hold to ship** (3 s), which PowerFab only allows once every piece is
+loaded, and once shipped **Hold to unship**. Loads going somewhere other than
+the jobsite also get **Return** / **Undo return** per piece; PowerFab refuses
+returns from the jobsite. An empty load can be deleted (hold 7.5 s). New loads
+go to the jobsite: on EPM-001 a load to the galvanizer group refused every
+piece.
+
+Every one of these was run from the app against the test job TESTTEST on
+2026-10-20 (create, assign, load, unload, ship, unship, remove, delete).
 
 Scans are sent one at a time in order, and after every change the loads are
 read again, so the screen always shows what PowerFab has. If PowerFab refuses
@@ -80,13 +87,14 @@ converted from kg to lbs.
 | `MaxTruck` | Job number to `ProductionControlID` |
 | `ProductionControlLoad_Get` (`IncludeMaterial`) | Every load and its pieces: truck item ID, mark, sequence, quantity, loaded |
 | `ProductionControlLoadRemaining_Get` | Pieces not on any load yet, per item and sequence |
-| `ProductionControlLoad_InputOptions_Get` | Next load number, destination group, default capacity |
+| `ProductionControlJob_Get` | Every job the API user can reach |
+| `ProductionControlLoad_InputOptions_Get` | Next load number, default capacity |
 | `ProductionControlLoad_IsDuplicateLoadNumber` | Load number check before creating |
-| `ProductionControlLoad_Insert` / `_Delete` | Create (needs `Capacity` and `ShippingDestinationGroupID`) / delete a load |
+| `ProductionControlLoad_Insert` / `_Delete` | Create (needs `Capacity`; empty `ShippingDestinationGroupID` = jobsite) / delete a load |
 | `ProductionControlLoadMaterial_Add` / `_Remove` | Assign pieces (item ID + sequence ID) / take them off |
-| `ProductionControlLoadMaterial_Load` / `_Unload` | Put pieces on the truck / take them off |
+| `ProductionControlLoadMaterial_Load` / `_Unload` | Put pieces on the truck (by truck item ID) / take them off (by the `Loaded` entry's ID) |
 | `ProductionControlLoad_Ship` / `_Unship` | Ship the load / undo |
-| `ProductionControlLoadMaterial_Return` / `_Unreturn` | Return shipped pieces / undo |
+| `ProductionControlLoadMaterial_Return` / `_Unreturn` | Return shipped pieces (needs `DateReturned`) / undo (by the return entry's ID) |
 
 The older `Load`, `Ship` and `Return` commands (by job and truck number, with
 `CommitType`) are not used: on EPM-001 `Ship` rejected every `CommitType` and

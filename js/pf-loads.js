@@ -40,7 +40,7 @@ function describe(row) {
 // Loaded / Returned history on a truck item: one object, or a list of them.
 const entries = (v) => asList(v).map((e) => ({ id: text(e.ID), qty: int(e.Quantity) })).filter((e) => e.id);
 
-// Load { id, number, shipped, shipDate, items: TruckItem[], pieces, loaded, weight }
+// Load { id, number, shipped, shipDate, jobsite, items: TruckItem[], pieces, loaded, weight }
 // TruckItem { truckId, itemId, mark, sequence, qty, loaded, returned, loads, returns, weightEach, description }
 //   loads / returns: [{ id, qty }] from the Loaded / Returned entries; Unload and
 //   Unreturn name one of these by ID.
@@ -65,6 +65,8 @@ export function parseLoads(reply) {
       number: text(l.LoadNumber),
       shipped: text(l.Shipped) === '1',
       shipDate: text(l.ShippedDate),
+      // Empty for the jobsite. PowerFab won't take returns from the jobsite.
+      jobsite: !text(l.ShippingDestinationGroupID),
       items,
       pieces,
       loaded: items.reduce((n, it) => n + it.loaded, 0),

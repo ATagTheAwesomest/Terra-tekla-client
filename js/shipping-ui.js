@@ -232,7 +232,7 @@ function itemRow(it, load) {
   const cls = load.shipped ? 'shipped' : it.loaded >= it.qty ? 'loaded' : 'material';
   const hold = (action, label, title) => `<button class="btn btn-hold" type="button" data-hold="${action}" data-hold-ms="${ROW_HOLD_MS}" title="${title}">${label}</button>`;
   const actions = load.shipped
-    ? [it.returned < it.qty ? hold('return', 'Return', 'Hold to return one to the shop') : '', it.returned ? hold('unreturn', 'Undo return', 'Hold to undo a return') : '']
+    ? [!load.jobsite && it.returned < it.qty ? hold('return', 'Return', 'Hold to return one to the shop') : '', it.returned ? hold('unreturn', 'Undo return', 'Hold to undo a return') : '']
     : [it.loaded < it.qty ? '<button class="btn" type="button" data-action="load">Load</button>' : '',
       it.loaded ? hold('unload', 'Unload', 'Hold to take one off the truck') : hold('remove', 'Remove', 'Hold to take it off this load')];
   return `<li class="ship-item is-${cls}" data-truck-id="${escapeHtml(it.truckId)}">
@@ -254,7 +254,7 @@ function renderLoad(load) {
     <header class="ship-head">
       <div>
         <h2>Load ${escapeHtml(load.number)}</h2>
-        <p class="muted">${load.shipped ? `Shipped${load.shipDate ? ` ${escapeHtml(shortDate(load.shipDate))}` : ''}. Hold Return on a piece that comes back.`
+        <p class="muted">${load.shipped ? `Shipped${load.shipDate ? ` ${escapeHtml(shortDate(load.shipDate))}` : ''}`
           : `${t.loaded} of ${t.pieces} pieces loaded · ${formatWeight(t.weight)}`}</p>
       </div>
       <div class="ship-actions">
