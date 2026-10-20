@@ -143,6 +143,21 @@ export function pfDisplay(v) {
 }
 
 const text = pfValue;
+
+export const LB_PER_KG = 2.20462262;
+const LB_UNITS = /^(lb|lbs|pound|pounds|#)$/i;
+const KG_UNITS = /^(kg|kgs|kilogram|kilograms)$/i;
+
+// A PowerFab weight in lbs, the unit the whole app works in: no unit or a
+// pound unit is taken as is, kilograms are converted. Any other unit keeps
+// its number and comes back with known: false so the part can be flagged.
+export function weightInLbs(v) {
+  const n = num(v);
+  const unit = pfUnit(v);
+  if (!unit || LB_UNITS.test(unit)) return { lbs: n, unit, known: true };
+  if (KG_UNITS.test(unit)) return { lbs: n * LB_PER_KG, unit, known: true };
+  return { lbs: n, unit, known: false };
+}
 const num = (v) => Number.parseFloat(pfValue(v).replace(/[^\d.-]/g, '')) || 0;
 
 // ---- Jobs ------------------------------------------------------------------
@@ -199,17 +214,22 @@ export function parseAssemblies(reply, job) {
       || text(a.DrawingNumber) && `Dwg ${text(a.DrawingNumber)}`;
     const qty = Number.parseInt(text(a.TotalQuantity) || text(a.AssemblyQuantity), 10) || 0;
     const sequences = findAll(a, 'AssemblySequence').map((s) => text(s.Sequence)).filter(Boolean);
+    const w = weightInLbs(a.Weight);
+    // The Weight field keeps what PowerFab sent ("217 kg"); these say what the
+    // app made of it.
+    const weightNotes = w.unit && !LB_UNITS.test(w.unit)
+      ? [w.known ? ['Weight (lbs)', String(Math.round(w.lbs * 100) / 100)] : ['Weight unit', `${w.unit} not recognised, weight not converted`]]
+      : [];
     parts.push({
       mark,
       job: jobKey(job),
       description,
-      // Weights are taken as lbs everywhere in the app; the unit PowerFab
-      // sent is kept so a non-lbs job shows up instead of being converted.
-      weight: Math.round(num(a.Weight) * 100) / 100,
-      weightUnit: pfUnit(a.Weight),
-      lineWeight: Math.round(num(a.Weight) * qty * 100) / 100,
+      weight: Math.round(w.lbs * 100) / 100,
+      weightUnit: w.unit,
+      ...(w.known ? {} : { weightUnitUnknown: true }),
+      lineWeight: Math.round(w.lbs * qty * 100) / 100,
       qty,
-      fields: [...leafFields(a), ...(sequences.length ? [['Sequences', sequences.join(', ')]] : []), ...leafFields(main).map(([k, v]) => [`BOM ${k}`, v])],
+      fields: [...leafFields(a), ...weightNotes, ...(sequences.length ? [['Sequences', sequences.join(', ')]] : []), ...leafFields(main).map(([k, v]) => [`BOM ${k}`, v])],
     });
   }
   return parts;

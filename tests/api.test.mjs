@@ -70,7 +70,7 @@ test('assembly weights, lengths and quantities read in all three forms', () => {
   assert.deepEqual([plain.weight, plain.weightUnit, plain.qty, plain.lineWeight], [478.5, '', 2, 957]);
   assert.equal(plain.description, "W8x35 · 13'-11");
 
-  assert.deepEqual([withUnit.weight, withUnit.weightUnit, withUnit.qty, withUnit.lineWeight], [217, 'kg', 3, 651]);
+  assert.deepEqual([withUnit.weight, withUnit.weightUnit, withUnit.qty, withUnit.lineWeight], [478.4, 'kg', 3, 1435.21]);
   assert.equal(withUnit.description, 'W8x35 · 167 in');
   assert.deepEqual(withUnit.fields.find(([k]) => k === 'Weight'), ['Weight', '217 kg']);
 
@@ -78,4 +78,24 @@ test('assembly weights, lengths and quantities read in all three forms', () => {
   assert.equal(lost.description, 'W8x35');
   assert.equal(lost.fields.find(([k]) => k === 'Weight'), undefined);
   assert.ok(!Number.isNaN(lost.weight));
+});
+
+test('weights in kg are converted to lbs; lb kept; an unknown unit is kept and flagged', () => {
+  const reply = {
+    Assembly: [
+      { MainMark: 'K1', Weight: { '@UOM': 'kg', '#text': '100' }, TotalQuantity: '2' },
+      { MainMark: 'L1', Weight: { '@UOM': 'lbs', '#text': '100' }, TotalQuantity: '2' },
+      { MainMark: 'U1', Weight: { '@UOM': 't', '#text': '1.5' }, TotalQuantity: '2' },
+    ],
+  };
+  const [kg, lb, unknown] = parseAssemblies(reply, '26123');
+  assert.deepEqual([kg.weight, kg.lineWeight, kg.weightUnit, kg.weightUnitUnknown], [220.46, 440.92, 'kg', undefined]);
+  assert.deepEqual(kg.fields.find(([k]) => k === 'Weight'), ['Weight', '100 kg']);
+  assert.deepEqual(kg.fields.find(([k]) => k === 'Weight (lbs)'), ['Weight (lbs)', '220.46']);
+
+  assert.deepEqual([lb.weight, lb.lineWeight, lb.weightUnit, lb.weightUnitUnknown], [100, 200, 'lbs', undefined]);
+  assert.equal(lb.fields.find(([k]) => k === 'Weight (lbs)'), undefined);
+
+  assert.deepEqual([unknown.weight, unknown.lineWeight, unknown.weightUnit, unknown.weightUnitUnknown], [1.5, 3, 't', true]);
+  assert.deepEqual(unknown.fields.find(([k]) => k === 'Weight unit'), ['Weight unit', 't not recognised, weight not converted']);
 });
