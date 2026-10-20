@@ -45,9 +45,13 @@ export function pickRemaining(mark, remaining, loads) {
 // Scans in the Load step that aren't assigned to the load are only flagged on
 // screen: [{ mark, count }] in the order first scanned. Nothing goes to
 // PowerFab until the user assigns one.
-export function flagScan(list, mark) {
+export function flagScan(list, mark, { manual = false } = {}) {
   const hit = list.find((e) => e.mark === mark);
-  return hit ? list.map((e) => (e === hit ? { ...e, count: e.count + 1 } : e)) : [...list, { mark, count: 1 }];
+  return hit
+    ? list.map((e) => (e === hit
+      ? { ...e, count: e.count + 1, ...(e.manual || manual ? { manual: true } : {}) }
+      : e))
+    : [...list, { mark, count: 1, ...(manual ? { manual: true } : {}) }];
 }
 
 // Takes `n` (default all) of a flagged mark off the list.

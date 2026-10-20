@@ -27,7 +27,7 @@ function writeAll(all) {
 
 function defaultState(load) {
   const stack = { id: newId(), name: `Stack ${load.number} - 1`, items: [] };
-  return { loadId: load.id, loadNumber: load.number, activeStackId: stack.id, stacks: [stack] };
+  return { loadId: load.id, loadNumber: load.number, activeStackId: stack.id, stacks: [stack], manualMarks: {}, manualPending: {} };
 }
 
 function normalizeState(state, load) {
@@ -39,6 +39,8 @@ function normalizeState(state, load) {
     loadNumber: load.number,
     activeStackId: stacks.some((stack) => stack.id === state.activeStackId) ? state.activeStackId : stacks[stacks.length - 1].id,
     stacks,
+    manualMarks: state.manualMarks && typeof state.manualMarks === 'object' ? state.manualMarks : {},
+    manualPending: state.manualPending && typeof state.manualPending === 'object' ? state.manualPending : {},
   };
 }
 
@@ -99,15 +101,36 @@ export function removeStack(load, stackId) {
   });
 }
 
-export function recordLoaded(load, item, mark) {
+export function recordManual(load, mark) {
+  return update(load, (state) => {
+    state.manualMarks[mark] = (state.manualMarks[mark] ?? 0) + 1;
+    state.manualPending[mark] = (state.manualPending[mark] ?? 0) + 1;
+  });
+}
+
+export function isManual(load, mark) {
+  try { return Boolean(get(load).manualMarks[mark]); } catch (err) {
+    console.warn(err.message);
+    return false;
+  }
+}
+
+export function recordLoaded(load, item, mark, { manual = false } = {}) {
   return update(load, (state) => {
     const stack = state.stacks.find((entry) => entry.id === state.activeStackId) ?? state.stacks.at(-1);
+    const fromPending = (state.manualPending[mark] ?? 0) > 0;
+    if (fromPending) {
+      state.manualPending[mark]--;
+      if (!state.manualPending[mark]) delete state.manualPending[mark];
+    }
+    if (manual) state.manualMarks[mark] = (state.manualMarks[mark] ?? 0) + 1;
     stack.items.push({
       id: newId(),
       mark,
       sequence: item.sequence,
       description: item.description,
       weight: item.weightEach,
+      manual: manual || fromPending,
       scannedAt: new Date().toISOString(),
     });
   });

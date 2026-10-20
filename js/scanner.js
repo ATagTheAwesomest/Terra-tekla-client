@@ -125,7 +125,7 @@ export function openKeypad({ mode = 'mark', title, note = '', initial = '', okLa
 
 async function manualEntry() {
   const value = await openKeypad({ mode: 'mark', note: 'Does the same as scanning the mark.' });
-  if (value) ctx.scan(value);
+  if (value) ctx.scan(value, { manual: true });
   focusScanner();
 }
 

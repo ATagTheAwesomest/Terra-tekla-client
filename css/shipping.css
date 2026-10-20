@@ -34,9 +34,13 @@
   overflow-y: auto;
   min-height: 0;
 }
+.load-list-item { display: flex; align-items: stretch; gap: 8px; margin-bottom: 8px; }
+.load-list-item .load-row { flex: 1; margin-bottom: 0; }
+.load-delete { flex: 0 0 auto; min-width: 92px; padding: 0 8px; font-size: 0.75rem; line-height: 1.15; }
 .load-row-name { display: flex; align-items: center; gap: 8px; font-weight: 700; }
 .load-row.shipped { opacity: 0.75; }
 .badge-open { background: var(--ok); color: #000; }
+.manual-badge { background: var(--flag); color: #000; margin-left: 4px; }
 .local-stacks { border-color: var(--accent); }
 .local-stacks > .stack-head { flex-wrap: wrap; }
 .local-stacks > .stack-head .stack-name { flex: 1 1 auto; }

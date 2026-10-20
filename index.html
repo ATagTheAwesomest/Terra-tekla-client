@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TERRA">
   <meta name="format-detection" content="telephone=no">
-  <meta name="terra-version" content="0.7.5">
+  <meta name="terra-version" content="0.7.7">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -46,7 +46,7 @@
         <span class="home-tile-name">Piece lookup</span>
         <span class="muted">Any mark on the job: size, weight, loads, shipped</span>
       </button>
-      <button class="btn home-tile" type="button" data-module="server">
+      <button class="btn home-tile" type="button" id="home-server-tile" data-module="server">
         <span class="home-tile-icon" aria-hidden="true">&#128273;</span>
         <span class="home-tile-name">Server settings</span>
         <span class="muted">API address and key, setup QR</span>
@@ -169,7 +169,10 @@
 
   <dialog class="modal server" id="dlg-server">
     <form id="form-server" autocomplete="off">
-      <h2>Server settings</h2>
+      <div class="server-head">
+        <h2>Server settings</h2>
+        <button class="btn btn-ghost" type="button" id="btn-server-close" aria-label="Close">&times;</button>
+      </div>
       <p class="muted">Saved on this device only. Nothing about the server is built into the app.</p>
       <label for="server-url">API address</label>
       <input id="server-url" type="text" inputmode="url" placeholder="https://api.example.com" autocapitalize="off" autocorrect="off" spellcheck="false">
@@ -186,7 +189,6 @@
       <div class="modal-actions server-actions">
         <button class="btn" type="button" id="btn-server-camera">Scan QR with camera</button>
         <button class="btn" type="button" id="btn-server-qr">Show setup QR</button>
-        <button class="btn" type="button" id="btn-server-close">Close</button>
         <button class="btn btn-primary" type="submit">Save &amp; test</button>
       </div>
     </form>

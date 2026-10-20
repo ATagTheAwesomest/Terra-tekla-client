@@ -9,6 +9,7 @@ const $ = (sel) => document.querySelector(sel);
 const dialog = () => $('#dlg-server');
 
 let onJobsChanged = () => {};
+let onConfigChanged = () => {};
 let scanStop = null;
 let jobsReadAt = null;
 
@@ -29,8 +30,9 @@ export async function refreshJobs({ quiet = false } = {}) {
 }
 
 // Boot: a quiet read of the job list.
-export function initServer({ jobsChanged }) {
+export function initServer({ jobsChanged, configChanged = () => {} }) {
   onJobsChanged = jobsChanged;
+  onConfigChanged = configChanged;
   if (api.getConfig()) refreshJobs({ quiet: true });
   bindDialog();
 }
@@ -59,6 +61,7 @@ export function openServerSettings() {
 
 async function saveAndTest(config) {
   const saved = api.setConfig(config);
+  onConfigChanged(Boolean(saved));
   fillForm();
   const result = $('#server-result');
   if (!saved) {
@@ -176,4 +179,3 @@ function bindDialog() {
   $('#btn-server-close').addEventListener('click', () => dialog().close());
   dialog().addEventListener('close', stopCamera);
 }
-

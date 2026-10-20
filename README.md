@@ -172,13 +172,17 @@ python3 -m http.server 8000
 
 The server address and key (`terra.api`), the current job (`terra.currentJob`),
 the scan step (`terra.step`), the phone layout (`terra.layout`), recent
-lookups (`terra.lookup.recent`) and stack tracking (`terra.local-stacks.v1`) are
-kept on this iPad. Stack tracking is a local overlay keyed by PowerFab load
-ID: successful Load-step scans are recorded in the selected stack, but no
-stack data is sent to Tekla/PowerFab. The caches older versions kept
+lookups (`terra.lookup.recent`), stack tracking (`terra.local-stacks.v1`) and
+manual-entry marks in that stack data are kept on this iPad. Stack tracking is
+a local overlay keyed by PowerFab load ID: successful Load-step scans are
+recorded in the selected stack, and keypad-entered marks are labeled **Manual**.
+No stack or manual-entry metadata is sent to Tekla/PowerFab. The caches older
+versions kept
 (`terra.jobs`, `terra.parts.*`, `terra.pfloads.*`) are removed on launch. The
 `terra-loads` IndexedDB database is left alone, since GitHub Pages shares it
-with terra-loads-web on the same iPad.
+with terra-loads-web on the same iPad. Once a server is configured, Server
+settings remain available from the home hamburger menu and the setup tile is
+hidden.
 
 ## Releasing an update
 

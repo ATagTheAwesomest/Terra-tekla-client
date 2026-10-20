@@ -131,7 +131,7 @@ function change(fn, { remaining = false } = {}) {
 // What a scan of `raw` does on the open load. Load step (a check): a piece
 // assigned to the load is loaded; anything else is flagged, shown apart from
 // the list and not sent to PowerFab. Add material step: assigns the piece.
-export function scan(raw) {
+export function scan(raw, { manual = false } = {}) {
   const mark = cleanMark(raw);
   if (!mark) return null;
   return change(async () => {
@@ -144,10 +144,10 @@ export function scan(raw) {
       const item = toLoad(load, mark);
       if (item) {
         await pf.loadMaterial(load.id, item);
-        try { stacks.recordLoaded(load, item, mark); } catch (err) { toast(err.message, 5000); }
+        try { stacks.recordLoaded(load, item, mark, { manual }); } catch (err) { toast(err.message, 5000); }
         return done(`${mark} loaded`);
       }
-      unassigned.set(load.id, flagScan(unassigned.get(load.id) ?? [], mark));
+      unassigned.set(load.id, flagScan(unassigned.get(load.id) ?? [], mark, { manual }));
       flashFeedback('bad');
       toast(`${mark} is not assigned to load ${load.number}. Flagged, not loaded.`, 4000);
       return undefined;
@@ -155,6 +155,9 @@ export function scan(raw) {
     const pick = pickRemaining(mark, ship.remaining, ship.loads);
     if (!pick.row) throw blocked(mark, pick.reason, load);
     await pf.addMaterial(load.id, pick.row);
+    if (manual) {
+      try { stacks.recordManual(load, mark); } catch (err) { toast(err.message, 5000); }
+    }
     ship.remaining = takeRemaining(ship.remaining, pick.row);
     return done(`${mark} added to load ${load.number}${pick.row.sequence ? ` (seq ${pick.row.sequence})` : ''}`);
   });
@@ -176,7 +179,7 @@ function assignFlagged(mark) {
       const fresh = toLoad(findLoad(ship.loads, load.id), mark);
       if (!fresh) throw new Error(`${mark} was assigned to load ${load.number} but could not be found to load it. Refresh and load it.`);
       await pf.loadMaterial(load.id, fresh);
-      try { stacks.recordLoaded(load, fresh, mark); } catch (err) { toast(err.message, 5000); }
+      try { stacks.recordLoaded(load, fresh, mark, { manual: entry.manual }); } catch (err) { toast(err.message, 5000); }
       unassigned.set(load.id, unflag(unassigned.get(load.id) ?? [], mark, 1));
     }
     done(`${mark} assigned and loaded`);
@@ -241,10 +244,13 @@ function renderStats() {
 function loadRow(l) {
   const t = loadTotals(l);
   const status = l.shipped ? `Shipped${l.shipDate ? ` ${shortDate(l.shipDate)}` : ''}` : 'Open';
-  return `<li><button class="btn load-row${l.id === ship.selectedId ? ' active' : ''}${l.shipped ? ' shipped' : ''}" type="button" data-load-id="${escapeHtml(l.id)}">
-    <span class="load-row-name">Load ${escapeHtml(l.number)} <span class="badge ${l.shipped ? '' : 'badge-open'}">${escapeHtml(status)}</span></span>
-    <span class="load-row-meta">${t.loaded} of ${t.pieces} loaded &middot; ${formatWeight(t.weight)}</span>
-  </button></li>`;
+  return `<li class="load-list-item" data-load-id="${escapeHtml(l.id)}">
+    <button class="btn load-row${l.id === ship.selectedId ? ' active' : ''}${l.shipped ? ' shipped' : ''}" type="button" data-load-id="${escapeHtml(l.id)}">
+      <span class="load-row-name">Load ${escapeHtml(l.number)} <span class="badge ${l.shipped ? '' : 'badge-open'}">${escapeHtml(status)}</span></span>
+      <span class="load-row-meta">${t.loaded} of ${t.pieces} loaded &middot; ${formatWeight(t.weight)}</span>
+    </button>
+    ${l.shipped ? '' : `<button class="btn btn-hold load-delete" type="button" data-hold="delete" data-hold-ms="${DELETE_HOLD_MS}" aria-label="Hold 10 seconds to delete load ${escapeHtml(l.number)}">Hold 10 s<br>to delete</button>`}
+  </li>`;
 }
 
 function renderLoadList() {
@@ -268,8 +274,9 @@ function itemRow(it, load) {
     ? [!load.jobsite && it.returned < it.qty ? hold('return', 'Return', 'Hold to return one to the shop') : '', it.returned ? hold('unreturn', 'Undo return', 'Hold to undo a return') : '']
     : [it.loaded < it.qty ? '<button class="btn" type="button" data-action="load">Load</button>' : '',
       it.loaded ? hold('unload', 'Unload', 'Hold to take one off the truck') : hold('remove', 'Remove', 'Hold to take it off this load')];
+  const manual = stacks.isManual(load, it.mark);
   return `<li class="ship-item is-${cls}" data-truck-id="${escapeHtml(it.truckId)}">
-    <span class="item-mark">${escapeHtml(it.mark)}</span>
+    <span class="item-mark">${escapeHtml(it.mark)}${manual ? ' <span class="badge manual-badge">Manual</span>' : ''}</span>
     <span class="ship-item-seq">${it.sequence ? `Seq ${escapeHtml(it.sequence)}` : ''}</span>
     <span class="item-desc">${escapeHtml(it.description)}</span>
     <span class="ship-item-qty">${it.qty > 1 ? `&times;${it.qty}` : ''}</span>
@@ -292,7 +299,7 @@ function flaggedSection(load) {
       : pick.reason === 'shipped' ? 'Already shipped'
       : `All on other loads. ${claimsText(e.mark, ship.loads, load.id)}`;
     return `<li class="ship-item is-flagged" data-unassigned="${escapeHtml(e.mark)}">
-      <span class="item-mark">${escapeHtml(e.mark)}</span>
+      <span class="item-mark">${escapeHtml(e.mark)}${e.manual ? ' <span class="badge manual-badge">Manual</span>' : ''}</span>
       <span class="ship-item-seq">${pick.row?.sequence ? `Seq ${escapeHtml(pick.row.sequence)}` : ''}</span>
       <span class="item-desc">${escapeHtml(pick.row?.description ?? '')} ${escapeHtml(why)}</span>
       <span class="ship-item-qty">${e.count > 1 ? `&times;${e.count}` : ''}</span>
@@ -350,7 +357,7 @@ function renderLocalStacks(load) {
   const stackMarkup = state.stacks.map((stack) => {
     const active = stack.id === state.activeStackId;
     const items = stack.items.map((item) => `<li class="local-stack-item">
-      <span class="item-mark">${escapeHtml(item.mark)}</span>
+      <span class="item-mark">${escapeHtml(item.mark)}${item.manual ? ' <span class="badge manual-badge">Manual</span>' : ''}</span>
       <span class="ship-item-seq">${item.sequence ? `Seq ${escapeHtml(item.sequence)}` : ''}</span>
       <span class="item-desc">${escapeHtml(item.description)}</span>
     </li>`).join('');
@@ -502,7 +509,8 @@ function itemFor(el) {
 }
 
 function onHold(btn) {
-  const load = selectedLoad();
+  const loadId = btn.closest('[data-load-id]')?.dataset.loadId;
+  const load = findLoad(ship.loads, loadId) ?? selectedLoad();
   if (!load) return;
   const item = itemFor(btn);
   const actions = {
@@ -565,8 +573,13 @@ export function initShipping() {
     onComplete: onHold,
     onTap: (btn, secs) => toast(`Hold for ${secs} seconds`),
   });
+  bindHold($('#load-list'), {
+    onComplete: onHold,
+    onTap: (btn, secs) => toast(`Hold for ${secs} seconds`),
+  });
   $('#load-list').addEventListener('click', (e) => {
-    const id = e.target.closest('[data-load-id]')?.dataset.loadId;
+    if (e.target.closest('[data-hold]')) return;
+    const id = e.target.closest('.load-row')?.dataset.loadId;
     if (!id) return;
     ship.selectedId = id;
     setPanel(false);

@@ -468,6 +468,9 @@ body.at-home .topbar, body.at-home .scanbar, body.at-home .ship-body { visibilit
 
 /* Server settings */
 .modal.server { width: min(640px, 96vw); }
+.server-head { display: flex; align-items: center; justify-content: space-between; gap: var(--gap); }
+.server-head h2 { margin-bottom: 0; }
+.server-head .btn { font-size: 1.6rem; }
 .modal.server label { display: block; margin-top: 14px; }
 .server-key-row { display: flex; gap: var(--gap); }
 .server-key-row input { flex: 1; }

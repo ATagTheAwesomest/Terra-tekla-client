@@ -2,6 +2,7 @@
 // itself lives in js/shipping-ui.js.
 
 import { getCurrentJob, initCurrentJob, jobsChanged, requireCurrentJob } from './current-job.js';
+import { getConfig } from './api.js';
 import { shareLoadFile, printLoad } from './export.js';
 import { readJob } from './pf-loads.js';
 import { initLayout } from './mobile.js';
@@ -11,6 +12,10 @@ import { canScan, enterShipping, initShipping, render as renderShipping, scan, s
 import { APP_VERSION, checkForUpdate, forceUpdate, recoverStalePage, registerServiceWorker } from './updater.js';
 
 const $ = (sel) => document.querySelector(sel);
+
+function syncHomeServerTile() {
+  $('#home-server-tile').hidden = Boolean(getConfig());
+}
 
 // Caches older versions kept on the device. Job data is read live now, so
 // they are dropped once. (The loads database is left alone: GitHub Pages
@@ -43,6 +48,7 @@ export function toast(message, ms = 2500) {
 // ---- Home ------------------------------------------------------------------
 
 export function setHome(open) {
+  syncHomeServerTile();
   document.body.classList.toggle('at-home', open);
   $('#home').hidden = !open;
   if (!open) focusScanner();
@@ -127,7 +133,11 @@ function renderStatus() {
 // ---- Boot ----------------------------------------------------------------
 
 function bindEvents() {
-  initServer({ jobsChanged: () => { jobsChanged(); renderStatus(); } });
+  initServer({
+    jobsChanged: () => { jobsChanged(); renderStatus(); },
+    configChanged: syncHomeServerTile,
+  });
+  syncHomeServerTile();
   initLayout(renderShipping);
   initScanner({ scan, canScan });
   initShipping();
