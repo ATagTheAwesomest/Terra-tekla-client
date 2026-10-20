@@ -24,7 +24,7 @@ export const STEP_MATERIAL = 'material';
 export const STEP_LOAD = 'load';
 
 const SHIP_HOLD_MS = 3000;
-const DELETE_HOLD_MS = 7500;
+const DELETE_HOLD_MS = 10000;
 const ROW_HOLD_MS = 1500;
 
 // Everything Shipping knows, all of it read from PowerFab for the open job.
@@ -324,7 +324,7 @@ function renderLoad(load) {
         ${load.shipped
           ? `<button class="btn btn-hold" type="button" data-hold="unship" data-hold-ms="${SHIP_HOLD_MS}">Hold to unship</button>`
           : `<button class="btn btn-hold btn-ship" type="button" data-hold="ship" data-hold-ms="${SHIP_HOLD_MS}"${t.pieces && t.loaded >= t.pieces ? '' : ' disabled'} title="Every piece has to be loaded first">Hold to ship</button>`}
-        ${load.items.length ? '' : `<button class="btn btn-hold" type="button" data-hold="delete" data-hold-ms="${DELETE_HOLD_MS}">Hold 7.5 s to delete load</button>`}
+        ${load.shipped ? '' : `<button class="btn btn-hold" type="button" data-hold="delete" data-hold-ms="${DELETE_HOLD_MS}">Hold 10 s to delete load</button>`}
       </div>
     </header>`;
   const localStacks = renderLocalStacks(load);
