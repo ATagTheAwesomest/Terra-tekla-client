@@ -7,7 +7,7 @@ import { readJob } from './pf-loads.js';
 import { initLayout } from './mobile.js';
 import { focusScanner, initScanner } from './scanner.js';
 import { initServer, openServerSettings, refreshJobs, serverStatus } from './server-ui.js';
-import { canScan, enterShipping, initShipping, render as renderShipping, scan, selectedLoad, setPanel, ship } from './shipping-ui.js';
+import { canScan, enterShipping, initShipping, render as renderShipping, scan, selectedLoad, ship } from './shipping-ui.js';
 import { APP_VERSION, checkForUpdate, forceUpdate, recoverStalePage, registerServiceWorker } from './updater.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -131,7 +131,7 @@ function bindEvents() {
   initLayout(renderShipping);
   initScanner({ scan, canScan });
   initShipping();
-  $('#scrim').addEventListener('click', () => { setPanel(false); setMenu(false); setHomeMenu(false); });
+  $('#scrim').addEventListener('click', () => { setMenu(false); setHomeMenu(false); });
   $('#btn-menu').addEventListener('click', () => setMenu(true));
   $('#btn-menu-close').addEventListener('click', () => setMenu(false));
   $('#menu').addEventListener('click', (e) => { if (e.target.closest('.menu-item')) setMenu(false); });

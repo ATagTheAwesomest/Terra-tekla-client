@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TERRA">
   <meta name="format-detection" content="telephone=no">
-  <meta name="terra-version" content="0.7.1">
+  <meta name="terra-version" content="0.7.2">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -62,7 +62,7 @@
     <button class="btn btn-ghost btn-home" id="btn-home" type="button" aria-label="Home">
       <span class="icon" aria-hidden="true">&#8962;</span>
     </button>
-    <button class="btn btn-ghost btn-loads" id="btn-loads" type="button" aria-controls="loads-panel" aria-expanded="false">
+    <button class="btn btn-ghost btn-loads" id="btn-loads" type="button" aria-controls="loads-panel" aria-haspopup="dialog">
       <span class="icon" aria-hidden="true">&#9776;</span><span>Loads</span>
     </button>
     <div class="stats" id="stats">
@@ -93,18 +93,19 @@
   </section>
 
   <div class="ship-body" id="ship-body">
-    <aside class="loads-panel" id="loads-panel" aria-label="Loads on this job">
-      <div class="loads-head">
-        <h2>Loads</h2>
-        <button class="btn" type="button" id="btn-loads-refresh" aria-label="Read the loads again">&#8635;</button>
-        <button class="btn btn-primary" type="button" id="btn-new-load">+ New</button>
-        <button class="btn btn-ghost loads-close" type="button" id="btn-loads-close" aria-label="Close">&times;</button>
-      </div>
-      <p class="muted loads-note" id="loads-note"></p>
-      <ul class="load-list" id="load-list"></ul>
-    </aside>
     <main class="workspace" id="workspace"></main>
   </div>
+
+  <dialog class="modal loads-dialog" id="loads-panel" aria-label="Loads on this job">
+    <div class="loads-head">
+      <h2>Loads</h2>
+      <button class="btn" type="button" id="btn-loads-refresh" aria-label="Read the loads again">&#8635;</button>
+      <button class="btn btn-primary" type="button" id="btn-new-load">+ New</button>
+      <button class="btn btn-ghost loads-close" type="button" id="btn-loads-close" aria-label="Close">&times;</button>
+    </div>
+    <p class="muted loads-note" id="loads-note"></p>
+    <ul class="load-list" id="load-list"></ul>
+  </dialog>
 
   <footer class="statusbar">
     <span id="status-offline">Starting&hellip;</span>
