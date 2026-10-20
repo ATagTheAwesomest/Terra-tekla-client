@@ -52,8 +52,12 @@ quantities:
 
 - **Add material** assigns the scanned piece to the load (blue rows, "To
   load"), e.g. as it is laid out on the floor.
-- **Load** puts it on the truck: a piece already assigned to the load is
-  loaded; otherwise it is assigned and loaded in one go.
+- **Load** is a check against the load's assigned list: a scanned piece that is
+  assigned is loaded (green). One that isn't is flagged in an orange "Scanned,
+  not assigned to this load" list and nothing is sent to PowerFab. From that
+  list **Remove** drops the flag, or **Assign & load** assigns it in PowerFab
+  and loads it (once per piece scanned). The flagged list is only on screen, so
+  it is gone if the page is closed.
 
 A piece is picked from PowerFab's remaining list
 (`ProductionControlLoadRemaining_Get`): one row per piece and sequence with

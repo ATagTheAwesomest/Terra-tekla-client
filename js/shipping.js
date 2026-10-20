@@ -42,6 +42,19 @@ export function pickRemaining(mark, remaining, loads) {
   return { reason: onLoads.every((l) => l.shipped) ? 'shipped' : 'on-other-loads' };
 }
 
+// Scans in the Load step that aren't assigned to the load are only flagged on
+// screen: [{ mark, count }] in the order first scanned. Nothing goes to
+// PowerFab until the user assigns one.
+export function flagScan(list, mark) {
+  const hit = list.find((e) => e.mark === mark);
+  return hit ? list.map((e) => (e === hit ? { ...e, count: e.count + 1 } : e)) : [...list, { mark, count: 1 }];
+}
+
+// Takes `n` (default all) of a flagged mark off the list.
+export function unflag(list, mark, n = Infinity) {
+  return list.map((e) => (e.mark === mark ? { ...e, count: e.count - n } : e)).filter((e) => e.count > 0);
+}
+
 // After assigning `qty` of a remaining row, what PowerFab now has left. Saves
 // re-reading the whole (large) remaining list on every scan.
 export function takeRemaining(remaining, row, qty = 1) {
