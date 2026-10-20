@@ -1,0 +1,551 @@
+{
+ "note": "Trimmed live replies from EPM-001 (2026-10-20): ProductionControlLoad_Get with IncludeMaterial (Load 1, three of its pieces) and ProductionControlLoadRemaining_Get (four marks).",
+ "loads": {
+  "Successful": "1",
+  "ResultData": {
+   "LastLogID": "692,787",
+   "GetOptions": {
+    "IncludeJobDetails": "0",
+    "IncludeFirmDetails": "0",
+    "IncludeMaterial": "1",
+    "IncludeAttachedFiles": "0"
+   },
+   "ProductionControlLoad": [
+    {
+     "ProductionControlLoadID": "394",
+     "ProductionControlID": "13",
+     "LoadNumber": "1",
+     "Capacity": "19958.06428",
+     "ShippingDestinationGroupID": "",
+     "ShippedFromFirmID": "",
+     "ShippedToFirmID": "",
+     "Shipped": "0",
+     "QuantityAssigned": "45",
+     "AssignedLength": "267418.0848",
+     "AssignedSquareMeters": "2.127894131",
+     "AssignedWeight": "12482.66056",
+     "AssignedGrossWeight": "12489.08299",
+     "AssignedModelWeight": "12482.66056",
+     "AssignedSurfaceArea": "209.4279743",
+     "QuantityLoaded": "42",
+     "LoadedLength": "248074.3586",
+     "LoadedSquareMeters": "1.935319782",
+     "LoadedWeight": "11763.39339",
+     "LoadedGrossWeight": "11769.81581",
+     "LoadedModelWeight": "11763.39339",
+     "LoadedSurfaceArea": "192.0861197",
+     "Material": [
+      {
+       "ProductionControlItemTruckID": "542",
+       "ProductionControlItemID": "8696",
+       "ProductionControlID": "13",
+       "DrawingNumberDisplay": "1",
+       "MainMarkDisplay": "1B1",
+       "PieceMarkDisplay": "1B1",
+       "MainPiece": "1",
+       "SequenceDisplay": "1",
+       "LotNumberDisplay": "",
+       "DrawingID": "2916",
+       "ShippingLength": "8788.417577",
+       "ShippingWeightEach": "797.2516955",
+       "ShippingGrossWeightEach": "798.6380359",
+       "ShippingModelWeightEach": "797.2516955",
+       "ShippingSurfaceAreaEach": "14.64677448",
+       "ShippingSquareMetersEach": "0.2378034695",
+       "ApprovalStatus": {
+        "@ID": "6",
+        "#text": "IFF"
+       },
+       "Quantity": "1",
+       "QuantityLoaded": "1",
+       "Loaded": {
+        "ID": "547",
+        "Date": "2026-10-20",
+        "Quantity": "1"
+       },
+       "Shape": {
+        "@ID": "9",
+        "#text": "W"
+       },
+       "Grade": {
+        "@ID": "8",
+        "#text": "A992"
+       },
+       "Dimensions": {
+        "@AlternateDisplay": "410 x 85",
+        "@Metric": "0",
+        "@SizeID": "154",
+        "#text": "16 x 57"
+       },
+       "Length": "8788.417577",
+       "Finish": {
+        "@ID": "1",
+        "#text": "PNT"
+       },
+       "ReferenceNumber": "1B1",
+       "Route": {
+        "@ID": "1",
+        "#text": "SP"
+       },
+       "Category": "BEAM",
+       "SubCategory": "Phase 1",
+       "InstanceTracking": "0",
+       "ProductionCode": "BFB"
+      },
+      {
+       "ProductionControlItemTruckID": "548",
+       "ProductionControlItemID": "8741",
+       "ProductionControlID": "13",
+       "DrawingNumberDisplay": "A1",
+       "MainMarkDisplay": "A1",
+       "PieceMarkDisplay": "A1",
+       "MainPiece": "1",
+       "SequenceDisplay": "1",
+       "LotNumberDisplay": "",
+       "DrawingID": "2923",
+       "AssemblyDrawingID": "2923",
+       "PartDrawingID": "3567",
+       "ShippingLength": "3917.957836",
+       "ShippingWeightEach": "86.02211846",
+       "ShippingGrossWeightEach": "86.02211846",
+       "ShippingModelWeightEach": "86.02211846",
+       "ShippingSurfaceAreaEach": "1.806291484",
+       "ShippingSquareMetersEach": "0.088383872",
+       "ApprovalStatus": {
+        "@ID": "6",
+        "#text": "IFF"
+       },
+       "Quantity": "1",
+       "Shape": {
+        "@ID": "185",
+        "#text": "HSS"
+       },
+       "Grade": {
+        "@ID": "165",
+        "#text": "A500-B"
+       },
+       "Dimensions": {
+        "@AlternateDisplay": "101.6 x 101.6 x 6.4",
+        "@Metric": "0",
+        "@SizeID": "1083",
+        "#text": "4 x 4 x 1/4"
+       },
+       "Length": "3917.957836",
+       "Finish": {
+        "@ID": "1",
+        "#text": "PNT"
+       },
+       "ReferenceNumber": "A1",
+       "Route": {
+        "@ID": "1",
+        "#text": "SP"
+       },
+       "Category": "COLUMN",
+       "SubCategory": "Phase 1",
+       "InstanceTracking": "0",
+       "ProductionCode": "C1"
+      },
+      {
+       "ProductionControlItemTruckID": "550",
+       "ProductionControlItemID": "8755",
+       "ProductionControlID": "13",
+       "DrawingNumberDisplay": "A3",
+       "MainMarkDisplay": "A3",
+       "PieceMarkDisplay": "A3",
+       "MainPiece": "1",
+       "SequenceDisplay": "1",
+       "LotNumberDisplay": "",
+       "DrawingID": "2925",
+       "AssemblyDrawingID": "2925",
+       "ShippingLength": "6218.249936",
+       "ShippingWeightEach": "258.025396",
+       "ShippingGrossWeightEach": "258.025396",
+       "ShippingModelWeightEach": "258.025396",
+       "ShippingSurfaceAreaEach": "3.790652743",
+       "ShippingSquareMetersEach": "0",
+       "ApprovalStatus": {
+        "@ID": "6",
+        "#text": "IFF"
+       },
+       "Quantity": "2",
+       "QuantityLoaded": "2",
+       "Loaded": {
+        "ID": "555",
+        "Date": "2026-10-20",
+        "Quantity": "2"
+       },
+       "Shape": {
+        "@ID": "185",
+        "#text": "HSS"
+       },
+       "Grade": {
+        "@ID": "165",
+        "#text": "A500-B"
+       },
+       "Dimensions": {
+        "@AlternateDisplay": "152.4 x 152.4 x 9.5",
+        "@Metric": "0",
+        "@SizeID": "1018",
+        "#text": "6 x 6 x 3/8"
+       },
+       "Length": "6218.249936",
+       "Finish": {
+        "@ID": "1",
+        "#text": "PNT"
+       },
+       "ReferenceNumber": "A3",
+       "Route": {
+        "@ID": "1",
+        "#text": "SP"
+       },
+       "Category": "VERTICAL HSS BRACE",
+       "SubCategory": "Phase 1",
+       "InstanceTracking": "0",
+       "ProductionCode": "VBHSS"
+      }
+     ]
+    }
+   ],
+   "ApprovalStatus": [
+    {
+     "ApprovalStatusID": "4",
+     "ApprovalStatus": "P",
+     "Description": "Approved As Noted"
+    },
+    {
+     "ApprovalStatusID": "6",
+     "ApprovalStatus": "IFF",
+     "Description": "In For Fabrication",
+     "Purpose": "Approved"
+    }
+   ],
+   "HoldSettings": {
+    "Purchasing": "Prompt",
+    "Production": "Prompt",
+    "Inspections": "Prompt",
+    "ShippingAssign": "Prompt",
+    "ShippingLoad": "Prompt",
+    "ShippingShip": "Prevent"
+   }
+  }
+ },
+ "remaining": {
+  "Successful": "1",
+  "ResultData": {
+   "LastLogID": "146424,38940",
+   "GetOptions": "",
+   "ProductionControlLoadRemaining": [
+    {
+     "ProductionControlItemID": "8851",
+     "ProductionControlID": "13",
+     "DrawingNumberDisplay": "A30",
+     "MainMarkDisplay": "A30",
+     "PieceMarkDisplay": "A30",
+     "MainPiece": "1",
+     "SequenceID": "27",
+     "SequenceDisplay": "3",
+     "DrawingID": "3606",
+     "AssemblyDrawingID": "3606",
+     "ShippingLength": "3943.357887",
+     "ShippingLengthEach": "4705.359411",
+     "ShippingWeightEach": "81.63704446",
+     "ShippingGrossWeightEach": "81.63704446",
+     "ShippingModelWeightEach": "81.63704446",
+     "ShippingSurfaceAreaEach": "1.806299912",
+     "ShippingSquareMetersEach": "0.0870967858",
+     "HoursEach": "0.4988479347",
+     "TotalQuantity": "1",
+     "QuantityAtShippedFromAddress": "1",
+     "QuantityRemaining": "1",
+     "Shape": {
+      "@ID": "185",
+      "#text": "HSS"
+     },
+     "Grade": {
+      "@ID": "165",
+      "#text": "A500-B"
+     },
+     "Dimensions": {
+      "@Metric": "0",
+      "@SizeID": "1083",
+      "#text": "4 x 4 x 1/4"
+     },
+     "Length": "3943.357887",
+     "Finish": {
+      "@ID": "1",
+      "#text": "PNT"
+     },
+     "Remark": "GC RFI 27",
+     "Route": {
+      "@ID": "1",
+      "#text": "SP"
+     },
+     "Category": "COLUMN",
+     "SubCategory": "Phase 3",
+     "InstanceTracking": "0",
+     "ProductionCode": "C1"
+    },
+    {
+     "ProductionControlItemID": "8865",
+     "ProductionControlID": "13",
+     "DrawingNumberDisplay": "A34",
+     "MainMarkDisplay": "A34",
+     "PieceMarkDisplay": "A34",
+     "MainPiece": "1",
+     "SequenceID": "29",
+     "SequenceDisplay": "5",
+     "DrawingID": "3610",
+     "AssemblyDrawingID": "3610",
+     "ShippingLength": "3843.345187",
+     "ShippingLengthEach": "3843.345187",
+     "ShippingWeightEach": "89.33884446",
+     "ShippingGrossWeightEach": "89.33884446",
+     "ShippingModelWeightEach": "89.33884446",
+     "ShippingSurfaceAreaEach": "1.95242326",
+     "HoursEach": "0.4440658872",
+     "TotalQuantity": "4",
+     "QuantityAtShippedFromAddress": "4",
+     "QuantityRemaining": "4",
+     "Shape": {
+      "@ID": "185",
+      "#text": "HSS"
+     },
+     "Grade": {
+      "@ID": "165",
+      "#text": "A500-B"
+     },
+     "Dimensions": {
+      "@Metric": "0",
+      "@SizeID": "1052",
+      "#text": "5 x 5 x 1/4"
+     },
+     "Length": "3843.345187",
+     "Finish": {
+      "@ID": "1",
+      "#text": "PNT"
+     },
+     "Route": {
+      "@ID": "1",
+      "#text": "SP"
+     },
+     "Category": "VERTICAL HSS BRACE",
+     "SubCategory": "Phase 5",
+     "InstanceTracking": "0",
+     "ProductionCode": "VBHSS"
+    },
+    {
+     "ProductionControlItemID": "8897",
+     "ProductionControlID": "13",
+     "DrawingNumberDisplay": "AB1",
+     "MainMarkDisplay": "AB1",
+     "PieceMarkDisplay": "AB1",
+     "MainPiece": "1",
+     "SequenceID": "25",
+     "SequenceDisplay": "1",
+     "DrawingID": "2936",
+     "AssemblyDrawingID": "2936",
+     "ShippingLengthEach": "100.0127",
+     "ShippingWeightEach": "1.529636399",
+     "ShippingGrossWeightEach": "1.529826313",
+     "ShippingModelWeightEach": "1.529636399",
+     "ShippingSurfaceAreaEach": "0.024",
+     "ShippingSquareMetersEach": "0.01",
+     "ApprovalStatus": {
+      "@ID": "4",
+      "#text": "P"
+     },
+     "TotalQuantity": "20",
+     "QuantityAtShippedFromAddress": "20",
+     "QuantityRemaining": "20",
+     "Shape": {
+      "@ID": "175",
+      "#text": "AB"
+     },
+     "Grade": {
+      "@ID": "199",
+      "#text": "F1554-36"
+     },
+     "Dimensions": {
+      "@Metric": "0",
+      "@SizeID": "6422",
+      "#text": "1 x 2'-0"
+     },
+     "Finish": {
+      "@ID": "1",
+      "#text": "PNT"
+     },
+     "ReferenceNumber": "AB1",
+     "Route": {
+      "@ID": "1",
+      "#text": "SP"
+     },
+     "Category": "ANCHOR_ROD",
+     "SubCategory": "Phase 4",
+     "InstanceTracking": "0",
+     "ProductionCode": "AB"
+    },
+    {
+     "ProductionControlItemID": "8897",
+     "ProductionControlID": "13",
+     "DrawingNumberDisplay": "AB1",
+     "MainMarkDisplay": "AB1",
+     "PieceMarkDisplay": "AB1",
+     "MainPiece": "1",
+     "SequenceID": "28",
+     "SequenceDisplay": "2",
+     "DrawingID": "2936",
+     "AssemblyDrawingID": "2936",
+     "ShippingLengthEach": "100.0127",
+     "ShippingWeightEach": "1.529636399",
+     "ShippingGrossWeightEach": "1.529826313",
+     "ShippingModelWeightEach": "1.529636399",
+     "ShippingSurfaceAreaEach": "0.024",
+     "ShippingSquareMetersEach": "0.01",
+     "ApprovalStatus": {
+      "@ID": "4",
+      "#text": "P"
+     },
+     "TotalQuantity": "20",
+     "QuantityAtShippedFromAddress": "20",
+     "QuantityRemaining": "20",
+     "Shape": {
+      "@ID": "175",
+      "#text": "AB"
+     },
+     "Grade": {
+      "@ID": "199",
+      "#text": "F1554-36"
+     },
+     "Dimensions": {
+      "@Metric": "0",
+      "@SizeID": "6422",
+      "#text": "1 x 2'-0"
+     },
+     "Finish": {
+      "@ID": "1",
+      "#text": "PNT"
+     },
+     "ReferenceNumber": "AB1",
+     "Route": {
+      "@ID": "1",
+      "#text": "SP"
+     },
+     "Category": "ANCHOR_ROD",
+     "SubCategory": "Phase 4",
+     "InstanceTracking": "0",
+     "ProductionCode": "AB"
+    },
+    {
+     "ProductionControlItemID": "8897",
+     "ProductionControlID": "13",
+     "DrawingNumberDisplay": "AB1",
+     "MainMarkDisplay": "AB1",
+     "PieceMarkDisplay": "AB1",
+     "MainPiece": "1",
+     "SequenceID": "27",
+     "SequenceDisplay": "3",
+     "DrawingID": "2936",
+     "AssemblyDrawingID": "2936",
+     "ShippingLengthEach": "100.0127",
+     "ShippingWeightEach": "1.529636399",
+     "ShippingGrossWeightEach": "1.529826313",
+     "ShippingModelWeightEach": "1.529636399",
+     "ShippingSurfaceAreaEach": "0.024",
+     "ShippingSquareMetersEach": "0.01",
+     "ApprovalStatus": {
+      "@ID": "4",
+      "#text": "P"
+     },
+     "TotalQuantity": "4",
+     "QuantityAtShippedFromAddress": "4",
+     "QuantityRemaining": "4",
+     "Shape": {
+      "@ID": "175",
+      "#text": "AB"
+     },
+     "Grade": {
+      "@ID": "199",
+      "#text": "F1554-36"
+     },
+     "Dimensions": {
+      "@Metric": "0",
+      "@SizeID": "6422",
+      "#text": "1 x 2'-0"
+     },
+     "Finish": {
+      "@ID": "1",
+      "#text": "PNT"
+     },
+     "ReferenceNumber": "AB1",
+     "Route": {
+      "@ID": "1",
+      "#text": "SP"
+     },
+     "Category": "ANCHOR_ROD",
+     "SubCategory": "Phase 4",
+     "InstanceTracking": "0",
+     "ProductionCode": "AB"
+    },
+    {
+     "ProductionControlItemID": "8897",
+     "ProductionControlID": "13",
+     "DrawingNumberDisplay": "AB1",
+     "MainMarkDisplay": "AB1",
+     "PieceMarkDisplay": "AB1",
+     "MainPiece": "1",
+     "SequenceID": "26",
+     "SequenceDisplay": "4",
+     "DrawingID": "2936",
+     "AssemblyDrawingID": "2936",
+     "ShippingLengthEach": "100.0127",
+     "ShippingWeightEach": "1.529636399",
+     "ShippingGrossWeightEach": "1.529826313",
+     "ShippingModelWeightEach": "1.529636399",
+     "ShippingSurfaceAreaEach": "0.024",
+     "ShippingSquareMetersEach": "0.01",
+     "ApprovalStatus": {
+      "@ID": "4",
+      "#text": "P"
+     },
+     "TotalQuantity": "24",
+     "QuantityAtShippedFromAddress": "24",
+     "QuantityRemaining": "24",
+     "Shape": {
+      "@ID": "175",
+      "#text": "AB"
+     },
+     "Grade": {
+      "@ID": "199",
+      "#text": "F1554-36"
+     },
+     "Dimensions": {
+      "@Metric": "0",
+      "@SizeID": "6422",
+      "#text": "1 x 2'-0"
+     },
+     "Finish": {
+      "@ID": "1",
+      "#text": "PNT"
+     },
+     "ReferenceNumber": "AB1",
+     "Route": {
+      "@ID": "1",
+      "#text": "SP"
+     },
+     "Category": "ANCHOR_ROD",
+     "SubCategory": "Phase 4",
+     "InstanceTracking": "0",
+     "ProductionCode": "AB"
+    }
+   ],
+   "HoldSettings": {
+    "Purchasing": "Prompt",
+    "Production": "Prompt",
+    "Inspections": "Prompt",
+    "ShippingAssign": "Prompt",
+    "ShippingLoad": "Prompt",
+    "ShippingShip": "Prevent"
+   }
+  }
+ }
+}

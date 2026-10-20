@@ -1,269 +1,471 @@
-// Shipping against real PowerFab loads: links a tablet load to a PowerFab
-// load (truck), checks every scan before it goes on (js/ship-check.js), shows
-// the "you can't ship that" warning with a logged hold-to-override, and lets
-// a load be marked shipped on this tablet. Read only toward PowerFab: the
-// shipped mark and overrides stay in the tablet's own storage.
+// Shipping screen on live PowerFab data. Opening Shipping for the current job
+// reads every load on the job and lists them in the side panel; the picked
+// load fills the workspace. Every change (new load, add material, load,
+// unload, remove, ship, unship, return, delete) is a PowerFab write through
+// the API (js/pf-loads.js), followed by a fresh read of the loads. Nothing is
+// stored on the device except which step the scan bar is on.
+//
+// Scans run one at a time in order, so a fast scanner can't race two writes.
 
 import { escapeHtml, toast } from './app.js';
 import { getConfig } from './api.js';
-import { getCurrentJob } from './current-job.js';
+import { getCurrentJob, onCurrentJobChange, openJobPicker } from './current-job.js';
 import { bindHold } from './hold.js';
-import { jobKey, jobPartCount, lookupPart } from './parts.js';
-import { cachedLoads, fetchLoads, findPfLoad } from './pf-loads.js';
-import { STATUS_LABELS, isShipped, shipLoad, statusCounts, unshipLoad } from './piece-status.js';
-import { countOn, vetScan } from './ship-check.js';
-import * as store from './store.js';
+import { jobKey } from './parts.js';
+import * as pf from './pf-loads.js';
+import { flashFeedback, focusScanner } from './scanner.js';
+import { claimsText, cleanMark, findLoad, formatWeight, loadSequences, loadTotals, pickRemaining, takeRemaining, toLoad } from './shipping.js';
 
 const $ = (sel) => document.querySelector(sel);
 
-const STALE_MS = 60 * 1000;
+const STEP_KEY = 'terra.step';
+export const STEP_MATERIAL = 'material';
+export const STEP_LOAD = 'load';
 
-let ctx = null;
-let others = [];        // every other load on the tablet, for the checks
-let othersFor = null;   // id of the load `others` was read for
-let pending = null;     // { verdict, onOverride } while the warning is open
+const SHIP_HOLD_MS = 3000;
+const DELETE_HOLD_MS = 7500;
+const ROW_HOLD_MS = 1500;
 
-// ---- Data ------------------------------------------------------------------
+// Everything Shipping knows, all of it read from PowerFab for the open job.
+export const ship = {
+  job: null,          // job number, e.g. "EPM-001"
+  pcid: null,         // its ProductionControlID
+  loads: [],          // pf.parseLoads()
+  remaining: [],      // pf.parseRemaining()
+  selectedId: null,   // ProductionControlLoadID in the workspace
+  readAt: null,
+  reading: false,
+  error: '',
+  busy: 0,            // writes in flight
+};
 
-export function pfEntry(job) {
-  return job ? cachedLoads(job) : null;
-}
+let step = readStep();
+let queue = Promise.resolve();
+let readSeq = 0;
 
-async function readOthers(load) {
-  const all = await store.listLoads();
-  others = all.filter((l) => l.id !== load?.id);
-  othersFor = load?.id ?? null;
-}
-
-// Pulls the job's PowerFab loads when online and the copy is old or missing.
-// Returns the entry in use (fresh or cached) or null.
-export async function refreshPfLoads(job, { force = false, quiet = true } = {}) {
-  if (!job) return null;
-  const cached = cachedLoads(job);
-  const fresh = cached && Date.now() - new Date(cached.fetchedAt).getTime() < STALE_MS;
-  if (!getConfig() || !navigator.onLine || (fresh && !force)) return cached;
+function readStep() {
   try {
-    const entry = await fetchLoads(job);
-    if (!quiet) toast(`${entry.loads.length} PowerFab load${entry.loads.length === 1 ? '' : 's'} for ${entry.job}`);
-    return entry;
-  } catch (err) {
-    if (!quiet) toast(cached ? `Using saved PowerFab loads. ${err.message}` : err.message, 5000);
-    return cached;
+    return localStorage.getItem(STEP_KEY) === STEP_MATERIAL ? STEP_MATERIAL : STEP_LOAD;
+  } catch {
+    return STEP_LOAD;
   }
 }
 
-// Call whenever a load is opened or created.
-export async function loadOpened(load) {
-  await readOthers(load);
-  if (!load?.job) return;
-  await refreshPfLoads(load.job);
-  if (ctx?.load?.id === load.id) ctx.render();
+export function selectedLoad() {
+  return findLoad(ship.loads, ship.selectedId);
 }
 
-// The check for one scan onto the open load, or null when it may go on.
-export function vetCurrentScan(load, raw) {
-  if (!load) return null;
-  if (othersFor !== load.id) readOthers(load); // first scan after a switch: check with what's known
-  const base = String(raw ?? '').trim().toUpperCase().replace(/-+$/, '');
-  return vetScan({
-    load,
-    mark: base,
-    others,
-    pf: pfEntry(load.job),
-    part: load.job ? lookupPart(base, load.job) : null,
-    partsKnown: Boolean(load.job && jobPartCount(load.job)),
+// ---- Reading ---------------------------------------------------------------
+
+// Reads the job's loads (and, with `remaining`, what is left to ship).
+async function read({ remaining = false } = {}) {
+  const seq = ++readSeq;
+  const job = ship.job;
+  if (!job) return;
+  ship.reading = true;
+  render();
+  try {
+    if (!ship.pcid) ship.pcid = (await pf.readJob(job)).pcid;
+    const [loads, rest] = await Promise.all([
+      pf.readLoads(ship.pcid),
+      remaining || !ship.readAt ? pf.readRemaining(ship.pcid) : null,
+    ]);
+    if (seq !== readSeq || ship.job !== job) return;
+    ship.loads = loads;
+    if (rest) ship.remaining = rest;
+    ship.readAt = new Date();
+    ship.error = '';
+    if (!findLoad(loads, ship.selectedId)) ship.selectedId = loads.find((l) => !l.shipped)?.id ?? loads[0]?.id ?? null;
+  } catch (err) {
+    if (seq === readSeq) ship.error = err.message;
+  } finally {
+    if (seq === readSeq) ship.reading = false;
+    render();
+  }
+}
+
+// Opens Shipping on a job: clears the old job's data and reads the new one.
+export function openJob(job) {
+  const number = job ? jobKey(job) : null;
+  if (number === ship.job && ship.readAt) return read();
+  Object.assign(ship, { job: number, pcid: null, loads: [], remaining: [], selectedId: null, readAt: null, error: '' });
+  render();
+  return number ? read({ remaining: true }) : null;
+}
+
+export function refresh() {
+  return read({ remaining: true });
+}
+
+// ---- Writes ----------------------------------------------------------------
+
+// Runs one PowerFab change, then re-reads. Changes queue behind each other.
+// Resolves true when the write went through.
+function change(fn, { remaining = false } = {}) {
+  const run = async () => {
+    ship.busy++;
+    renderScanbar();
+    try {
+      await fn();
+      return true;
+    } catch (err) {
+      flashFeedback('bad');
+      // Checks made here carry their own title; anything else came back from PowerFab.
+      showBlock({ title: err.title ?? 'PowerFab refused that', mark: err.mark ?? '', message: err.message });
+      return false;
+    } finally {
+      ship.busy--;
+      await read({ remaining });
+    }
+  };
+  const p = queue.then(run, run);
+  queue = p.catch(() => {});
+  return p;
+}
+
+// What a scan of `raw` does on the open load: in the Load step it loads a
+// piece already assigned to the load, or assigns and loads one; in the Add
+// material step it only assigns.
+export function scan(raw) {
+  const mark = cleanMark(raw);
+  if (!mark) return null;
+  return change(async () => {
+    const load = selectedLoad();
+    if (!load) throw new Error('Pick or create a load first.');
+    if (load.shipped) {
+      throw Object.assign(new Error(`Load ${load.number} has shipped. Unship it first to change it.`), { title: 'Load already shipped', mark });
+    }
+    if (step === STEP_LOAD) {
+      const item = toLoad(load, mark);
+      if (item) {
+        await pf.loadMaterial(load.id, item);
+        return done(`${mark} loaded`);
+      }
+    }
+    const pick = pickRemaining(mark, ship.remaining, ship.loads);
+    if (!pick.row) throw blocked(mark, pick.reason, load);
+    await pf.addMaterial(load.id, pick.row);
+    ship.remaining = takeRemaining(ship.remaining, pick.row);
+    if (step === STEP_MATERIAL) return done(`${mark} added to load ${load.number}${pick.row.sequence ? ` (seq ${pick.row.sequence})` : ''}`);
+    // Load step: find the row PowerFab just made and load it.
+    const loads = await pf.readLoads(ship.pcid);
+    ship.loads = loads;
+    const fresh = toLoad(findLoad(loads, load.id), mark);
+    if (!fresh) throw new Error(`${mark} was added to load ${load.number} but could not be found to load it. Refresh and load it again.`);
+    await pf.loadMaterial(load.id, fresh);
+    return done(`${mark} loaded${pick.row.sequence ? ` (seq ${pick.row.sequence})` : ''}`);
   });
 }
 
-function sourceNote(job) {
-  const entry = pfEntry(job);
-  if (!entry) return 'No PowerFab loads saved on this tablet yet, so this was checked against the part list and the tablet’s own loads.';
-  const when = new Date(entry.fetchedAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' });
-  return `Checked against PowerFab loads from ${when} and the tablet’s own loads.`;
+function done(message) {
+  flashFeedback('ok');
+  toast(message);
 }
 
-// ---- "You can't ship that" ---------------------------------------------------
+function blocked(mark, reason, load) {
+  const where = claimsText(mark, ship.loads);
+  const messages = {
+    'not-on-job': [`Not on job ${ship.job}`, `${mark} isn’t a piece PowerFab has left to ship on ${ship.job}.`],
+    shipped: ['Already shipped', `Every ${mark} on ${ship.job} has shipped.${where ? ` ${where}.` : ''}`],
+    'on-other-loads': ['On another load', `Every ${mark} left to ship is already on a load.${where ? ` ${where}.` : ''}`],
+  };
+  const [title, message] = messages[reason] ?? ['Can’t add that', reason];
+  return Object.assign(new Error(message), { title, mark });
+}
 
-// Shows why a scan was blocked. onOverride runs if the operator holds the
-// override button; the caller logs the override on the piece.
-export function showBlock(verdict, onOverride) {
-  pending = { verdict, onOverride };
-  $('#ship-block-title').textContent = verdict.title;
-  $('#ship-block-mark').textContent = verdict.mark;
-  $('#ship-block-msg').textContent = verdict.message;
-  $('#ship-block-source').textContent = sourceNote(ctx?.load?.job);
-  // A shipped tablet load has to be un-shipped on purpose, not overridden.
-  $('#btn-ship-override').hidden = verdict.code === 'load-shipped';
+// ---- "Not added" dialog ----------------------------------------------------
+
+export function showBlock({ title, mark, message }) {
+  $('#ship-block-title').textContent = title;
+  $('#ship-block-mark').textContent = mark ?? '';
+  $('#ship-block-msg').textContent = message;
   const dlg = $('#dlg-ship-block');
   if (!dlg.open) dlg.showModal();
-  // Enter from the next scan lands on "Don't add".
+  // Enter from the next scan lands on OK.
   $('#btn-ship-block-ok').focus({ preventScroll: true });
 }
 
-function overrideNow() {
-  const p = pending;
-  pending = null;
-  $('#dlg-ship-block').close();
-  p?.onOverride?.(p.verdict);
+// ---- Rendering -------------------------------------------------------------
+
+function shortDate(iso) {
+  const d = new Date(`${iso}T12:00:00`);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-// ---- Header line and load list ---------------------------------------------------
-
-export function shipStatLine(load) {
-  if (!load) return '';
-  if (!load.pfLoad) return 'No PowerFab load';
-  const pf = findPfLoad(pfEntry(load.job), load.pfLoad);
-  return `PowerFab load ${load.pfLoad}${pf?.shipped ? ' (shipped)' : ''}`;
+function renderStats() {
+  const load = selectedLoad();
+  const t = loadTotals(load);
+  const seqs = loadSequences(load);
+  $('#stat-load').textContent = load ? `Load ${load.number}` : '—';
+  $('#stat-job').textContent = ship.job ?? '';
+  $('#stat-seq').textContent = seqs.length ? seqs.join(', ') : '—';
+  $('#stat-pieces').textContent = load ? `${t.loaded} of ${t.pieces}` : '0';
+  $('#stat-weight').textContent = formatWeight(t.weight);
+  $('#ship-badge').hidden = !load?.shipped;
+  document.body.classList.toggle('load-shipped', Boolean(load?.shipped));
 }
 
-export function renderShipStat(load) {
-  const line = $('#stat-pf');
-  if (line) line.textContent = shipStatLine(load);
-  const badge = $('#ship-badge');
-  if (badge) badge.hidden = !isShipped(load);
-  document.body.classList.toggle('load-shipped', isShipped(load));
+function loadRow(l) {
+  const t = loadTotals(l);
+  const status = l.shipped ? `Shipped${l.shipDate ? ` ${shortDate(l.shipDate)}` : ''}` : 'Open';
+  return `<li><button class="btn load-row${l.id === ship.selectedId ? ' active' : ''}${l.shipped ? ' shipped' : ''}" type="button" data-load-id="${escapeHtml(l.id)}">
+    <span class="load-row-name">Load ${escapeHtml(l.number)} <span class="badge ${l.shipped ? '' : 'badge-open'}">${escapeHtml(status)}</span></span>
+    <span class="load-row-meta">${t.loaded} of ${t.pieces} loaded &middot; ${formatWeight(t.weight)}</span>
+  </button></li>`;
 }
 
-// Extra text for load lists: " · PowerFab 5 · Shipped".
-export function shipSummary(load) {
-  return `${load.pfLoad ? ` · PowerFab ${load.pfLoad}` : ''}${isShipped(load) ? ' · Shipped' : ''}`;
+function renderLoadList() {
+  const list = $('#load-list');
+  $('#loads-note').textContent = !ship.job ? ''
+    : ship.reading && !ship.readAt ? `Reading ${ship.job} from PowerFab…`
+    : ship.readAt ? `${ship.loads.length} load${ship.loads.length === 1 ? '' : 's'} on ${ship.job}, read ${ship.readAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}${ship.reading ? ' · reading…' : ''}`
+    : '';
+  list.innerHTML = !ship.job ? '<li class="muted">Pick a job to see its loads.</li>'
+    : ship.loads.length ? ship.loads.map(loadRow).join('')
+    : ship.readAt ? '<li class="muted">PowerFab has no loads on this job yet. Tap + New to make one.</li>'
+    : '';
 }
 
-// ---- PowerFab load choices (new load and status dialogs) ------------------------
-
-// Radio list of the job's PowerFab loads. Shipped ones and ones another tablet
-// load already uses can't be picked.
-function pfOptionsHtml(job, selected, { forLoadId = null } = {}) {
-  const entry = pfEntry(job);
-  const taken = new Map(others.filter((l) => l.id !== forLoadId && l.pfLoad && jobKey(l.job) === jobKey(job)).map((l) => [l.pfLoad, l.name]));
-  const none = `<label class="job-option"><input type="radio" name="pfload" value=""${!selected ? ' checked' : ''}><span>Not linked to a PowerFab load</span></label>`;
-  const rows = (entry?.loads ?? []).map((l) => {
-    const usedBy = taken.get(l.number);
-    const off = (l.shipped || usedBy) && l.number !== selected;
-    const meta = [`${l.count} pcs`, l.shipped ? 'shipped' : 'open', usedBy ? `on tablet as ${usedBy}` : ''].filter(Boolean).join(' · ');
-    return `<label class="job-option${off ? ' disabled' : ''}"><input type="radio" name="pfload" value="${escapeHtml(l.number)}"${l.number === selected ? ' checked' : ''}${off ? ' disabled' : ''}>
-      <span>Load ${escapeHtml(l.number)} <span class="muted">${escapeHtml(meta)}</span></span></label>`;
-  }).join('');
-  return none + rows;
+function itemRow(it, load) {
+  const status = load.shipped ? (it.returned ? `${it.returned} returned` : 'Shipped')
+    : it.loaded >= it.qty ? 'Loaded' : it.loaded ? `${it.loaded} of ${it.qty} loaded` : 'Material';
+  const cls = load.shipped ? 'shipped' : it.loaded >= it.qty ? 'loaded' : 'material';
+  const hold = (action, label, title) => `<button class="btn btn-hold" type="button" data-hold="${action}" data-hold-ms="${ROW_HOLD_MS}" title="${title}">${label}</button>`;
+  const actions = load.shipped
+    ? [it.returned < it.qty ? hold('return', 'Return', 'Hold to return one to the shop') : '', it.returned ? hold('unreturn', 'Undo return', 'Hold to undo a return') : '']
+    : [it.loaded < it.qty ? '<button class="btn" type="button" data-action="load">Load</button>' : '',
+      it.loaded ? hold('unload', 'Unload', 'Hold to take one off the truck') : hold('remove', 'Remove', 'Hold to take it off this load')];
+  return `<li class="ship-item is-${cls}" data-truck-id="${escapeHtml(it.truckId)}">
+    <span class="item-mark">${escapeHtml(it.mark)}</span>
+    <span class="ship-item-seq">${it.sequence ? `Seq ${escapeHtml(it.sequence)}` : ''}</span>
+    <span class="item-desc">${escapeHtml(it.description)}</span>
+    <span class="ship-item-qty">${it.qty > 1 ? `&times;${it.qty}` : ''}</span>
+    <span class="item-weight">${formatWeight(it.qty * it.weightEach)}</span>
+    <span class="ship-pill ${cls}">${escapeHtml(status)}</span>
+    <span class="item-actions">${actions.join('')}</span>
+  </li>`;
 }
 
-function pfNote(job) {
-  const entry = pfEntry(job);
-  if (!entry) return navigator.onLine && getConfig() ? 'Reading PowerFab loads…' : 'No PowerFab loads saved for this job yet. Connect to the server to read them.';
-  const when = new Date(entry.fetchedAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' });
-  return `${entry.loads.length} PowerFab load${entry.loads.length === 1 ? '' : 's'}, read ${when}.`;
+function renderLoad(load) {
+  const t = loadTotals(load);
+  const toGo = load.items.filter((it) => it.loaded < it.qty);
+  const loaded = load.items.filter((it) => it.loaded >= it.qty);
+  const head = `
+    <header class="ship-head">
+      <div>
+        <h2>Load ${escapeHtml(load.number)}</h2>
+        <p class="muted">${load.shipped ? `Shipped${load.shipDate ? ` ${escapeHtml(shortDate(load.shipDate))}` : ''}. Hold Return on a piece that comes back.`
+          : `${t.loaded} of ${t.pieces} pieces loaded · ${formatWeight(t.weight)}`}</p>
+      </div>
+      <div class="ship-actions">
+        ${load.shipped
+          ? `<button class="btn btn-hold" type="button" data-hold="unship" data-hold-ms="${SHIP_HOLD_MS}">Hold to unship</button>`
+          : `<button class="btn btn-hold btn-ship" type="button" data-hold="ship" data-hold-ms="${SHIP_HOLD_MS}"${t.pieces ? '' : ' disabled'}>Hold to ship</button>`}
+        ${load.items.length ? '' : `<button class="btn btn-hold" type="button" data-hold="delete" data-hold-ms="${DELETE_HOLD_MS}">Hold 7.5 s to delete load</button>`}
+      </div>
+    </header>`;
+  if (!load.items.length) {
+    return `${head}<p class="stack-empty">Nothing on this load yet. Scan pieces to ${step === STEP_LOAD ? 'load them' : 'add them as material'}.</p>`;
+  }
+  const section = (title, items) => items.length
+    ? `<section class="stack"><header class="stack-head"><span class="stack-name">${title}</span><span class="stack-stats"><b>${items.reduce((n, it) => n + it.qty, 0)}</b> pcs</span></header>
+        <ol class="items">${items.map((it) => itemRow(it, load)).join('')}</ol></section>`
+    : '';
+  return load.shipped
+    ? head + section('Shipped', load.items)
+    : head + section('To load', toGo) + section('Loaded', loaded);
 }
 
-// Call when the new-load dialog opens, and on every job change in it.
-export async function renderNewLoadPf() {
-  const form = $('#form-new-load');
-  const job = getCurrentJob();
-  const box = $('#new-load-pf');
-  box.hidden = !job;
-  if (!job) return;
-  const draw = () => {
-    const selected = form.elements.pfload?.value || '';
-    $('#new-load-pf-list').innerHTML = pfOptionsHtml(job, selected);
-    $('#new-load-pf-note').textContent = pfNote(job);
-  };
-  draw();
-  await readOthers(null);
-  await refreshPfLoads(job);
-  if (getCurrentJob() === job) draw();
-}
-
-// ---- Shipping status dialog ------------------------------------------------------
-
-function compareHtml(load) {
-  const pf = findPfLoad(pfEntry(load.job), load.pfLoad);
-  if (!load.pfLoad) return '<p class="muted">Link a PowerFab load to compare what PowerFab has on the truck with what was scanned.</p>';
-  if (!pf) return `<p class="muted">PowerFab load ${escapeHtml(load.pfLoad)} isn’t in the saved PowerFab data. Refresh while online.</p>`;
-  const marks = new Set([...Object.keys(pf.pieces)]);
-  for (const s of load.stacks) for (const it of s.items) marks.add(it.mark.replace(/-+$/, ''));
-  const rows = [...marks].sort((a, b) => a.localeCompare(b, 'en', { numeric: true })).map((m) => {
-    const inPf = pf.pieces[m] ?? 0;
-    const here = countOn(load, m);
-    const cls = inPf === here ? 'ok' : 'diff';
-    return `<tr class="${cls}"><td>${escapeHtml(m)}</td><td>${inPf}</td><td>${here}</td></tr>`;
-  }).join('');
-  const same = [...marks].every((m) => (pf.pieces[m] ?? 0) === countOn(load, m));
-  return `
-    <p class="${same ? 'ship-ok' : 'ship-diff'}">${same ? 'Tablet and PowerFab match.' : 'Tablet and PowerFab differ on the marks shown in amber.'}</p>
-    <table class="ship-compare"><thead><tr><th>Mark</th><th>PowerFab</th><th>Tablet</th></tr></thead><tbody>${rows}</tbody></table>`;
-}
-
-function renderStatusDialog() {
-  const load = ctx.load;
-  if (!load) return;
-  const c = statusCounts(load);
-  const parts = Object.entries(c).filter(([, n]) => n).map(([k, n]) => `${n} ${STATUS_LABELS[k].toLowerCase()}`);
-  $('#ship-summary').textContent = `${load.name} · ${load.job ?? 'No job'} · ${parts.join(', ') || 'no pieces'}`;
-  $('#ship-pf-list').innerHTML = load.job ? pfOptionsHtml(load.job, load.pfLoad ?? '', { forLoadId: load.id }) : '<p class="muted">File this load under a job first (Manage loads).</p>';
-  $('#ship-pf-note').textContent = load.job ? pfNote(load.job) : '';
-  $('#ship-compare').innerHTML = compareHtml(load);
-  const btn = $('#btn-ship-mark');
-  btn.textContent = isShipped(load) ? 'Hold to undo shipped' : 'Hold to mark shipped';
-  $('#ship-mark-note').textContent = isShipped(load)
-    ? `Marked shipped on this tablet ${new Date(load.shippedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}. Nothing was sent to PowerFab.`
-    : 'Marks the load shipped on this tablet only (nothing is sent to PowerFab). Its pieces then count as shipped for every other load.';
-}
-
-export async function openShipStatus() {
-  if (!ctx.load) {
-    toast('Open a load first');
+function renderWorkspace() {
+  const ws = $('#workspace');
+  if (!ship.job) {
+    ws.innerHTML = `<div class="empty"><h1>Pick a job first</h1>
+      <p class="muted">Shipping shows the job’s PowerFab loads.</p>
+      <button class="btn btn-primary btn-lg" type="button" data-action="pick-job">Pick a job</button></div>`;
     return;
   }
-  await readOthers(ctx.load);
-  renderStatusDialog();
-  $('#dlg-ship').showModal();
-  if (ctx.load.job && await refreshPfLoads(ctx.load.job) && $('#dlg-ship').open) renderStatusDialog();
+  if (!getConfig()) {
+    ws.innerHTML = '<div class="empty"><h1>No server set up</h1><p class="muted">Open Server settings on the home screen.</p></div>';
+    return;
+  }
+  if (ship.error && !ship.readAt) {
+    ws.innerHTML = `<div class="empty"><h1>Couldn’t read ${escapeHtml(ship.job)}</h1><p class="muted">${escapeHtml(ship.error)}</p>
+      <button class="btn btn-primary btn-lg" type="button" data-action="refresh">Try again</button></div>`;
+    return;
+  }
+  if (!ship.readAt) {
+    ws.innerHTML = `<div class="empty"><p class="muted">Reading ${escapeHtml(ship.job)} from PowerFab…</p></div>`;
+    return;
+  }
+  const load = selectedLoad();
+  const warn = ship.error ? `<p class="ship-diff">Last read failed: ${escapeHtml(ship.error)}</p>` : '';
+  ws.innerHTML = warn + (load ? renderLoad(load) : `<div class="empty"><h1>No load picked</h1>
+    <p class="muted">Pick a load in the list, or make a new one.</p>
+    <button class="btn btn-primary btn-lg" type="button" data-action="new-load">+ New load</button></div>`);
 }
 
-// ---- Wiring ----------------------------------------------------------------------
-
-export function initShipping(context) {
-  ctx = context;
-
-  bindHold($('#dlg-ship-block'), {
-    selector: '#btn-ship-override',
-    onComplete: overrideNow,
-    onTap: (_, s) => toast(`Hold for ${s} seconds to add it anyway. The override is logged on the piece.`),
+function renderScanbar() {
+  const load = selectedLoad();
+  $('#scanbar').hidden = !load;
+  if (!load) return;
+  $('#scanbar').classList.toggle('adding-material', step === STEP_MATERIAL);
+  $('#scanbar').classList.toggle('busy', ship.busy > 0);
+  $('#scan-label').textContent = ship.busy ? 'Sending to PowerFab…' : step === STEP_MATERIAL ? 'Adding material to' : 'Loading onto';
+  $('#scan-stack').textContent = `Load ${load.number}`;
+  document.querySelectorAll('[data-step]').forEach((b) => {
+    const on = b.dataset.step === step;
+    b.classList.toggle('btn-primary', on);
+    b.setAttribute('aria-pressed', String(on));
   });
-  $('#dlg-ship-block').addEventListener('close', () => { pending = null; });
+}
 
-  const form = $('#form-new-load');
-  form.addEventListener('change', (e) => {
-    if (e.target.name === 'pfload' && e.target.value && !$('#input-load-name').value.trim()) {
-      $('#input-load-name').value = e.target.value.toUpperCase();
+export function render() {
+  renderStats();
+  renderLoadList();
+  renderWorkspace();
+  renderScanbar();
+}
+
+// ---- Load panel (a drawer on narrow screens) --------------------------------
+
+export function setPanel(open) {
+  $('#loads-panel').classList.toggle('open', open);
+  $('#btn-loads').setAttribute('aria-expanded', String(open));
+  $('#scrim').hidden = !open;
+}
+
+// ---- New load ----------------------------------------------------------------
+
+// Next number, destination group and capacity, read when the dialog opens.
+let newLoadOptions = null;
+
+async function showNewLoad() {
+  if (!ship.pcid) {
+    toast(ship.job ? 'Still reading the job. Try again in a moment.' : 'Pick a job first');
+    return;
+  }
+  setPanel(false);
+  const dlg = $('#dlg-new-load');
+  const input = $('#input-load-number');
+  $('#new-load-job').textContent = ship.job;
+  $('#new-load-error').textContent = '';
+  input.value = '';
+  newLoadOptions = null;
+  dlg.showModal();
+  input.focus();
+  try {
+    const opts = await pf.readNewLoadOptions(ship.pcid);
+    newLoadOptions = opts;
+    if (!input.value) input.value = opts.nextNumber;
+  } catch (err) {
+    $('#new-load-error').textContent = err.message;
+  }
+}
+
+async function submitNewLoad(e) {
+  e.preventDefault();
+  const dlg = $('#dlg-new-load');
+  const number = $('#input-load-number').value.trim().toUpperCase();
+  const error = $('#new-load-error');
+  if (!number) {
+    error.textContent = 'Enter a load number.';
+    return;
+  }
+  if (ship.loads.some((l) => l.number.toUpperCase() === number)) {
+    error.textContent = `Load ${number} already exists on ${ship.job}.`;
+    return;
+  }
+  const btn = $('#btn-new-load-create');
+  btn.disabled = true;
+  error.textContent = 'Creating in PowerFab…';
+  try {
+    if (await pf.isLoadNumberTaken(ship.pcid, number)) {
+      error.textContent = `Load ${number} already exists on ${ship.job}.`;
+      return;
+    }
+    newLoadOptions ??= await pf.readNewLoadOptions(ship.pcid);
+    const id = await pf.createLoad(ship.pcid, { number, ...newLoadOptions });
+    dlg.close();
+    ship.selectedId = id;
+    toast(`Load ${number} created`);
+    await read();
+  } catch (err) {
+    error.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---- Wiring ----------------------------------------------------------------
+
+function itemFor(el) {
+  const id = el.closest('[data-truck-id]')?.dataset.truckId;
+  return selectedLoad()?.items.find((it) => it.truckId === id) ?? null;
+}
+
+function onHold(btn) {
+  const load = selectedLoad();
+  if (!load) return;
+  const item = itemFor(btn);
+  const actions = {
+    ship: () => change(() => pf.shipLoad(load.id), { remaining: true }).then((ok) => ok && toast(`Load ${load.number} shipped`)),
+    unship: () => change(() => pf.unshipLoad(load.id), { remaining: true }).then((ok) => ok && toast(`Load ${load.number} is open again`)),
+    delete: () => change(() => pf.deleteLoad(load.id)).then((ok) => ok && toast(`Load ${load.number} deleted`)),
+    unload: () => item && change(() => pf.unloadMaterial(load.id, item)).then((ok) => ok && toast(`${item.mark} taken off the truck`)),
+    remove: () => item && change(() => pf.removeMaterial(load.id, item), { remaining: true }).then((ok) => ok && toast(`${item.mark} taken off load ${load.number}`)),
+    return: () => item && change(() => pf.returnMaterial(load.id, item), { remaining: true }).then((ok) => ok && toast(`${item.mark} returned`)),
+    unreturn: () => item && change(() => pf.unreturnMaterial(load.id, item), { remaining: true }).then((ok) => ok && toast(`Return of ${item.mark} undone`)),
+  };
+  actions[btn.dataset.hold]?.();
+}
+
+export function canScan() {
+  return Boolean(selectedLoad());
+}
+
+export function initShipping() {
+  const ws = $('#workspace');
+  ws.addEventListener('click', (e) => {
+    const action = e.target.closest('[data-action]')?.dataset.action;
+    if (action === 'pick-job') openJobPicker();
+    else if (action === 'new-load') showNewLoad();
+    else if (action === 'refresh') refresh();
+    else if (action === 'load') {
+      const load = selectedLoad();
+      const item = itemFor(e.target);
+      if (load && item) change(() => pf.loadMaterial(load.id, item)).then((ok) => ok && done(`${item.mark} loaded`));
     }
   });
-  $('#dlg-new-load').addEventListener('close', () => { $('#new-load-pf').hidden = true; });
+  bindHold(ws, {
+    onComplete: onHold,
+    onTap: (btn, secs) => toast(`Hold for ${secs} seconds`),
+  });
+  $('#load-list').addEventListener('click', (e) => {
+    const id = e.target.closest('[data-load-id]')?.dataset.loadId;
+    if (!id) return;
+    ship.selectedId = id;
+    setPanel(false);
+    render();
+    focusScanner();
+  });
+  $('#btn-loads').addEventListener('click', () => setPanel(!$('#loads-panel').classList.contains('open')));
+  $('#btn-loads-close').addEventListener('click', () => setPanel(false));
+  $('#btn-loads-refresh').addEventListener('click', () => refresh());
+  $('#btn-new-load').addEventListener('click', showNewLoad);
+  $('#form-new-load').addEventListener('submit', submitNewLoad);
+  $('#btn-new-load-cancel').addEventListener('click', () => $('#dlg-new-load').close());
+  document.querySelector('.scan-steps').addEventListener('click', (e) => {
+    const next = e.target.closest('[data-step]')?.dataset.step;
+    if (!next) return;
+    step = next === STEP_MATERIAL ? STEP_MATERIAL : STEP_LOAD;
+    try { localStorage.setItem(STEP_KEY, step); } catch { /* just won't stick */ }
+    render();
+    toast(step === STEP_MATERIAL ? 'Add material: scans assign pieces to the load' : 'Load: scans put pieces on the truck');
+  });
+  onCurrentJobChange((job) => openJob(job));
+}
 
-  $('#btn-ship-status').addEventListener('click', openShipStatus);
-  $('#btn-ship-close').addEventListener('click', () => $('#dlg-ship').close());
-  $('#btn-ship-refresh').addEventListener('click', async () => {
-    if (!ctx.load?.job) return;
-    await refreshPfLoads(ctx.load.job, { force: true, quiet: false });
-    renderStatusDialog();
-    ctx.render();
-  });
-  $('#ship-pf-list').addEventListener('change', (e) => {
-    if (e.target.name !== 'pfload' || !ctx.load) return;
-    ctx.load.pfLoad = e.target.value || null;
-    ctx.save();
-    renderStatusDialog();
-  });
-  bindHold($('#dlg-ship'), {
-    selector: '#btn-ship-mark',
-    onComplete: () => {
-      const load = ctx.load;
-      if (!load) return;
-      if (isShipped(load)) unshipLoad(load);
-      else shipLoad(load);
-      ctx.save();
-      renderStatusDialog();
-      toast(isShipped(load) ? `${load.name} marked shipped on this tablet` : `${load.name} is open again`);
-    },
-    onTap: (_, s) => toast(`Hold for ${s} seconds`),
-  });
+// Opens Shipping on the current job (from the home tile).
+export function enterShipping() {
+  openJob(getCurrentJob());
 }

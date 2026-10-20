@@ -1,21 +1,130 @@
-/* Shipping against PowerFab loads (js/shipping-ui.js): the "you can't ship
-   that" warning, the shipping status dialog, override tags on rows and the
-   shipped header badge. Colours come from css/app.css and css/check.css. */
+/* Shipping on live PowerFab loads (js/shipping-ui.js): the loads side panel,
+   the load's piece list, step buttons on the scan bar and the "not added"
+   dialog. Material (assigned, not on the truck) is blue throughout. */
 
-/* "You can't ship that" */
+:root {
+  --bad: #ff3b3b;
+  --bad-bg: #3a0d0d;
+  --ok-bg: #0f2e1c;
+  --material: #4da3ff;
+  --material-bg: #0f2238;
+  --panel-w: 300px;
+}
+
+/* Red pulse for a scan PowerFab or the checks refused. */
+@keyframes flash-bad {
+  0% { box-shadow: inset 0 0 0 4px var(--bad), 0 0 24px rgba(255, 59, 59, 0.6); }
+  100% { box-shadow: inset 0 0 0 0 transparent, 0 0 0 transparent; }
+}
+.flash-bad { animation: flash-bad 600ms ease-out; }
+.screen-flash.flash-bad { animation: screen-glow 700ms ease-out; background: rgba(255, 59, 59, 0.25); box-shadow: inset 0 0 160px 40px rgba(255, 59, 59, 0.6); }
+
+/* Side panel + workspace */
+.ship-body { flex: 1; min-height: 0; display: flex; }
+.ship-body .workspace { min-width: 0; }
+.loads-panel {
+  width: var(--panel-w);
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--surface-1);
+  border-right: 2px solid var(--border);
+  overflow: hidden;
+}
+.loads-head { display: flex; align-items: center; gap: 8px; }
+.loads-head h2 { flex: 1; margin: 0; font-size: 1.1rem; }
+.loads-head .btn { padding: 0 12px; }
+.loads-close { display: none; font-size: 1.6rem; }
+.loads-note { margin: 0; font-size: 0.8rem; }
+.load-row-name { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.load-row.shipped { opacity: 0.75; }
+.badge-open { background: var(--ok); color: #000; }
+.btn-loads { display: none; }
+
+/* Narrow screens and the phone layout: the panel slides in as a drawer. */
+@media (max-width: 900px) {
+  .btn-loads { display: inline-flex; }
+  .loads-panel {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 11;
+    width: min(420px, 90vw);
+    padding-top: calc(16px + env(safe-area-inset-top));
+    transform: translateX(-105%);
+    transition: transform 200ms ease-out;
+  }
+  .loads-panel.open { transform: none; }
+  .loads-close { display: inline-flex; }
+}
+body.layout-mobile .btn-loads { display: inline-flex; }
+body.layout-mobile .loads-panel {
+  position: fixed; top: 0; bottom: 0; left: 0; z-index: 11; width: 100vw;
+  transform: translateX(-105%); transition: transform 200ms ease-out;
+}
+body.layout-mobile .loads-panel.open { transform: none; }
+body.layout-mobile .loads-close { display: inline-flex; }
+
+/* Scan bar: step buttons and busy state */
+.scan-steps { display: flex; gap: 8px; }
+.scan-steps .btn-lg { padding: 0 20px; }
+.scan-steps [data-step="material"].btn-primary { background: var(--material); border-color: var(--material); color: #000; }
+.scanbar.adding-material .scan-field { border-color: var(--material); }
+.scanbar.adding-material .scan-stack { color: var(--material); }
+.scanbar.busy .scan-hint::after { content: " · sending…"; color: var(--accent); }
+
+/* Load header */
+.ship-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--gap); flex-wrap: wrap; margin-bottom: 12px; }
+.ship-head h2 { margin: 0; color: var(--accent); }
+.ship-head p { margin: 4px 0 0; }
+.ship-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-ship:not([disabled]) { border-color: var(--accent); color: var(--accent); }
+.btn-ship[disabled] { opacity: 0.4; }
+.ship-badge { background: var(--accent); }
+.mode-badge { align-self: flex-start; margin-top: 2px; padding: 1px 8px; border-radius: 6px; color: #000; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; }
+.mode-badge[hidden] { display: none; }
+body.load-shipped .topbar { border-bottom-color: var(--accent); }
+.ship-diff { color: var(--flag); font-weight: 700; }
+
+/* Piece rows: mark | seq | description | qty | weight | status | actions */
+.ship-item {
+  display: grid;
+  grid-template-columns: 6em 3.5em minmax(8em, 1fr) 2.5em 6em auto auto;
+  align-items: center;
+  gap: 0 8px;
+  min-height: 56px;
+  padding: 4px var(--item-pad);
+  border-bottom: 1px solid var(--border);
+}
+.ship-item:last-child { border-bottom: 0; }
+.ship-item .item-desc { line-height: 1.3; }
+.ship-item-seq, .ship-item-qty { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.ship-item.is-material { box-shadow: inset 6px 0 0 var(--material); background: var(--material-bg); }
+.ship-item.is-material .item-mark { color: var(--material); }
+.ship-item.is-loaded { box-shadow: inset 6px 0 0 var(--ok); }
+.ship-pill {
+  justify-self: start;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 2px solid var(--border);
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.ship-pill.material { border-color: var(--material); color: var(--material); }
+.ship-pill.loaded { border-color: var(--ok); color: var(--ok); }
+.ship-pill.shipped { border-color: var(--accent); color: var(--accent); }
+
+/* "Not added" */
 .modal.ship-block {
   width: min(560px, 94vw);
   border: 3px solid var(--bad);
   box-shadow: 0 0 60px rgba(255, 59, 59, 0.35);
 }
-.ship-block-kicker {
-  margin: 0 0 4px;
-  color: var(--bad);
-  font-size: 0.85rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
+.ship-block-kicker { margin: 0 0 4px; color: var(--bad); font-size: 0.85rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
 .ship-block h2 { margin: 0 0 12px; font-size: 1.8rem; }
 .ship-block-mark {
   margin: 0 0 12px;
@@ -27,53 +136,21 @@
   font-size: 1.6rem;
   font-weight: 800;
 }
+.ship-block-mark:empty { display: none; }
 .ship-block-msg { font-size: 1.1rem; line-height: 1.45; }
-.ship-block .modal-actions { flex-wrap: wrap; }
 .ship-block .modal-actions .btn { flex: 1 1 200px; }
-.ship-block [hidden] { display: none; }
 
-/* Tag on a piece that was added past a check */
-.item-override {
-  display: inline-block;
-  margin-left: 4px;
-  padding: 1px 6px;
-  border-radius: 6px;
-  background: var(--bad);
-  color: #000;
-  font-family: var(--font);
-  font-size: 0.65rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  vertical-align: middle;
+@media (max-width: 900px) {
+  .ship-item { grid-template-columns: 6em minmax(0, 1fr) auto; grid-template-areas: "mark desc weight" "seq pill actions"; padding: 6px 8px; gap: 4px 8px; }
+  .ship-item .item-mark { grid-area: mark; }
+  .ship-item .item-desc { grid-area: desc; }
+  .ship-item .item-weight { grid-area: weight; }
+  .ship-item-seq { grid-area: seq; }
+  .ship-item .ship-pill { grid-area: pill; }
+  .ship-item .item-actions { grid-area: actions; }
+  .ship-item-qty { display: none; }
+  .scanbar { flex-wrap: wrap; }
+  .scan-field { flex-basis: 100%; }
+  .scan-steps { flex: 1; }
+  .scan-steps .btn-lg { flex: 1; }
 }
-.item-mark:has(.item-override) { flex-wrap: wrap; white-space: normal; }
-
-/* Header: PowerFab load line and Shipped badge */
-#stat-pf { color: var(--text-muted); }
-#stat-pf:empty { display: none; }
-.ship-badge { background: var(--accent); }
-body.load-shipped .topbar { border-bottom-color: var(--accent); }
-
-/* Shipping status dialog */
-.modal.ship { width: min(640px, 96vw); max-height: 92vh; overflow-y: auto; }
-.modal .job-option.disabled { opacity: 0.45; }
-.modal .job-option .muted { margin-left: 6px; font-size: 0.85rem; }
-.ship-ok { color: var(--ok); font-weight: 700; }
-.ship-diff { color: var(--flag); font-weight: 700; }
-.ship-compare { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
-.ship-compare th, .ship-compare td { padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: right; }
-.ship-compare th:first-child, .ship-compare td:first-child { text-align: left; font-family: var(--mono); }
-.ship-compare tr.diff td { color: var(--flag); }
-
-@media print {
-  .item-override { border: 1px solid #000; background: none; color: #000; }
-}
-
-/* Manage Loads: PowerFab loads, tablet loads, other sections */
-.manage-job { margin-left: 8px; color: var(--accent); font-size: 1rem; font-weight: 700; }
-.manage-section { display: flex; flex-direction: column; gap: 2px; padding: 16px 0 6px; }
-.manage-section h3 { margin: 0; font-size: 1rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
-.manage-section .muted { font-size: 0.85rem; }
-.pf-row { grid-template-columns: minmax(0, 1fr) auto; }
-.badge-open { background: var(--ok); color: #000; }
-.manage-row:not(:has(.job-select)) { grid-template-columns: minmax(0, 1fr) auto; }

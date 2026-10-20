@@ -1,13 +1,12 @@
 # terra-tekla-client
 
-Offline-first shop-floor web app (iPad PWA) for TERRA, built to talk to the
-TERRA PowerFab API ([tekla-conversion-layer](https://github.com/ATagTheAwesomest/tekla-conversion-layer)),
+Shop-floor web app (installable iPad PWA) for TERRA, built on the TERRA
+PowerFab API ([tekla-conversion-layer](https://github.com/ATagTheAwesomest/tekla-conversion-layer)),
 in the spirit of PowerFab Go. It opens on a home screen with one tile per
-module; **Shipping** is the first one: loads, stacks, truck check, export and
-shipping tickets, carried over from
-[terra-loads-web](https://github.com/ATagTheAwesomest/terra-loads-web) with the
-bundled CSV swapped for live job data. Plain HTML, CSS and JavaScript with no
-build step.
+module. Everything it shows is read live from Tekla PowerFab and every change
+is written straight back through the API: no loads, pieces or job data are
+kept on the device. It still installs as a PWA, with only the app shell
+cached, so it opens fast. Plain HTML, CSS and JavaScript with no build step.
 
 ## Server setup (address and key)
 
@@ -26,102 +25,90 @@ that's already set up can show the same code with **Show setup QR**. The code
 holds the API key, so treat a printout like a key.
 
 The API must allow the app's origin in its `CORS_ORIGINS` (for GitHub Pages,
-`https://atagtheawesomest.github.io`).
-
-## Job data
-
-- Jobs come from `POST /api/powerfab/GetProductionControlJobs` and are listed
-  as `26123 - Job description` when creating a load (**Refresh jobs** re-pulls).
-- When a load is created or opened, its job's parts come from
-  `POST /api/powerfab/GetAssemblies` with `{ "JobNumber": "26123" }`: main mark,
-  weight per assembly, total quantity, and a description built from the main
-  piece of the bill of materials.
-- Both are cached in localStorage (`terra.jobs`, `terra.parts.<job>`), so a
-  job opened once while online works offline afterwards. `js/api.js` holds the
-  client and the parsing; the PowerFab reply layout for these two commands is
-  not confirmed against a real server yet, so the parser looks for the
-  `ProductionControlJob` and `Assembly` elements wherever they sit.
-
-## Piece lookup
-
-**Piece lookup** (home tile, or the menu inside Shipping) answers "what is
-this piece?" for any mark: scan it or type it on the keypad. It shows, per job
-the mark is on, the description, weight per piece, quantity, size, length,
-grade, sequence and drawing from the saved part list, every load on this
-iPad that holds it (stack, row, scan time), how many are on loads, checked
-onto the truck and shipped, and when it was last scanned here. Tap a load to
-open it in Shipping. An unknown mark lists marks that contain what was typed.
-
-The **Jobs** view lists every job this iPad knows of with its piece count and
-weight, and how many pieces are loaded, on the truck and shipped. Tap a job to
-see each mark with what's left to load. Part lists missing on this iPad can be
-downloaded from there while online.
-
-It is read-only and works offline from the saved part lists and loads. The
-counts are what this iPad has recorded, not PowerFab's shipping status.
-Whether a load has shipped is decided in one place, `loadShippedAt()` in
-`js/lookup.js`.
+`https://atagtheawesomest.github.io`) and must have `POWERFAB_ALLOW_WRITES`
+on for Shipping's changes to go through.
 
 ## Current job
 
 The app is job-first. A bar along the top of every screen shows the current
-job; tap it to pick another (**Refresh jobs** is in the picker). The choice is
-kept on the tablet (`terra.currentJob`). Shipping, the Loads drawer and
-**Manage loads** only show the current job's loads, and every new load is
-filed under it, with no per-load job picking. Opening Shipping with no job
-picked opens the picker first. Switching job closes the open load and opens the
-job's most recent one. A tablet load saved before jobs existed (no job) shows
-under "Not filed under a job" in Manage loads, with a picker to file it.
+job; tap it to pick another. The picker lists PowerFab's open jobs
+(`GetProductionControlJobs`, **Refresh jobs** re-reads them). PowerFab lists
+open jobs only, so a closed job such as the test job EPM-001 is typed into
+**Or type a job number**; it is checked with `MaxTruck` before it is used.
+Which job is picked is the one thing kept on the tablet (`terra.currentJob`).
 `js/current-job.js` owns this; other modules use `getCurrentJob()`,
 `isCurrentJob(job)`, `onCurrentJobChange(fn)` and `requireCurrentJob()`.
 
-**Manage loads** lists, for the current job, the PowerFab loads (number,
-shipped date or open, pieces assigned and loaded, and the tablet load linked to
-it, with **Make tablet load** for one that has none) and then the tablet's own
-loads with their status.
+## Shipping
 
-## Shipping against PowerFab loads
+Opening Shipping reads every load (truck) on the current job and lists them
+in the side panel (a drawer on portrait iPads and phones), with open or
+shipped and pieces loaded of assigned. Tap a load to work on it; **+ New**
+creates one in PowerFab and **&#8635;** reads the loads again.
 
-Read only: nothing is ever written to PowerFab. Everything below is kept on
-the tablet.
+The scan bar has two steps, matching PowerFab's assigned and loaded
+quantities:
 
-- **PowerFab loads.** A job's loads (trucks) come from
-  `POST /api/powerfab/GetLoads` and are cached in localStorage
-  (`terra.pfloads.<job>`), refreshed when a load is opened and from
-  **Shipping status** in the menu. A new tablet load can be linked to one of
-  them (shipped ones, and ones another tablet load already uses, can't be
-  picked); the link can be changed later in **Shipping status**, which also
-  compares what PowerFab has on that truck with what was scanned.
-- **Checks on every scan** (`js/ship-check.js`): a piece is blocked with a
-  red "You can't ship that" warning when the load is already shipped, the
-  linked PowerFab load has shipped, the mark isn't on the job's part list, all
-  of the job's quantity has shipped, or the rest of it is on other loads
-  (PowerFab trucks or other tablet loads). Quantities are the part list's
-  `TotalQuantity`. Offline, the checks use the saved copies. Holding **Hold to
-  add anyway** adds the piece with an **Override** tag; the reason and time
-  are saved on the piece and shown in its details.
-- **Shipped on the tablet.** **Shipping status → Hold to mark shipped** locks
-  the load; its pieces then count as shipped for every other load. The export
-  and shipping ticket carry `POWERFAB_LOAD` and `SHIPPED`.
-- **Piece status** (`js/piece-status.js`): each piece is `material` (on the
-  load but not on the truck, like PowerFab's assigned quantity) or `loaded`
-  (scanned onto the truck), and reads `shipped` once its load is shipped.
-  Pieces saved before this read as `loaded`.
-- **Add material / Load** (`js/material.js`, `js/material-ui.js`): a switch
-  above the stacks picks what a scan does, mirroring PowerFab's assigned vs
-  loaded quantity. **Add material** puts pieces on the load as material (blue
-  tag), e.g. as they're laid out on the floor. **Load** loads a piece that's
-  already material on the load when it's scanned again on the truck; a mark
-  with no material waiting goes straight on as loaded. Every added piece goes
-  through the shipping checks above. The bar shows loaded vs total, how much
-  is still material, a **Show material only** filter, and a hold-to-undo for
-  the last piece loaded from material. Tablet only; nothing is written.
-- **GetLoads reply** (confirmed against a real reply, job 25-351): loads sit
-  under `Destination.Load`, each with `LoadNumber`, `DateShipped` (only once
-  shipped) and `Material` pieces with `MainMark`, `AssignedQuantity` and
-  `LoadedQuantity`. A piece assigned to a load but not loaded yet still counts
-  as that load's claim. Material under `Remaining` isn't on a truck. A trimmed
-  copy is in `tests/fixtures/getloads_real.json`.
+- **Add material** assigns the scanned piece to the load (blue rows, "To
+  load"), e.g. as it is laid out on the floor.
+- **Load** puts it on the truck: a piece already assigned to the load is
+  loaded; otherwise it is assigned and loaded in one go.
+
+A piece is picked from PowerFab's remaining list
+(`ProductionControlLoadRemaining_Get`): one row per piece and sequence with
+how many are still not on any load, so a scan can never add more of a piece
+than the job has. With several sequences the lowest one with pieces left is
+used, and the row shows which. A mark with none left shows a red "Not added"
+card saying why (not on the job, already shipped, or on which loads it is).
+Each row has **Load** (tap), **Unload** or **Remove** (hold 1.5 s). The load
+has **Hold to ship** (3 s), and once shipped **Hold to unship** and, per piece,
+**Return** / **Undo return**. An empty load can be deleted (hold 7.5 s).
+
+Scans are sent one at a time in order, and after every change the loads are
+read again, so the screen always shows what PowerFab has. If PowerFab refuses
+a change, its reason is shown and nothing changes on screen.
+
+### PowerFab commands used
+
+All through `POST /api/powerfab/<Command>` (`js/pf-loads.js`). The newer
+commands take `ProductionControlID`, not `JobNumber`; `MaxTruck` turns the job
+number into it. Their numbers have no unit and are metric, so weights are
+converted from kg to lbs.
+
+| Command | Use |
+| --- | --- |
+| `MaxTruck` | Job number to `ProductionControlID` |
+| `ProductionControlLoad_Get` (`IncludeMaterial`) | Every load and its pieces: truck item ID, mark, sequence, quantity, loaded |
+| `ProductionControlLoadRemaining_Get` | Pieces not on any load yet, per item and sequence |
+| `ProductionControlLoad_InputOptions_Get` | Next load number, destination group, default capacity |
+| `ProductionControlLoad_IsDuplicateLoadNumber` | Load number check before creating |
+| `ProductionControlLoad_Insert` / `_Delete` | Create (needs `Capacity` and `ShippingDestinationGroupID`) / delete a load |
+| `ProductionControlLoadMaterial_Add` / `_Remove` | Assign pieces (item ID + sequence ID) / take them off |
+| `ProductionControlLoadMaterial_Load` / `_Unload` | Put pieces on the truck / take them off |
+| `ProductionControlLoad_Ship` / `_Unship` | Ship the load / undo |
+| `ProductionControlLoadMaterial_Return` / `_Unreturn` | Return shipped pieces / undo |
+
+The older `Load`, `Ship` and `Return` commands (by job and truck number, with
+`CommitType`) are not used: on EPM-001 `Ship` rejected every `CommitType` and
+`Return` refuses loads shipped to the jobsite.
+
+### Export and shipping ticket
+
+Menu → **Share load file** sends the open load as text through the iPad share
+sheet: a `{}` header block (load, job, totals, shipped date) that Tekla scripts
+ignore, then one mark per line per piece, never collapsed. **Print shipping
+ticket** prints the load's pieces with sequence, quantity, weight and what is
+loaded.
+
+## Piece lookup
+
+**Piece lookup** (home tile, or the menu inside Shipping) answers "what is
+this piece?" for any mark on the current job: description, weight per piece,
+quantity, size, length, grade, sequence and drawing from the job's part list
+(`GetAssemblies`), and every PowerFab load that holds it with how many are
+assigned, on the truck and shipped. Tap a load to open it in Shipping. The
+**Job** view lists every mark with those counts. Both are read live when the
+screen opens; **Refresh** reads again. It never changes anything.
 
 ## Run locally
 
@@ -138,87 +125,44 @@ python3 -m http.server 8000
 1. Host the repo on HTTPS. GitHub Pages works: Settings → Pages → Deploy from
    branch `main`, folder `/ (root)`. All paths are relative, so it runs from
    `https://<user>.github.io/terra-tekla-client/`.
-2. Open the URL in Safari, wait for the footer to say **Offline ready**.
-3. Share → **Add to Home Screen**. Launch from the home screen icon.
-
-Installed PWAs keep their storage; iOS can clear site data for un-installed
-Safari tabs after a week of no use, so always run it from the home screen.
+2. Open the URL in Safari, then Share → **Add to Home Screen**. Launch from the
+   home screen icon.
 
 ## Layout
 
 | Path | What it is |
 | --- | --- |
-| `index.html` | App shell: header stats, workspace, loads drawer, dialogs |
+| `index.html` | App shell: header stats, scan bar, loads panel, workspace, dialogs |
 | `css/app.css` | Dark industrial theme, 48px+ tap targets, print base |
-| `js/app.js` | Boot, home screen, rendering, loads drawer, new-load flow, update UI |
-| `js/api.js` | API client: settings, setup codes, jobs and assemblies, offline cache |
-| `js/server-ui.js` | Server settings dialog, setup QR show/scan, job and part sync |
+| `css/shipping.css` | Loads panel, piece rows, step buttons, "Not added" card |
+| `js/app.js` | Boot, home screen, menus, status bar, update UI |
+| `js/api.js` | API client: settings, setup codes, jobs and assemblies, value units |
+| `js/server-ui.js` | Server settings dialog, setup QR show/scan, job list |
+| `js/current-job.js` | Current job state, the top bar and job picker every module follows |
+| `js/pf-loads.js` | PowerFab loads: reads, parsers and every shipping write command |
+| `js/shipping.js` | Pure helpers: which remaining row a scan takes, totals, sequences |
+| `js/shipping-ui.js` | Shipping screen: loads panel, scan handling, write queue, new load |
+| `js/lookup.js` / `js/lookup-ui.js` | Piece lookup data and screen (`css/lookup.css`) |
+| `js/export.js` | Text export, share sheet and print ticket |
+| `js/scanner.js` | Always-focused scan field and on-screen keypad |
+| `js/hold.js` | Press-and-hold buttons for changes that are hard to undo |
+| `js/mobile.js` | Phone layout toggle (`css/mobile.css`) |
+| `js/parts.js` | Job and mark spelling |
+| `js/updater.js` | Service worker registration, version check, Force Update |
 | `js/vendor/` | `qrcode.js` (QR generator, MIT) and `jsQR.js` (QR reader, Apache-2.0) |
 | `tools/setup-qr.mjs` | Makes a setup QR from `.env` |
-| `js/lookup.js` | Piece lookup and job overview data: a mark across part lists and loads |
-| `js/lookup-ui.js` | Piece Lookup screen (home tile and menu): Piece and Jobs views, `css/lookup.css` |
-| `js/current-job.js` | Current job state, the top bar and job picker every module follows |
-| `js/pf-loads.js` | PowerFab loads per job: GetLoads request, tolerant parser, offline cache |
-| `js/ship-check.js` | The "can this piece ship" checks run before every scan |
-| `js/shipping-ui.js` | Can't-ship warning and override, Shipping status dialog, PowerFab load picker |
-| `js/piece-status.js` | Shared piece status: material, loaded, shipped |
-| `js/material.js` | Add material and load-from-material on a load, counts, undo |
-| `js/material-ui.js` | The Add material / Load switch and bar above the stacks (`css/material.css`) |
-| `js/check.js` | Truck check logic: matches check scans to the load's pieces |
-| `js/check-ui.js` | Truck check screen: checklist, extras, undo and start over |
-| `js/mobile.js` | Phone layout toggle and its own stack/row markup (`css/mobile.css`) |
-| `js/manage.js` | Manage Loads screen: job numbers, open, export, hold-to-delete |
-| `js/hold.js` | Press-and-hold buttons for deletes (item 1.5 s, stack 4 s, load 7.5 s) |
-| `js/model.js` | Pure helpers: create loads/stacks/items, totals, sequences, job numbers |
-| `js/parts.js` | Job + mark lookup, filled per job from the API (CSV parser kept for tests) |
-| `js/store.js` | Persistence: localStorage journal + IndexedDB |
-| `js/updater.js` | Service worker registration, version check, Force Update |
-| `sw.js` | Precaches the app shell, serves cache-first offline |
+| `sw.js` | Precaches the app shell; API calls always go to the network |
 | `version.js` | The app version (single source of truth) |
 
-## Data model
+## What the device keeps
 
-```
-Load  { id, name, job, createdAt, updatedAt, rev, stacks: Stack[] }
-Stack { id, name, items: Item[] }
-Item  { id, mark, description, weight, matched, manual, scannedAt }
-```
-
-Every scan is its own item, in scan order; identical marks are never merged.
-Unmatched or manually entered marks get a trailing `-` and are flagged orange.
-`job` is a production control job from the API, picked when the load is
-created. Jobs in `NO_SEQUENCE_JOBS` (26111) show no sequences. A mark is only
-unique within a job, so every lookup is job plus mark.
-
-## Truck check
-
-Menu → **Truck check** turns the open load into a checklist. Each scan checks
-off one piece with the same job and mark; a scan with nothing left to check
-off shows red and is listed under Extras. The check is saved on the load as
-`truckCheck { startedAt, updatedAt, scans: [{ id, mark, manual, scannedAt }] }`;
-which piece each scan ticks is worked out on every read, so editing the load
-afterwards never leaves a stale check. Hold a row's undo button 1.5 s to
-uncheck it, or **Start over** 4 s to clear the check. Printed tickets fill the
-✓ column from the check.
-
-## Phone layout
-
-Menu → **Phone layout** switches this device to a separate phone layout
-(`js/mobile.js` + `css/mobile.css`, all scoped under `body.layout-mobile`).
-It turns on by itself the first time on a phone-sized screen.
-
-## Storage
-
-`store.saveLoad(load)` writes the whole load to a localStorage journal
-synchronously, then commits it to IndexedDB and clears the journal entry. On
-launch, `store.recover()` replays any journal entry newer than its IndexedDB
-copy, so a tab killed mid-save loses nothing. Without IndexedDB (some private
-modes) the journal is the store.
-
-Storage is per origin, and GitHub Pages serves every repo of an account from
-the same origin, so loads saved by terra-loads-web on the same iPad show up
-here too (same database). Their old job names stay on them until re-filed on
-Manage Loads.
+Only settings: the server address and key (`terra.api`), the current job
+(`terra.currentJob`), the scan step (`terra.step`), the phone layout
+(`terra.layout`) and recent lookups (`terra.lookup.recent`). The caches older
+versions kept (`terra.jobs`, `terra.parts.*`, `terra.pfloads.*`) are removed on
+launch. Tablet-only loads, stacks, truck checks and overrides are gone. The
+`terra-loads` IndexedDB database is left alone, since GitHub Pages shares it
+with terra-loads-web on the same iPad.
 
 ## Releasing an update
 
@@ -228,9 +172,8 @@ Manage Loads.
 
 On launch the app checks `version.js` on the server and shows a **New** badge
 on **Update** when a newer version exists. **Force Update** unregisters the
-service worker, clears the app caches and reloads from the network. Saved loads
-are untouched, and it refuses to run while offline so the app never loses its
-offline copy.
+service worker, clears the app caches and reloads from the network. It refuses
+to run while the server can't be reached.
 
 ## Tests
 
@@ -238,5 +181,5 @@ offline copy.
 node --test tests/*.test.mjs
 ```
 
-`tests/fixtures/sample_parts.csv` and the CSV strings in the tests exercise the
-original CSV parser, which still backs the lookup logic.
+`tests/fixtures/epm001_live.json` holds trimmed live replies from EPM-001
+(`ProductionControlLoad_Get` and `ProductionControlLoadRemaining_Get`).

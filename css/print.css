@@ -102,7 +102,7 @@
   }
 
   #print-ticket .pt-check {
-    width: 18pt;
+    width: 40pt;
     text-align: center;
   }
 
@@ -111,12 +111,6 @@
     font-weight: bold;
     white-space: nowrap;
     width: 1%;
-  }
-
-  /* Unmatched / manual marks: no colour on paper, so italicise and underline them. */
-  #print-ticket .pt-unmatched .pt-mark {
-    font-style: italic;
-    text-decoration: underline;
   }
 
   #print-ticket .pt-signoff {

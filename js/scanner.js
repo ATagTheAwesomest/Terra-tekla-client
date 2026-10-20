@@ -1,13 +1,10 @@
-// Scan bar: the always-focused scanner input, Enter capture, success flash,
-// and the on-screen keypad used for manual marks and weights.
+// Scan bar: the always-focused scanner input, Enter capture, scan flashes,
+// and the on-screen keypad used for manual marks.
 //
 // The input uses inputmode="none" so iOS keeps the soft keyboard down while a
 // Bluetooth/USB scanner types into it. Manual entry goes through the keypad
-// dialog, which never focuses a text field either.
-
-import { addScan, addStack, activeStack } from './ops.js';
-import { addMaterial } from './material.js';
-import { isFlagged } from './model.js';
+// dialog, which never focuses a text field either. What a scan does is up to
+// ctx.scan (js/shipping-ui.js).
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -16,7 +13,7 @@ let ctx = null;
 // ---- Focus lock ----------------------------------------------------------
 
 function canHoldFocus() {
-  if (!ctx.load) return false;
+  if (!ctx.canScan()) return false;
   if (document.body.classList.contains('at-home')) return false;
   if (document.querySelector('dialog[open]')) return false;
   if (document.querySelector('.drawer.open')) return false;
@@ -54,59 +51,13 @@ export function flashFeedback(kind, row) {
   flash($('#screen-flash'), kind);
 }
 
-// Adds one mark to the active stack, saves, and shows feedback. During a
-// truck check the mark checks a piece off instead. A piece that can't ship
-// (js/ship-check.js) flashes red and asks first; holding the override adds it
-// with the reason logged on the piece.
-export function submitMark(raw, { manual = false } = {}) {
-  const load = ctx.load;
-  if (!load) return null;
-  if (ctx.checking) return ctx.checkScan(raw, { manual });
-  if (!String(raw ?? '').trim()) return null;
-  // Load step: a piece already on the load as material is loaded, not added.
-  const picked = ctx.pickMaterial?.(raw);
-  if (picked) return picked;
-  const verdict = ctx.vetScan?.(raw);
-  if (verdict) {
-    flashFeedback('bad');
-    ctx.blockScan(verdict, () => addMark(raw, { manual, override: verdict }));
-    return null;
-  }
-  return addMark(raw, { manual });
-}
-
-function addMark(raw, { manual, override = null }) {
-  const load = ctx.load;
-  const item = (ctx.material ? addMaterial : addScan)(load, raw, { manual });
-  if (!item) return null;
-  if (override) item.override = { code: override.code, reason: `${override.title}: ${override.message}`, at: new Date().toISOString() };
-  ctx.save();
-  const row = document.querySelector(`[data-item-id="${item.id}"]`);
-  row?.scrollIntoView({ block: 'nearest' });
-  flashFeedback(isFlagged(item) ? 'flag' : 'ok', row);
-  return item;
-}
-
 function onScanKey(e) {
   if (e.key !== 'Enter') return;
   e.preventDefault();
   const input = $('#scan-input');
   const value = input.value;
   input.value = '';
-  submitMark(value);
-}
-
-export function renderScanbar() {
-  const load = ctx.load;
-  $('#scanbar').hidden = !load;
-  if (!load) return;
-  const checking = ctx.checking;
-  $('#scanbar').classList.toggle('checking', checking);
-  $('#scanbar').classList.toggle('adding-material', Boolean(ctx.material));
-  $('#scan-label').textContent = checking ? 'Truck check' : ctx.material ? 'Adding material to' : 'Loading into';
-  $('#scan-stack').textContent = checking ? load.name : activeStack(load)?.name ?? '—';
-  $('#btn-new-stack').hidden = checking;
-  $('#btn-check-done').hidden = !checking;
+  if (value.trim()) ctx.scan(value);
 }
 
 // ---- On-screen keypad ----------------------------------------------------
@@ -173,13 +124,8 @@ export function openKeypad({ mode = 'mark', title, note = '', initial = '', okLa
 }
 
 async function manualEntry() {
-  const value = await openKeypad({
-    mode: 'mark',
-    title: ctx.checking ? 'Check a mark' : undefined,
-    okLabel: ctx.checking ? 'Check' : undefined,
-    note: ctx.checking ? 'Checks off one piece with this mark.' : 'Manual marks get a trailing “-” and show orange.',
-  });
-  if (value) submitMark(value, { manual: true });
+  const value = await openKeypad({ mode: 'mark', note: 'Does the same as scanning the mark.' });
+  if (value) ctx.scan(value);
   focusScanner();
 }
 
@@ -217,14 +163,6 @@ export function initScanner(context) {
   document.addEventListener('close', () => setTimeout(focusScanner, 0), true);
 
   $('#btn-keypad').addEventListener('click', manualEntry);
-  $('#btn-check-done').addEventListener('click', () => ctx.setMode('load'));
-  $('#btn-new-stack').addEventListener('click', () => {
-    if (!ctx.load) return;
-    const stack = addStack(ctx.load);
-    ctx.save();
-    document.querySelector(`[data-stack-id="${stack.id}"]`)?.scrollIntoView({ block: 'nearest' });
-    ctx.toast(`Scanning into ${stack.name}`);
-  });
 
   const dlg = $('#dlg-keypad');
   dlg.addEventListener('click', (e) => {
