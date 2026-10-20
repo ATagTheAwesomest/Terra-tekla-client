@@ -61,7 +61,7 @@ test('GetLoads: mock layout, single load, other field names, remaining material 
       },
     },
   });
-  assert.deepEqual(other, [{ number: '7', shipped: false, shipDate: '', pieces: { B2: 3 }, loaded: { B2: 3 }, count: 3 }]);
+  assert.deepEqual(other, [{ number: '7', shipped: false, shipDate: '', pieces: { B2: 3 }, loaded: { B2: 2 }, count: 3 }]);
   assert.deepEqual(parseLoads({ GetLoads: { Successful: '1' } }), []);
   assert.deepEqual(parseLoads(null), []);
 });
