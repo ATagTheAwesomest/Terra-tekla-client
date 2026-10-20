@@ -19,6 +19,7 @@ const PRECACHE = [
   './js/api.js',
   './js/app.js',
   './js/current-job.js',
+  './js/error-banner.js',
   './js/export.js',
   './js/hold.js',
   './js/lookup.js',
@@ -67,6 +68,13 @@ self.addEventListener('fetch', (event) => {
 
   // The version check must always hit the network so updates are seen.
   if (url.searchParams.has('versioncheck')) return;
+
+  // The page itself comes from the network when it can, so it always matches
+  // the scripts of the version that is running. Offline it comes from the cache.
+  if (req.mode === 'navigate') {
+    event.respondWith(fetch(req.url, { cache: 'no-cache' }).catch(() => caches.match('./index.html')));
+    return;
+  }
 
   event.respondWith(
     caches.match(req, { ignoreSearch: true }).then((hit) => {
