@@ -171,7 +171,7 @@ python3 -m http.server 8000
 ## What the device keeps
 
 The server address and key (`terra.api`), the current job (`terra.currentJob`),
-the scan step (`terra.step`), the phone layout (`terra.layout`), recent
+the scan step (`terra.step`), the piece view and sort (`terra.load-view`), the phone layout (`terra.layout`), recent
 lookups (`terra.lookup.recent`), stack tracking (`terra.local-stacks.v1`) and
 manual-entry marks in that stack data are kept on this iPad. Stack tracking is
 a local overlay keyed by PowerFab load ID: successful Load-step scans are

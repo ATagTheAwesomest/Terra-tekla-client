@@ -1,9 +1,10 @@
 // Shipping screen on live PowerFab data. Opening Shipping for the current job
-// reads every load on the job and lists them in the side panel; the picked
+// reads every load on the job and lists them in the Loads window; the picked
 // load fills the workspace. Every change (new load, add material, load,
 // unload, remove, ship, unship, return, delete) is a PowerFab write through
-// the API (js/pf-loads.js), followed by a fresh read of the loads. Nothing is
-// stored on the device except which step the scan bar is on.
+// the API (js/pf-loads.js), followed by a fresh read of the loads. The device
+// keeps only view settings (scan step, sort, expand) and the iPad-only stack
+// tracking in js/stack-store.js, which is never sent to PowerFab.
 //
 // Scans run one at a time in order, so a fast scanner can't race two writes.
 
@@ -154,9 +155,12 @@ function change(fn, { remaining = false } = {}) {
 export function scan(raw, { manual = false } = {}) {
   const mark = cleanMark(raw);
   if (!mark) return null;
+  const jobThen = ship.job;
   return change(async () => {
     const load = selectedLoad();
     if (!load) throw new Error('Pick or create a load first.');
+    // A scan queued before the job was switched must not land on the new job.
+    if (ship.job !== jobThen) throw new Error(`The job changed before ${mark} was scanned. Scan it again.`);
     if (load.shipped) {
       throw Object.assign(new Error(`Load ${load.number} has shipped. Unship it first to change it.`), { title: 'Load already shipped', mark });
     }
@@ -269,7 +273,7 @@ function loadRow(l) {
       <span class="load-row-name">Load ${escapeHtml(l.number)} <span class="badge ${l.shipped ? '' : 'badge-open'}">${escapeHtml(status)}</span></span>
       <span class="load-row-meta">${t.loaded} of ${t.pieces} loaded &middot; ${formatWeight(t.weight)}</span>
     </button>
-    ${l.shipped ? '' : `<button class="btn btn-hold load-delete" type="button" data-hold="delete" data-hold-ms="${DELETE_HOLD_MS}" aria-label="Hold 10 seconds to delete load ${escapeHtml(l.number)}">Hold 10 s<br>to delete</button>`}
+    ${l.shipped || l.items.length ? '' : `<button class="btn btn-hold load-delete" type="button" data-hold="delete" data-hold-ms="${DELETE_HOLD_MS}" aria-label="Hold 10 seconds to delete load ${escapeHtml(l.number)}">Hold 10 s<br>to delete</button>`}
   </li>`;
 }
 
@@ -367,11 +371,12 @@ function itemRow(it, load) {
     ? [!load.jobsite && it.returned < it.qty ? hold('return', 'Return', 'Hold to return one to the shop') : '', it.returned ? hold('unreturn', 'Undo return', 'Hold to undo a return') : '']
     : [it.loaded < it.qty ? '<button class="btn" type="button" data-action="load">Load</button>' : '',
       it.loaded ? hold('unload', 'Unload', 'Hold to take one off the truck') : hold('remove', 'Remove', 'Hold to take it off this load')];
-  const manual = stacks.isManual(load, it.mark);
+  const manual = Boolean(manualMarks[it.mark]);
   const key = pieceKey(it);
   const expanded = expandedPieces.has(key);
   return `<li class="ship-item is-${cls}${expanded ? ' expanded' : ''}" data-truck-id="${escapeHtml(it.truckId)}" data-expand-piece="${escapeHtml(key)}">
     <span class="item-mark">${escapeHtml(it.mark)}${manual ? ' <span class="badge manual-badge">Manual</span>' : ''}</span>
+    <span class="ship-item-desc-narrow">${escapeHtml(it.description)}</span>
     <span class="ship-item-part">${escapeHtml(it.partNumber || '')}</span>
     <span class="ship-item-seq">${it.sequence ? `Seq ${escapeHtml(it.sequence)}` : ''}</span>
     <span class="ship-item-shape">${escapeHtml(it.shape || '')}</span>
@@ -445,7 +450,11 @@ function flaggedSection(load) {
     <ol class="items">${rows}</ol></section>`;
 }
 
+// Marks entered by hand on the open load, read once per render (not per row).
+let manualMarks = {};
+
 function renderLoad(load) {
+  try { manualMarks = stacks.get(load).manualMarks; } catch { manualMarks = {}; }
   const t = loadTotals(load);
   const toGo = load.items.filter((it) => it.loaded < it.qty);
   const loaded = load.items.filter((it) => it.loaded >= it.qty);
@@ -470,7 +479,7 @@ function renderLoad(load) {
         ${load.shipped
           ? `<button class="btn btn-hold" type="button" data-hold="unship" data-hold-ms="${SHIP_HOLD_MS}">Hold to unship</button>`
           : `<button class="btn btn-hold btn-ship" type="button" data-hold="ship" data-hold-ms="${SHIP_HOLD_MS}"${t.pieces && t.loaded >= t.pieces ? '' : ' disabled'} title="Every piece has to be loaded first">Hold to ship</button>`}
-        ${load.shipped ? '' : `<button class="btn btn-hold" type="button" data-hold="delete" data-hold-ms="${DELETE_HOLD_MS}">Hold 10 s to delete load</button>`}
+        ${load.shipped || load.items.length ? '' : `<button class="btn btn-hold" type="button" data-hold="delete" data-hold-ms="${DELETE_HOLD_MS}">Hold 10 s to delete load</button>`}
       </div>
     </header>`;
   const localStacks = renderLocalStacks(load);
@@ -669,7 +678,8 @@ function onHold(btn) {
   const actions = {
     ship: () => change(() => pf.shipLoad(load.id), { remaining: true }).then((ok) => ok && toast(`Load ${load.number} shipped`)),
     unship: () => change(() => pf.unshipLoad(load.id), { remaining: true }).then((ok) => ok && toast(`Load ${load.number} is open again`)),
-    delete: () => change(() => pf.deleteLoad(load.id)).then((ok) => {
+    // Deleting frees the load's pieces, so the remaining list is read again too.
+    delete: () => change(() => pf.deleteLoad(load.id), { remaining: true }).then((ok) => {
       if (!ok) return;
       try { stacks.clear(load); } catch (err) { toast(err.message, 5000); }
       toast(`Load ${load.number} deleted`);
@@ -726,7 +736,13 @@ export function initShipping() {
     else if (action === 'load') {
       const load = selectedLoad();
       const item = itemFor(e.target);
-      if (load && item) change(() => pf.loadMaterial(load.id, item)).then((ok) => ok && done(`${item.mark} loaded`));
+      if (load && item) {
+        change(() => pf.loadMaterial(load.id, item)).then((ok) => {
+          if (!ok) return;
+          try { stacks.recordLoaded(load, item, item.mark); } catch (err) { toast(err.message, 5000); }
+          done(`${item.mark} loaded`);
+        });
+      }
     }
   });
   ws.addEventListener('change', (e) => {

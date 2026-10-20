@@ -24,7 +24,10 @@ body.layout-mobile .workspace { padding: 8px; }
 /* Piece rows as two-line cards */
 body.layout-mobile .ship-item { grid-template-columns: 6em minmax(0, 1fr) auto; grid-template-areas: "mark desc weight" "seq pill actions"; padding: 6px 8px; gap: 4px 8px; }
 body.layout-mobile .ship-item .item-mark { grid-area: mark; }
-body.layout-mobile .ship-item .item-desc { grid-area: desc; }
+body.layout-mobile .ship-item .item-desc, body.layout-mobile .ship-item-desc-narrow { grid-area: desc; }
+body.layout-mobile .ship-item-desc-narrow { display: block; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.layout-mobile .ship-item-part, body.layout-mobile .ship-item-shape, body.layout-mobile .ship-item-dimensions, body.layout-mobile .ship-item-grade, body.layout-mobile .ship-item-remark { display: none; }
+body.layout-mobile .ship-item.is-flagged { grid-template-columns: 6em minmax(0, 1fr) auto; }
 body.layout-mobile .ship-item .item-weight { grid-area: weight; }
 body.layout-mobile .ship-item-seq { grid-area: seq; }
 body.layout-mobile .ship-item .ship-pill { grid-area: pill; }
