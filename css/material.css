@@ -1,0 +1,73 @@
+/* Material and Load steps on a Shipping load (js/material-ui.js). Material
+   is blue throughout: the step button, the scan bar while adding material,
+   and the tag and edge on each material piece. */
+
+:root {
+  --material: #4da3ff;
+  --material-bg: #0f2238;
+}
+
+.mat-bar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 20px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: var(--surface-1);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+}
+.mat-bar.adding { border-color: var(--material); }
+.mat-steps { display: flex; gap: 8px; }
+.mat-steps .btn { min-height: 56px; font-size: 1.1rem; }
+.mat-bar.adding .mat-steps .btn-primary { background: var(--material); border-color: var(--material); color: #000; }
+.mat-counts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 20px; font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.mat-loaded { color: var(--ok); }
+.mat-material { color: var(--material); }
+.mat-progress { grid-column: 1 / -1; }
+.mat-progress { background: var(--material-bg); }
+.mat-hint { grid-column: 1 / -1; margin: 0; }
+.mat-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: var(--gap); }
+.mat-actions:empty { display: none; }
+.mat-actions .btn-hold { margin-left: auto; }
+
+/* Scan bar while adding material */
+.scanbar.adding-material .scan-field { border-color: var(--material); }
+.scanbar.adding-material .scan-stack { color: var(--material); }
+
+/* Material pieces in the stacks */
+.item-material {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--material);
+  color: #000;
+  font-family: var(--font);
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.item-mark:has(.item-material) { flex-wrap: wrap; white-space: normal; }
+.item.is-material, .m-item.is-material { box-shadow: inset 6px 0 0 var(--material); }
+.item.is-material .item-mark, .m-item.is-material .item-mark { color: var(--material); }
+
+/* "Show material only" hides everything already loaded. */
+body.mat-only .item:not(.is-material), body.mat-only .m-item:not(.is-material) { display: none; }
+
+@media (max-width: 600px) {
+  .mat-bar { grid-template-columns: 1fr; }
+  .mat-counts { justify-content: flex-start; }
+}
+body.layout-mobile .mat-bar { grid-template-columns: 1fr; padding: 10px; gap: 8px; }
+body.layout-mobile .mat-steps .btn { flex: 1; padding: 0 8px; }
+body.layout-mobile .mat-counts { justify-content: flex-start; font-size: 1rem; }
+body.layout-mobile .mat-actions .btn-hold { margin-left: 0; }
+
+@media print {
+  .mat-bar { display: none !important; }
+  .item-material { border: 1px solid #000; background: none; color: #000; }
+  .item.is-material { box-shadow: none; }
+}

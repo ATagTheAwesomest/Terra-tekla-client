@@ -49,7 +49,7 @@ function renderItem(it, i, count, job) {
     ? `<span class="item-count${count.n > count.of ? ' over' : ''}">${count.n} of ${count.of}</span>`
     : '';
   return `
-    <li class="m-item${flagged ? ' flagged' : ''}${open ? ' expanded' : ''}" data-item-id="${it.id}">
+    <li class="m-item${flagged ? ' flagged' : ''}${it.status === 'material' ? ' is-material' : ''}${open ? ' expanded' : ''}" data-item-id="${it.id}">
       <div class="m-item-top">
         <span class="m-index">${i + 1}</span>
         <span class="item-mark">${escapeHtml(it.mark)}${overrideBadge(it)}</span>

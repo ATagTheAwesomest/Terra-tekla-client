@@ -5,6 +5,7 @@ import { partCount } from './parts.js';
 import { createLoad, jobHasSequences, jobLabel, loadSequences, loadTotals, formatWeight, refreshPieceWeights } from './model.js';
 import { enterCheck, initCheck, renderCheck, submitCheck } from './check-ui.js';
 import { checkSummary } from './check.js';
+import { initMaterial, isAddingMaterial, pickMaterial, renderMaterialBar } from './material-ui.js';
 import { initLayout, isMobile, renderStacksMobile } from './mobile.js';
 import { focusScanner, initScanner, renderScanbar } from './scanner.js';
 import { initStacks, renderStacks } from './stacks.js';
@@ -83,7 +84,7 @@ export function renderWorkspace() {
     return;
   }
   if (isChecking()) ws.innerHTML = renderCheck(state.load);
-  else ws.innerHTML = isMobile() ? renderStacksMobile(state.load) : renderStacks(state.load);
+  else ws.innerHTML = renderMaterialBar(state.load) + (isMobile() ? renderStacksMobile(state.load) : renderStacks(state.load));
 }
 
 // Switches between loading ('load') and the truck check ('check').
@@ -300,13 +301,15 @@ function bindEvents() {
   const ctx = {
     get load() { return state.load; },
     get checking() { return isChecking(); },
-    save: saveCurrentLoad, render, toast, setMode, checkScan: submitCheck,
+    get material() { return isAddingMaterial(); },
+    save: saveCurrentLoad, render, toast, setMode, checkScan: submitCheck, pickMaterial,
     vetScan: (raw) => vetCurrentScan(state.load, raw), blockScan: showBlock,
   };
   initLayout(render);
   initScanner(ctx);
   initStacks(ctx);
   initCheck(ctx);
+  initMaterial(ctx);
   initShipping(ctx);
   $('#btn-truck-check').addEventListener('click', () => setMode(isChecking() ? 'load' : 'check'));
   $('#btn-loads').addEventListener('click', () => setDrawer(true));
