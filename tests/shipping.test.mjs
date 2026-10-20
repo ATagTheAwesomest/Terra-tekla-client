@@ -1,4 +1,5 @@
 // Run with: node --test tests/*.test.mjs
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -60,9 +61,22 @@ test('GetLoads: mock layout, single load, other field names, remaining material 
       },
     },
   });
-  assert.deepEqual(other, [{ number: '7', shipped: false, shipDate: '', pieces: { B2: 3 }, count: 3 }]);
+  assert.deepEqual(other, [{ number: '7', shipped: false, shipDate: '', pieces: { B2: 3 }, loaded: { B2: 3 }, count: 3 }]);
   assert.deepEqual(parseLoads({ GetLoads: { Successful: '1' } }), []);
   assert.deepEqual(parseLoads(null), []);
+});
+
+test('GetLoads: real PowerFab reply (trimmed from job 25-351)', () => {
+  const real = JSON.parse(readFileSync(new URL('./fixtures/getloads_real.json', import.meta.url), 'utf8'));
+  const [shipped, open] = parseLoads(real);
+  assert.deepEqual([shipped.number, shipped.shipped, shipped.shipDate, shipped.count], ['2', true, '2026-10-13', 13]);
+  assert.equal(open.number, '3');
+  assert.equal(open.shipped, false);
+  // Assigned to the truck but not loaded yet still counts as its claim.
+  assert.equal(open.pieces['52323012'], 1);
+  assert.equal(open.loaded['52323012'], 0);
+  // Remaining material is not on any truck.
+  assert.equal(Object.keys(shipped.pieces).some((m) => m === '52311004'), false);
 });
 
 test('fetchLoads posts GetLoads read-only and caches for offline', async () => {

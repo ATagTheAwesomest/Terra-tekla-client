@@ -89,10 +89,12 @@ the tablet.
   step: each piece is `material` (laid out on the floor) or `loaded` (scanned
   onto the truck), and reads `shipped` once its load is shipped. Scans in
   Shipping are `loaded`; pieces saved earlier read as `loaded`.
-- **Not confirmed yet:** the real `GetLoads` reply layout. `js/pf-loads.js`
-  documents exactly what the parser assumes (load number field names, shipped
-  flags, a `MainMark` plus quantity per piece, and that "Remaining…" material
-  isn't on a truck). Check it against one real reply before relying on it.
+- **GetLoads reply** (confirmed against a real reply, job 25-351): loads sit
+  under `Destination.Load`, each with `LoadNumber`, `DateShipped` (only once
+  shipped) and `Material` pieces with `MainMark`, `AssignedQuantity` and
+  `LoadedQuantity`. A piece assigned to a load but not loaded yet still counts
+  as that load's claim. Material under `Remaining` isn't on a truck. A trimmed
+  copy is in `tests/fixtures/getloads_real.json`.
 
 ## Run locally
 

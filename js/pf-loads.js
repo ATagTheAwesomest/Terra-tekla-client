@@ -5,16 +5,19 @@
 // Request: POST /api/powerfab/GetLoads with JobNumber and the Include* flags,
 // the same fields the API's GET /api/jobs/{job}/loads sends.
 //
-// The real GetLoads reply layout is NOT confirmed yet (the API's mock layout
-// is its own guess). So the parser only assumes:
-//   - each load is an object stored under a key named "Load", anywhere;
-//   - its number is LoadNumber, TruckNumber or Number;
-//   - it is shipped when Shipped/IsShipped is true/1/yes, or it carries a
-//     ShipDate/DateShipped/ShippedDate;
-//   - its pieces are the objects under it that have a MainMark, with the count
-//     in Quantity/QuantityLoaded/LoadedQuantity/Qty (1 when none is given).
-// Anything under a key with "Remaining" in its name is material not yet on
-// a truck, so it is not counted as loaded. Check this against a real reply.
+// Reply layout, confirmed against a real PowerFab reply (job 25-351):
+//   Destination { DestinationName, Load: [ ... ], Remaining: { MaterialRemaining: [...] } }
+//   Load { LoadNumber, DateShipped (only once shipped), AssignedQuantity,
+//          LoadedQuantity, Material: [ { MainMark, PieceMark, Sequence,
+//          AssignedQuantity, LoadedQuantity, ... } ] }
+// Material not on any load sits under Remaining and is ignored here. A piece
+// can be assigned to a load (AssignedQuantity) before it is loaded
+// (LoadedQuantity 0); both count as that load's claim on the piece. When
+// several destinations exist the loads are merged by number.
+//
+// The parser stays tolerant of other spellings (TruckNumber/Number, Shipped,
+// ShipDate, Quantity) in case a PowerFab version differs. A load is shipped
+// when it has a DateShipped or ShipDate, or Shipped/IsShipped is true.
 
 import { powerfab } from './api.js';
 import { jobKey, normalizeMark } from './parts.js';
@@ -51,22 +54,29 @@ function pieceObjects(node, out = []) {
   return out;
 }
 
-// [{ number, shipped, shipDate, pieces: { MARK: qty }, count }] in reply order.
+// Quantity from the first of `keys` present; `blank` when none is.
+function quantity(obj, keys, blank = 1) {
+  const raw = first(obj, keys);
+  return raw === '' ? blank : Math.max(0, Number.parseInt(raw, 10) || 0);
+}
+
+// [{ number, shipped, shipDate, pieces: { MARK: assigned }, loaded: { MARK: loaded }, count }]
+// in reply order.
 export function parseLoads(reply) {
   const byNumber = new Map();
   for (const l of findLoads(reply)) {
     const number = first(l, ['LoadNumber', 'TruckNumber', 'Number']);
     if (!number) continue;
     const shipDate = first(l, ['ShipDate', 'DateShipped', 'ShippedDate']);
-    const load = byNumber.get(number) ?? { number, shipped: false, shipDate: '', pieces: {}, count: 0 };
+    const load = byNumber.get(number) ?? { number, shipped: false, shipDate: '', pieces: {}, loaded: {}, count: 0 };
     load.shipped ||= truthy(l.Shipped) || truthy(l.IsShipped) || Boolean(shipDate);
     load.shipDate ||= shipDate;
     for (const p of pieceObjects(l)) {
       const mark = normalizeMark(text(p.MainMark));
       if (!mark) continue;
-      const raw = first(p, ['Quantity', 'QuantityLoaded', 'LoadedQuantity', 'Qty']);
-      const qty = raw === '' ? 1 : Math.max(0, Number.parseInt(raw, 10) || 0);
+      const qty = quantity(p, ['AssignedQuantity', 'Quantity', 'LoadedQuantity', 'QuantityLoaded', 'Qty']);
       load.pieces[mark] = (load.pieces[mark] ?? 0) + qty;
+      load.loaded[mark] = (load.loaded[mark] ?? 0) + quantity(p, ['LoadedQuantity', 'QuantityLoaded'], 0);
       load.count += qty;
     }
     byNumber.set(number, load);
