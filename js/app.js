@@ -8,7 +8,7 @@ import { initLayout } from './mobile.js';
 import { focusScanner, initScanner } from './scanner.js';
 import { initServer, openServerSettings, refreshJobs, serverStatus } from './server-ui.js';
 import { canScan, enterShipping, initShipping, render as renderShipping, scan, selectedLoad, setPanel, ship } from './shipping-ui.js';
-import { APP_VERSION, checkForUpdate, forceUpdate, registerServiceWorker } from './updater.js';
+import { APP_VERSION, checkForUpdate, forceUpdate, recoverStalePage, registerServiceWorker } from './updater.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -162,6 +162,8 @@ function bindEvents() {
 }
 
 async function boot() {
+  // A stale cached page can't run these scripts: clear the cache and reload.
+  if (recoverStalePage()) return;
   dropOldCaches();
   bindEvents();
   initCurrentJob({ refresh: () => refreshJobs(), check: async (number) => (await readJob(number)).number });
