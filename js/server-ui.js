@@ -1,30 +1,26 @@
-// Server settings dialog (address, key, setup QR show/scan) and the glue that
-// keeps the job list and each job's part list filled from the API, falling
-// back to the copies cached on this device when offline.
+// Server settings dialog (address, key, setup QR show/scan) and the open job
+// list, read live from the API. Nothing from the server is kept on the device.
 
 import { escapeHtml, toast } from './app.js';
 import * as api from './api.js';
-import { JOB_NUMBERS, setJobNumbers } from './model.js';
-import { jobPartCount, setJobParts } from './parts.js';
+import { JOB_NUMBERS, setJobNumbers } from './current-job.js';
 
 const $ = (sel) => document.querySelector(sel);
 const dialog = () => $('#dlg-server');
 
 let onJobsChanged = () => {};
 let scanStop = null;
+let jobsReadAt = null;
 
-// ---- Job and part data -------------------------------------------------------
-
-function applyJobs(entry) {
-  setJobNumbers(entry.jobs.map(api.jobName));
-  onJobsChanged();
-}
+// ---- Job list ------------------------------------------------------------------
 
 export async function refreshJobs({ quiet = false } = {}) {
   try {
     const entry = await api.fetchJobs();
-    applyJobs(entry);
-    if (!quiet) toast(`${entry.jobs.length} jobs loaded from the server`);
+    setJobNumbers(entry.jobs.map(api.jobName));
+    jobsReadAt = new Date(entry.fetchedAt);
+    onJobsChanged();
+    if (!quiet) toast(`${entry.jobs.length} open job${entry.jobs.length === 1 ? '' : 's'} on the server`);
     return true;
   } catch (err) {
     if (!quiet) toast(err.message, 5000);
@@ -32,40 +28,16 @@ export async function refreshJobs({ quiet = false } = {}) {
   }
 }
 
-// Makes sure the job's part list is in memory: the cached copy right away,
-// then a fresh copy from the server when online. Returns the part count.
-export async function ensureJobParts(job, { refresh = true } = {}) {
-  if (!job) return 0;
-  const cached = api.cachedParts(job);
-  if (cached) setJobParts(job, cached.parts);
-  if (!refresh || !api.getConfig() || !navigator.onLine) {
-    if (!cached && api.getConfig()) toast(`No part list saved for ${job} yet. Connect to the server to download it.`, 5000);
-    return jobPartCount(job);
-  }
-  try {
-    const entry = await api.fetchParts(job);
-    setJobParts(job, entry.parts);
-    if (!cached) toast(`${entry.parts.length} parts downloaded for ${job}`);
-  } catch (err) {
-    toast(cached ? `Using the saved part list. ${err.message}` : err.message, 5000);
-  }
-  return jobPartCount(job);
-}
-
-// Boot: cached jobs and every cached part list, then a quiet refresh.
+// Boot: a quiet read of the job list.
 export function initServer({ jobsChanged }) {
   onJobsChanged = jobsChanged;
-  applyJobs(api.cachedJobs());
-  for (const job of api.cachedPartJobs()) setJobParts(job, api.cachedParts(job)?.parts ?? []);
-  if (api.getConfig() && navigator.onLine) refreshJobs({ quiet: true });
+  if (api.getConfig()) refreshJobs({ quiet: true });
   bindDialog();
 }
 
 export function serverStatus() {
-  const config = api.getConfig();
-  if (!config) return 'Server not set up';
-  const { fetchedAt } = api.cachedJobs();
-  return fetchedAt ? `Jobs synced ${new Date(fetchedAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}` : 'Server set, not synced';
+  if (!api.getConfig()) return 'Server not set up';
+  return jobsReadAt ? `Jobs read ${jobsReadAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : 'Server set';
 }
 
 // ---- Settings dialog -----------------------------------------------------------
@@ -205,7 +177,3 @@ function bindDialog() {
   dialog().addEventListener('close', stopCamera);
 }
 
-export function jobOptionsHtml(selected) {
-  return JOB_NUMBERS.map((job) => `
-    <label class="job-option"><input type="radio" name="job" value="${escapeHtml(job)}"${job === selected ? ' checked' : ''}><span>${escapeHtml(job)}</span></label>`).join('');
-}

@@ -1,24 +1,24 @@
-// Piece Lookup screen: scan or type any mark to see everything this tablet
-// knows about it (job, description, weight, size, grade, sequence, which loads
-// hold it, on the truck or shipped, last scanned), plus a Jobs view with each
-// cached job's piece counts. Read-only: it never changes a load or PowerFab.
+// Piece Lookup screen: scan or type any mark on the current job to see its
+// size, weight, sequence and which PowerFab loads hold it (assigned, on the
+// truck, shipped), plus a Job view listing every mark with those counts.
+// Read-only: it never changes PowerFab.
 //
-// Job-first like the rest of the app: both views follow the current job
-// (js/current-job.js). "All jobs" widens the search to every job on the
-// tablet, and a mark found only on other jobs says so.
+// Data is read live when the screen opens (the job's part list and loads) and
+// kept in memory only; Refresh reads it again.
 //
 // The screen is a full-screen modal dialog, so the Shipping scanner never
 // takes focus (or a scan) while it's open. The lookup field keeps focus the
 // same way the scan bar does: inputmode="none", re-taken after every tap.
 
-import { escapeHtml, openLoad, setHome, toast } from './app.js';
+import { escapeHtml, openShipping, toast } from './app.js';
 import * as api from './api.js';
-import { getCurrentJob, isCurrentJob, onCurrentJobChange, openJobPicker, requireCurrentJob } from './current-job.js';
-import { jobMarks, jobOverview, lookupMark } from './lookup.js';
-import { formatWeight } from './model.js';
-import { jobKey, setJobParts } from './parts.js';
+import { getCurrentJob, onCurrentJobChange, openJobPicker, requireCurrentJob } from './current-job.js';
+import { jobMarks, jobSummary, lookupMark } from './lookup.js';
+import { jobKey } from './parts.js';
+import * as pf from './pf-loads.js';
 import { openKeypad } from './scanner.js';
-import * as store from './store.js';
+import { formatWeight } from './shipping.js';
+import { ship } from './shipping-ui.js';
 
 const RECENT_KEY = 'terra.lookup.recent';
 const RECENT_MAX = 12;
@@ -26,66 +26,35 @@ const RECENT_MAX = 12;
 const $ = (sel) => document.querySelector(sel);
 
 const view = {
-  tab: 'piece', // 'piece' | 'jobs'
+  tab: 'piece', // 'piece' | 'job'
   mark: '',
-  job: null, // job key whose marks are listed, on the jobs tab
   filter: 'all', // job marks filter: 'all' | 'left' | 'over' | 'extra'
-  scope: 'job', // 'job' (the current job only) | 'all'
-  busy: false,
 };
 
+// The current job's live data: { job, parts, loads, readAt, error, reading }.
+let data = { job: null, parts: [], loads: [], readAt: null, error: '', reading: false };
 let dialog = null;
 
 // ---- Data ------------------------------------------------------------------------
 
-async function gather() {
-  const partLists = api.cachedPartJobs().map((job) => api.cachedParts(job)).filter((l) => l?.parts);
-  return { jobs: api.cachedJobs().jobs ?? [], partLists, loads: await store.listLoads() };
-}
-
-function inScope() {
-  return view.scope === 'job' && getCurrentJob() ? jobKey(getCurrentJob()) : null;
-}
-
-// The data narrowed to the current job, or all of it on "All jobs".
-function scoped(data) {
-  const job = inScope();
-  if (!job) return data;
-  return {
-    jobs: data.jobs.filter((j) => jobKey(j.number) === job),
-    partLists: data.partLists.filter((l) => jobKey(l.job) === job),
-    loads: data.loads.filter((l) => isCurrentJob(l.job)),
-  };
-}
-
-function canReachServer() {
-  return Boolean(api.getConfig()) && navigator.onLine;
-}
-
-// Downloads part lists for the given jobs, one at a time. Returns how many
-// came down; failures are counted and reported once.
-async function downloadParts(jobs) {
-  if (!canReachServer()) {
-    toast(api.getConfig() ? 'Offline. Part lists download when this iPad is online.' : 'No server set up. Open Server settings on the home screen.', 4000);
-    return 0;
+// Reads the job's part list and loads. Loads Shipping already read are reused.
+async function readData() {
+  const job = getCurrentJob() ? jobKey(getCurrentJob()) : null;
+  data = { job, parts: [], loads: [], readAt: null, error: '', reading: Boolean(job) };
+  render();
+  if (!job) return;
+  try {
+    const sameAsShipping = ship.job === job && ship.readAt;
+    const [entry, loads] = await Promise.all([
+      api.fetchParts(job),
+      sameAsShipping ? ship.loads : pf.readJob(job).then((j) => pf.readLoads(j.pcid)),
+    ]);
+    if (data.job !== job) return;
+    Object.assign(data, { parts: entry.parts, loads, readAt: new Date(), reading: false });
+  } catch (err) {
+    if (data.job === job) Object.assign(data, { error: err.message, reading: false });
   }
-  view.busy = true;
-  let ok = 0;
-  let lastError = null;
-  for (const [i, job] of jobs.entries()) {
-    renderBusy(`Downloading part lists… ${i + 1} of ${jobs.length}`);
-    try {
-      const entry = await api.fetchParts(job);
-      setJobParts(job, entry.parts);
-      ok++;
-    } catch (err) {
-      lastError = err;
-    }
-  }
-  view.busy = false;
-  if (lastError) toast(`${ok} of ${jobs.length} part lists downloaded. ${lastError.message}`, 5000);
-  else toast(`${ok} part list${ok === 1 ? '' : 's'} downloaded`);
-  return ok;
+  render();
 }
 
 function recentMarks() {
@@ -104,27 +73,10 @@ function remember(mark) {
 
 // ---- Formatting --------------------------------------------------------------------
 
-function when(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
-}
-
-function ago(iso) {
-  const ms = Date.now() - new Date(iso).getTime();
-  if (!iso || !Number.isFinite(ms)) return '';
-  const min = Math.round(ms / 60000);
-  if (min < 1) return 'just now';
-  if (min < 60) return `${min} min ago`;
-  const h = Math.round(min / 60);
-  if (h < 48) return `${h} hr ago`;
-  return `${Math.round(h / 24)} days ago`;
-}
-
 const n = (x) => Number(x || 0).toLocaleString('en-US');
 
-function fact(label, value, cls = '') {
-  return `<div class="lk-fact ${cls}"><dt>${label}</dt><dd>${value ? escapeHtml(value) : '<span class="muted">—</span>'}</dd></div>`;
+function fact(label, value) {
+  return `<div class="lk-fact"><dt>${label}</dt><dd>${value ? escapeHtml(value) : '<span class="muted">—</span>'}</dd></div>`;
 }
 
 // Where the piece stands, most advanced first.
@@ -136,52 +88,50 @@ function pieceState(hit) {
   if (c.shipped) return { cls: 'ok', text: `${c.shipped} shipped` };
   if (c.onTruck) return { cls: 'ok', text: `${c.onTruck} on truck` };
   if (c.onLoads) return { cls: 'info', text: c.remaining ? `${c.onLoads} on loads` : 'All on loads' };
-  return { cls: 'muted', text: 'Not loaded' };
+  return { cls: 'muted', text: 'Not on a load' };
 }
 
 // ---- Piece view ----------------------------------------------------------------------
 
 function renderPlacements(hit) {
-  if (!hit.placements.length) return '<p class="muted lk-none">Not on any load on this iPad.</p>';
-  const rows = hit.placements.map((p) => {
-    const status = p.shippedAt ? `<span class="lk-pill ok">Shipped ${escapeHtml(when(p.shippedAt))}</span>`
-      : p.onTruck ? '<span class="lk-pill ok">On truck</span>'
-      : '<span class="lk-pill info">Loaded</span>';
-    const open = isCurrentJob(p.load.job) ? ` data-open-load="${escapeHtml(p.load.id)}"` : ' class="lk-other"';
-    return `<tr${open}>
-      <td class="lk-strong">${escapeHtml(p.load.name)}</td>
-      <td>${escapeHtml(p.stack.name)}</td>
-      <td class="num">${p.index + 1}</td>
-      <td>${escapeHtml(when(p.item.scannedAt))}</td>
+  if (!hit.placements.length) return '<p class="muted lk-none">Not on any PowerFab load.</p>';
+  const rows = hit.placements.map(({ load, item }) => {
+    const status = load.shipped ? `<span class="lk-pill ok">Shipped${load.shipDate ? ` ${escapeHtml(load.shipDate)}` : ''}</span>`
+      : item.loaded >= item.qty ? '<span class="lk-pill ok">On truck</span>'
+      : item.loaded ? `<span class="lk-pill info">${item.loaded} of ${item.qty} on truck</span>`
+      : '<span class="lk-pill info">Material</span>';
+    return `<tr data-open-load="${escapeHtml(load.id)}">
+      <td class="lk-strong">Load ${escapeHtml(load.number)}</td>
+      <td>${escapeHtml(item.sequence)}</td>
+      <td class="num">${n(item.qty)}</td>
       <td>${status}</td>
     </tr>`;
   }).join('');
   return `<table class="lk-table lk-placements">
-    <thead><tr><th>Load</th><th>Stack</th><th class="num">Row</th><th>Scanned</th><th>Status</th></tr></thead>
+    <thead><tr><th>Load</th><th>Seq</th><th class="num">Qty</th><th>Status</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
-  <p class="muted lk-hint">${isCurrentJob(hit.placements[0].load.job) ? 'Tap a load to open it in Shipping.' : 'Change to this job to open its loads in Shipping.'}</p>`;
+  <p class="muted lk-hint">Tap a load to open it in Shipping.</p>`;
 }
 
 function renderHit(hit) {
   const { part, details: d, counts: c } = hit;
   const state = pieceState(hit);
-  const mark = part?.mark ?? hit.placements[0]?.item.mark ?? view.mark;
-  const desc = part?.description || hit.placements[0]?.item.description || '';
-  const weight = part ? part.weight : Number(hit.placements[0]?.item.weight) || 0;
-  const seq = d.sequences.length ? `${d.sequences.join(', ')}${d.sequenceFromMark ? ' (from mark)' : ''}` : '';
+  const first = hit.placements[0]?.item;
+  const desc = part?.description || first?.description || '';
+  const weight = part ? part.weight : first?.weightEach ?? 0;
+  const seqs = d.sequences.length ? d.sequences : [...new Set(hit.placements.map((p) => p.item.sequence).filter(Boolean))];
   const qtyBar = c.qty ? Math.min(100, Math.round((c.onLoads / c.qty) * 100)) : 0;
   const fields = part?.fields?.length
     ? `<details class="lk-fields"><summary>All fields from the part list</summary><dl>${
       part.fields.map(([k, v]) => `<div><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd></div>`).join('')}</dl></details>`
     : '';
-  const list = api.cachedParts(hit.job);
   return `
     <article class="lk-card${part ? '' : ' flagged'}">
       <header class="lk-card-head">
         <div>
-          <div class="lk-mark">${escapeHtml(mark)}</div>
-          <div class="lk-job">${escapeHtml(hit.jobName)}</div>
+          <div class="lk-mark">${escapeHtml(part?.mark ?? hit.mark)}</div>
+          <div class="lk-job">${escapeHtml(data.job ?? '')}</div>
         </div>
         <span class="lk-pill lg ${state.cls}">${escapeHtml(state.text)}</span>
       </header>
@@ -192,136 +142,64 @@ function renderHit(hit) {
         ${fact('Size', d.size)}
         ${fact('Length', d.length)}
         ${fact('Grade', d.grade)}
-        ${fact('Sequence', seq)}
+        ${fact('Sequence', seqs.join(', '))}
         ${fact('Drawing', d.drawing)}
-        ${fact('Last scanned here', hit.lastScannedAt ? `${when(hit.lastScannedAt)} (${ago(hit.lastScannedAt)})` : '')}
       </dl>
       <div class="lk-progress">
         <div class="lk-counts">
           <span><b>${n(c.onLoads)}</b>${c.qty ? ` of ${n(c.qty)}` : ''} on loads</span>
           <span><b>${n(c.onTruck)}</b> on truck</span>
           <span><b>${n(c.shipped)}</b> shipped</span>
-          ${c.qty ? `<span class="${c.remaining ? '' : 'muted'}"><b>${n(c.remaining)}</b> not loaded</span>` : ''}
+          ${c.qty ? `<span class="${c.remaining ? '' : 'muted'}"><b>${n(c.remaining)}</b> not on a load</span>` : ''}
         </div>
         ${c.qty ? `<div class="lk-bar${c.over ? ' over' : ''}"><span style="width:${qtyBar}%"></span></div>` : ''}
       </div>
       ${renderPlacements(hit)}
       ${fields}
-      <p class="muted lk-source">${part ? `Part list saved ${escapeHtml(when(list?.fetchedAt))}` : 'Only on a load: scanned or typed by hand, not on this job’s saved part list.'}</p>
     </article>`;
-}
-
-function renderSuggestions(result, hasData) {
-  const head = `<div class="lk-empty"><h2>${escapeHtml(result.mark)} not found</h2>`;
-  const missing = missingPartJobs();
-  const more = missing.length && canReachServer()
-    ? `<button class="btn btn-primary" type="button" data-download="missing">Download ${missing.length} more part list${missing.length === 1 ? '' : 's'} and search again</button>`
-    : missing.length ? `<p class="muted">${missing.length} job${missing.length === 1 ? ' has' : 's have'} no saved part list. Connect to the server to search ${missing.length === 1 ? 'it' : 'them'} too.</p>` : '';
-  if (!result.suggestions.length) {
-    return `${head}<p class="muted">${hasData ? 'No saved part list or load has this mark.' : 'No part lists are saved on this iPad yet.'}</p>${more}</div>`;
-  }
-  return `${head}<p class="muted">Marks containing “${escapeHtml(result.mark)}”:</p>
-    <div class="lk-chips">${result.suggestions.map((s) => `<button class="btn lk-chip" type="button" data-mark="${escapeHtml(s.mark)}">
-      <span class="lk-strong">${escapeHtml(s.mark)}</span><span class="muted">${escapeHtml(s.job)}${s.description ? ` · ${escapeHtml(s.description)}` : ''}</span></button>`).join('')}</div>
-    ${more}</div>`;
 }
 
 function renderStart() {
   const recent = recentMarks();
   return `<div class="lk-empty">
     <h2>Scan any piece</h2>
-    <p class="muted">Scan a mark, or tap Keypad to type one. Shows the job, size, weight and every load on this iPad that has it.</p>
+    <p class="muted">Scan a mark, or tap Keypad to type one. Shows its size, weight and every PowerFab load that has it.</p>
     ${recent.length ? `<p class="stat-label">Recent</p><div class="lk-chips">${recent.map((m) => `<button class="btn lk-chip" type="button" data-mark="${escapeHtml(m)}"><span class="lk-strong">${escapeHtml(m)}</span></button>`).join('')}</div>` : ''}
   </div>`;
 }
 
-function renderPiece(data) {
+function renderPiece() {
   const body = $('#lookup-body');
   if (!view.mark) {
     body.innerHTML = renderStart();
     return null;
   }
-  const result = lookupMark(view.mark, scoped(data));
-  // On the current job only, still say when other jobs have the mark.
-  const others = inScope() ? lookupMark(view.mark, data).hits.filter((h) => h.job !== inScope()) : [];
-  const elsewhere = others.length
-    ? `<div class="lk-elsewhere"><span>${result.hits.length ? 'Also on' : 'Not on this job. Found on'} ${others.map((h) => escapeHtml(h.jobName)).join(', ')}.</span>
-      <button class="btn" type="button" data-scope="all">Show all jobs</button></div>`
-    : '';
-  body.innerHTML = result.hits.length
-    ? `${result.hits.length > 1 ? `<p class="lk-multi">${escapeHtml(result.mark)} is on ${result.hits.length} jobs.</p>` : ''}${result.hits.map(renderHit).join('')}${elsewhere}`
-    : others.length ? `<div class="lk-empty"><h2>${escapeHtml(result.mark)}</h2>${elsewhere}</div>`
-    : renderSuggestions(result, scoped(data).partLists.length > 0);
-  return result.hits.length || !others.length ? result : { ...result, hits: others, elsewhere: true };
+  const hit = lookupMark(view.mark, data);
+  if (hit.found) {
+    body.innerHTML = renderHit(hit);
+    return hit;
+  }
+  body.innerHTML = `<div class="lk-empty"><h2>${escapeHtml(hit.mark)} not found on ${escapeHtml(data.job)}</h2>
+    ${hit.suggestions.length ? `<p class="muted">Marks containing “${escapeHtml(hit.mark)}”:</p>
+    <div class="lk-chips">${hit.suggestions.map((s) => `<button class="btn lk-chip" type="button" data-mark="${escapeHtml(s.mark)}">
+      <span class="lk-strong">${escapeHtml(s.mark)}</span><span class="muted">${escapeHtml(s.description)}</span></button>`).join('')}</div>`
+    : '<p class="muted">The job’s part list and loads don’t have this mark.</p>'}</div>`;
+  return hit;
 }
 
-// ---- Jobs view -------------------------------------------------------------------------
+// ---- Job view -------------------------------------------------------------------------
 
-function missingPartJobs() {
-  const have = new Set(api.cachedPartJobs());
-  const job = inScope();
-  if (job) return have.has(job) ? [] : [job];
-  return (api.cachedJobs().jobs ?? []).map((j) => jobKey(j.number)).filter((j) => j && !have.has(j));
-}
-
-function pct(part, whole) {
-  return whole ? Math.min(100, Math.round((part / whole) * 100)) : 0;
-}
-
-function renderJobRow(r) {
-  const loadedPct = pct(r.loaded - r.extra, r.pieces);
-  return `<li class="lk-job-row" data-job="${escapeHtml(r.job)}">
-    <button class="btn lk-job-open" type="button" data-open-job="${escapeHtml(r.job)}">
-      <span class="lk-job-name">${escapeHtml(r.jobName)}</span>
-      <span class="lk-job-meta muted">${!r.hasParts ? 'No part list saved'
-        : r.marks ? `${n(r.marks)} mark${r.marks === 1 ? '' : 's'} · ${n(r.pieces)} pcs · ${formatWeight(r.weight)} · saved ${escapeHtml(when(r.fetchedAt))}`
-        : `Saved part list is empty · saved ${escapeHtml(when(r.fetchedAt))}`}</span>
-      ${r.pieces ? `<span class="lk-bar"><span style="width:${loadedPct}%"></span></span>` : ''}
-      <span class="lk-counts">
-        <span><b>${n(r.loaded - r.extra)}</b>${r.pieces ? ` of ${n(r.pieces)}` : ''} loaded</span>
-        <span><b>${n(r.onTruck)}</b> on truck</span>
-        <span><b>${n(r.shipped)}</b> shipped</span>
-        <span><b>${n(r.loads)}</b> load${r.loads === 1 ? '' : 's'}</span>
-        ${r.extra ? `<span class="lk-flag"><b>${n(r.extra)}</b> not on list</span>` : ''}
-      </span>
-    </button>
-    ${r.job ? `<button class="btn lk-job-dl" type="button" data-download="${escapeHtml(r.job)}" aria-label="Download the part list for ${escapeHtml(r.job)}">&#8635;</button>` : ''}
-  </li>`;
-}
-
-function renderJobs(data) {
-  const body = $('#lookup-body');
-  if (inScope()) return renderJobMarks(data, inScope());
-  if (view.job !== null) return renderJobMarks(data, view.job);
-  const rows = jobOverview(data);
-  const missing = missingPartJobs();
-  const totals = rows.reduce((t, r) => ({ pieces: t.pieces + r.pieces, loaded: t.loaded + r.loaded, shipped: t.shipped + r.shipped }), { pieces: 0, loaded: 0, shipped: 0 });
-  body.innerHTML = `
-    <div class="lk-jobs-head">
-      <p class="muted">${rows.length} job${rows.length === 1 ? '' : 's'} on this iPad · ${n(totals.loaded)} pieces on loads · ${n(totals.shipped)} shipped. Counts come from loads saved here, not from PowerFab.</p>
-      ${missing.length ? `<button class="btn" type="button" data-download="missing">Download ${missing.length} missing part list${missing.length === 1 ? '' : 's'}</button>` : ''}
-    </div>
-    ${rows.length ? `<ul class="lk-jobs">${rows.map(renderJobRow).join('')}</ul>`
-      : '<div class="lk-empty"><h2>No jobs yet</h2><p class="muted">Set up the server and refresh jobs, or create a load in Shipping.</p></div>'}`;
-}
-
-const FILTERS = [['all', 'All'], ['left', 'Not loaded'], ['over', 'Over qty'], ['extra', 'Not on list']];
+const FILTERS = [['all', 'All'], ['left', 'Not on a load'], ['over', 'Over qty'], ['extra', 'Not on list']];
 const KEEP = { all: () => true, left: (m) => m.remaining > 0, over: (m) => m.over, extra: (m) => m.extra };
 
-function renderJobMarks(data, job) {
-  const all = jobMarks(job, data);
-  const row = jobOverview(data).find((r) => r.job === job);
-  const missing = missingPartJobs().includes(job);
+function renderJob() {
+  const all = jobMarks(data);
+  const t = jobSummary(all);
   const marks = all.filter(KEEP[view.filter] ?? KEEP.all);
   $('#lookup-body').innerHTML = `
-    <div class="lk-jobs-head">
-      <button class="btn" type="button" data-back-jobs>&larr; All jobs</button>
-      <h2>${escapeHtml(row?.jobName ?? job)}</h2>
-      ${missing ? `<button class="btn btn-primary" type="button" data-download="${escapeHtml(job)}">Download part list</button>` : ''}
-    </div>
-    ${row ? `<p class="lk-counts lk-job-sum"><span><b>${n(row.loaded - row.extra)}</b>${row.pieces ? ` of ${n(row.pieces)}` : ''} pcs loaded</span>
-      <span><b>${n(row.onTruck)}</b> on truck</span><span><b>${n(row.shipped)}</b> shipped</span>
-      <span><b>${n(row.loads)}</b> load${row.loads === 1 ? '' : 's'}</span>${row.pieces ? `<span>${formatWeight(row.weight)} on the job</span>` : ''}</p>` : ''}
+    <p class="lk-counts lk-job-sum"><span><b>${n(t.onLoads)}</b>${t.pieces ? ` of ${n(t.pieces)}` : ''} pcs on loads</span>
+      <span><b>${n(t.onTruck)}</b> on truck</span><span><b>${n(t.shipped)}</b> shipped</span>
+      <span><b>${n(data.loads.length)}</b> load${data.loads.length === 1 ? '' : 's'}</span>${t.pieces ? `<span>${formatWeight(t.weight)} on the job</span>` : ''}</p>
     <div class="lk-filters" role="group" aria-label="Filter marks">${FILTERS.map(([key, label]) => {
       const count = all.filter(KEEP[key]).length;
       return `<button class="btn${view.filter === key ? ' active' : ''}" type="button" data-filter="${key}" aria-pressed="${view.filter === key}">${label} <span class="muted">${count}</span></button>`;
@@ -338,37 +216,32 @@ function renderJobMarks(data, job) {
         <td class="num">${n(m.shipped)}</td>
         <td class="num">${m.qty ? n(m.remaining) : '—'}</td>
       </tr>`).join('')}</tbody>
-    </table>` : `<p class="muted lk-none">${all.length ? 'No marks match this filter.' : 'No part list saved for this job and nothing on its loads.'}</p>`}`;
+    </table>` : `<p class="muted lk-none">${all.length ? 'No marks match this filter.' : 'The job has no part list and nothing on its loads.'}</p>`}`;
 }
 
 // ---- Screen ---------------------------------------------------------------------------
 
-function renderBusy(text) {
-  $('#lookup-body').innerHTML = `<div class="lk-empty"><p class="muted">${escapeHtml(text)}</p></div>`;
-}
-
-let renderSeq = 0;
-
-// Redraws the open tab. Only the newest call draws, so a slow read of the
-// loads can't paint an old tab over the one just tapped.
-async function render() {
-  const job = getCurrentJob();
-  $('#lookup-job').textContent = job ?? 'No job picked';
-  dialog.querySelectorAll('[data-scope]').forEach((b) => {
-    const on = b.dataset.scope === (inScope() ? 'job' : 'all');
-    b.classList.toggle('active', on);
-    b.setAttribute('aria-pressed', String(on));
-  });
+function render() {
+  if (!dialog) return null;
+  $('#lookup-job').textContent = getCurrentJob() ?? 'No job picked';
+  $('#lookup-read').textContent = data.reading ? 'Reading from PowerFab…'
+    : data.readAt ? `Read ${data.readAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : '';
   dialog.querySelectorAll('[data-tab]').forEach((b) => {
     const on = b.dataset.tab === view.tab;
     b.classList.toggle('active', on);
     b.setAttribute('aria-pressed', String(on));
   });
-  if (view.busy) return null;
-  const seq = ++renderSeq;
-  const data = await gather();
-  if (seq !== renderSeq || view.busy) return null;
-  return view.tab === 'jobs' ? renderJobs(data) : renderPiece(data);
+  const body = $('#lookup-body');
+  if (data.reading && !data.readAt) {
+    body.innerHTML = `<div class="lk-empty"><p class="muted">Reading ${escapeHtml(data.job)} from PowerFab…</p></div>`;
+    return null;
+  }
+  if (data.error) {
+    body.innerHTML = `<div class="lk-empty"><h2>Couldn’t read ${escapeHtml(data.job)}</h2><p class="muted">${escapeHtml(data.error)}</p>
+      <button class="btn btn-primary" type="button" data-refresh>Try again</button></div>`;
+    return null;
+  }
+  return view.tab === 'job' ? renderJob() : renderPiece();
 }
 
 function flash(kind) {
@@ -379,15 +252,15 @@ function flash(kind) {
   }
 }
 
-export async function lookup(raw) {
+export function lookup(raw) {
   const mark = String(raw ?? '').trim().toUpperCase().replace(/-+$/, '');
   if (!mark) return;
   view.tab = 'piece';
   view.mark = mark;
-  const result = await render();
-  if (!result) return;
-  if (result.hits.length) remember(result.mark);
-  flash(!result.elsewhere && result.hits.some((h) => h.part) ? 'ok' : 'flag');
+  const hit = render();
+  if (!hit) return;
+  if (hit.found) remember(hit.mark);
+  flash(hit.part ? 'ok' : 'flag');
   $('#lookup-body').scrollTop = 0;
 }
 
@@ -401,10 +274,8 @@ function focusField() {
 export function openLookup(tab = 'piece') {
   build();
   view.tab = tab;
-  view.job = null;
-  view.scope = 'job';
   if (!dialog.open) dialog.showModal();
-  render();
+  readData();
   focusField();
 }
 
@@ -417,16 +288,14 @@ function build() {
         <h1>Piece lookup</h1>
         <div class="lk-tabs" role="group" aria-label="View">
           <button class="btn" type="button" data-tab="piece">Piece</button>
-          <button class="btn" type="button" data-tab="jobs">Jobs</button>
+          <button class="btn" type="button" data-tab="job">Job</button>
         </div>
       </header>
       <div class="lookup-scope">
         <span class="stat-label">Job</span>
         <button class="btn btn-ghost lookup-job" type="button" data-pick-job><span id="lookup-job"></span> <span class="muted">Change &#9662;</span></button>
-        <div class="lk-tabs" role="group" aria-label="Search">
-          <button class="btn" type="button" data-scope="job">This job</button>
-          <button class="btn" type="button" data-scope="all">All jobs</button>
-        </div>
+        <span class="muted" id="lookup-read"></span>
+        <button class="btn" type="button" data-refresh>&#8635; Refresh</button>
       </div>
       <div class="lookup-bar">
         <label class="lookup-field" for="lookup-input">
@@ -458,46 +327,22 @@ function build() {
     const t = e.target;
     if (t.closest('[data-close]')) return dialog.close();
     if (t.closest('[data-pick-job]')) return openJobPicker();
-    const scope = t.closest('[data-scope]')?.dataset.scope;
-    if (scope) {
-      view.scope = scope;
-      view.job = null;
-      return render();
-    }
+    if (t.closest('[data-refresh]')) return readData();
     const tab = t.closest('[data-tab]')?.dataset.tab;
     if (tab) {
-      if (tab === 'jobs' && view.tab === 'jobs') view.job = null;
       view.tab = tab;
       return render();
     }
     if (t.closest('[data-keypad]')) {
-      const value = await openKeypad({ mode: 'mark', title: 'Look up a mark', okLabel: 'Look up', note: 'Shows everything saved on this iPad about the mark.' });
+      const value = await openKeypad({ mode: 'mark', title: 'Look up a mark', okLabel: 'Look up', note: 'Shows what PowerFab has on this mark.' });
       if (value) lookup(value);
       return focusField();
-    }
-    const dl = t.closest('[data-download]')?.dataset.download;
-    if (dl) {
-      const jobs = dl === 'missing' ? missingPartJobs() : [dl];
-      await downloadParts(jobs);
-      return render();
     }
     const loadId = t.closest('[data-open-load]')?.dataset.openLoad;
     if (loadId) {
       dialog.close();
-      setHome(false);
-      await openLoad(loadId);
+      if (openShipping()) ship.selectedId = loadId;
       return;
-    }
-    if (t.closest('[data-back-jobs]')) {
-      view.job = null;
-      view.scope = 'all';
-      return render();
-    }
-    const job = t.closest('[data-open-job]')?.dataset.openJob;
-    if (job !== undefined) {
-      view.job = job;
-      view.filter = 'all';
-      return render();
     }
     const filter = t.closest('[data-filter]')?.dataset.filter;
     if (filter) {
@@ -515,8 +360,14 @@ $('#home').addEventListener('click', (e) => {
 });
 
 onCurrentJobChange(() => {
-  view.scope = 'job';
-  view.job = null;
-  if (dialog?.open) render();
+  if (dialog?.open) readData();
+  else data = { job: null, parts: [], loads: [], readAt: null, error: '', reading: false };
 });
-$('#btn-lookup')?.addEventListener('click', () => openLookup());
+$('#btn-lookup')?.addEventListener('click', () => {
+  if (!getConfig()) toast('No server set up. Open Server settings.');
+  openLookup();
+});
+
+function getConfig() {
+  return api.getConfig();
+}

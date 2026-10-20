@@ -15,18 +15,14 @@
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="stylesheet" href="css/app.css">
-  <link rel="stylesheet" href="css/check.css">
   <link rel="stylesheet" href="css/current-job.css">
   <link rel="stylesheet" href="css/shipping.css">
-  <link rel="stylesheet" href="css/material.css">
   <link rel="stylesheet" href="css/mobile.css">
   <link rel="stylesheet" href="css/lookup.css">
   <link rel="stylesheet" href="css/print.css">
   <script src="version.js"></script>
   <script src="js/vendor/qrcode.js"></script>
   <script type="module" src="js/app.js"></script>
-  <script type="module" src="js/export-ui.js"></script>
-  <script type="module" src="js/manage.js"></script>
   <script type="module" src="js/lookup-ui.js"></script>
 </head>
 <body class="at-home">
@@ -41,12 +37,12 @@
       <button class="btn home-tile" type="button" data-module="shipping">
         <span class="home-tile-icon" aria-hidden="true">&#128666;</span>
         <span class="home-tile-name">Shipping</span>
-        <span class="muted">Loads, stacks, truck check, tickets</span>
+        <span class="muted">The job's PowerFab loads: add material, load, ship, return</span>
       </button>
       <button class="btn home-tile" type="button" data-module="lookup">
         <span class="home-tile-icon" aria-hidden="true">&#128269;</span>
         <span class="home-tile-name">Piece lookup</span>
-        <span class="muted">Any mark: job, size, loads, shipped; job progress</span>
+        <span class="muted">Any mark on the job: size, weight, loads, shipped</span>
       </button>
       <button class="btn home-tile" type="button" data-module="server">
         <span class="home-tile-icon" aria-hidden="true">&#128273;</span>
@@ -64,13 +60,13 @@
     <button class="btn btn-ghost btn-home" id="btn-home" type="button" aria-label="Home">
       <span class="icon" aria-hidden="true">&#8962;</span>
     </button>
-    <button class="btn btn-ghost" id="btn-loads" type="button" aria-controls="drawer" aria-expanded="false">
+    <button class="btn btn-ghost btn-loads" id="btn-loads" type="button" aria-controls="loads-panel" aria-expanded="false">
       <span class="icon" aria-hidden="true">&#9776;</span><span>Loads</span>
     </button>
     <div class="stats" id="stats">
-      <div class="stat stat-load"><span class="stat-label">Load</span><span class="stat-value" id="stat-load">&mdash;</span><span class="stat-sub" id="stat-job"></span><span class="stat-sub" id="stat-pf"></span><span class="mode-badge" id="mode-badge" hidden>Truck check</span><span class="mode-badge ship-badge" id="ship-badge" hidden>Shipped</span></div>
+      <div class="stat stat-load"><span class="stat-label">Load</span><span class="stat-value" id="stat-load">&mdash;</span><span class="stat-sub" id="stat-job"></span><span class="mode-badge ship-badge" id="ship-badge" hidden>Shipped</span></div>
       <div class="stat"><span class="stat-label">Sequences</span><span class="stat-value" id="stat-seq">&mdash;</span></div>
-      <div class="stat"><span class="stat-label">Pieces</span><span class="stat-value" id="stat-pieces">0</span></div>
+      <div class="stat"><span class="stat-label">Loaded</span><span class="stat-value" id="stat-pieces">0</span></div>
       <div class="stat"><span class="stat-label">Weight</span><span class="stat-value" id="stat-weight">0 lbs</span></div>
     </div>
     <button class="btn btn-ghost btn-menu" id="btn-menu" type="button" aria-controls="menu" aria-expanded="false" aria-label="Menu">
@@ -81,52 +77,47 @@
   <section class="scanbar unfocused" id="scanbar" hidden>
     <label class="scan-field" for="scan-input">
       <span class="scan-meta">
-        <span class="stat-label" id="scan-label">Scanning into</span>
+        <span class="stat-label" id="scan-label">Loading onto</span>
         <span class="scan-stack" id="scan-stack">&mdash;</span>
         <span class="scan-hint" id="scan-hint">Tap here to resume scanning</span>
       </span>
       <input id="scan-input" type="text" inputmode="none" enterkeyhint="enter" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" aria-label="Scan or type a mark">
     </label>
     <button class="btn btn-lg" id="btn-keypad" type="button"><span class="icon" aria-hidden="true">&#9783;</span><span>Keypad</span></button>
-    <button class="btn btn-lg btn-primary" id="btn-new-stack" type="button">+ New Stack</button>
-    <button class="btn btn-lg btn-primary" id="btn-check-done" type="button" hidden>Done checking</button>
+    <div class="scan-steps" role="group" aria-label="What a scan does">
+      <button class="btn btn-lg" type="button" data-step="material" aria-pressed="false">&#9638; Add material</button>
+      <button class="btn btn-lg" type="button" data-step="load" aria-pressed="false">&#128666; Load</button>
+    </div>
   </section>
-  <div class="colhead" id="colhead" hidden aria-hidden="true">
-    <span></span><span>#</span><span>Mark</span><span>Description</span><span class="colhead-num">Weight</span><span></span>
-  </div>
 
-  <main class="workspace" id="workspace"></main>
+  <div class="ship-body" id="ship-body">
+    <aside class="loads-panel" id="loads-panel" aria-label="Loads on this job">
+      <div class="loads-head">
+        <h2>Loads</h2>
+        <button class="btn" type="button" id="btn-loads-refresh" aria-label="Read the loads again">&#8635;</button>
+        <button class="btn btn-primary" type="button" id="btn-new-load">+ New</button>
+        <button class="btn btn-ghost loads-close" type="button" id="btn-loads-close" aria-label="Close">&times;</button>
+      </div>
+      <p class="muted loads-note" id="loads-note"></p>
+      <ul class="load-list" id="load-list"></ul>
+    </aside>
+    <main class="workspace" id="workspace"></main>
+  </div>
 
   <footer class="statusbar">
     <span id="status-offline">Starting&hellip;</span>
     <span id="status-parts"></span>
-    <span id="status-storage"></span>
     <span id="status-version"></span>
   </footer>
 
   <div class="scrim" id="scrim" hidden></div>
-  <aside class="drawer" id="drawer" aria-label="Saved loads" aria-hidden="true">
-    <div class="drawer-head">
-      <h2>Loads</h2>
-      <button class="btn btn-ghost" id="btn-drawer-close" type="button" aria-label="Close">&times;</button>
-    </div>
-    <button class="btn btn-primary btn-block" id="btn-new-load-drawer" type="button">+ New Load</button>
-    <ul class="load-list" id="load-list"></ul>
-    <button class="btn btn-block" id="btn-manage-loads" type="button">Manage loads</button>
-  </aside>
   <aside class="drawer drawer-right" id="menu" aria-label="Menu" aria-hidden="true">
     <div class="drawer-head">
       <h2>Menu</h2>
       <button class="btn btn-ghost" id="btn-menu-close" type="button" aria-label="Close">&times;</button>
     </div>
-    <button class="btn btn-block menu-item" id="btn-truck-check" type="button">
-      <span class="icon" aria-hidden="true">&#10003;</span><span id="truck-check-label">Truck check</span>
-    </button>
     <button class="btn btn-block menu-item" id="btn-lookup" type="button">
       <span class="icon" aria-hidden="true">&#128269;</span><span>Piece lookup</span>
-    </button>
-    <button class="btn btn-block menu-item" id="btn-ship-status" type="button">
-      <span class="icon" aria-hidden="true">&#128666;</span><span>Shipping status</span>
     </button>
     <button class="btn btn-block menu-item" id="btn-share" type="button">
       <span class="icon" aria-hidden="true">&#8679;</span><span>Share load file</span>
@@ -160,32 +151,17 @@
 
   <dialog class="modal" id="dlg-new-load">
     <form method="dialog" id="form-new-load">
-      <h2>New Load</h2>
-      <label for="input-load-name">Load name</label>
-      <input id="input-load-name" name="name" autocomplete="off" autocapitalize="characters" spellcheck="false" required maxlength="60">
+      <h2>New load</h2>
       <p class="new-load-job"><span class="muted">Job</span> <b id="new-load-job"></b></p>
-      <fieldset class="job-choice" id="new-load-pf" hidden>
-        <legend>PowerFab load</legend>
-        <div class="job-list" id="new-load-pf-list"></div>
-        <p class="muted" id="new-load-pf-note"></p>
-      </fieldset>
+      <label for="input-load-number">Load number</label>
+      <input id="input-load-number" name="number" autocomplete="off" autocapitalize="characters" spellcheck="false" required maxlength="20">
+      <p class="muted">Created in PowerFab straight away.</p>
       <p class="field-error" id="new-load-error" role="alert"></p>
       <div class="modal-actions">
         <button class="btn" type="button" id="btn-new-load-cancel">Cancel</button>
-        <button class="btn btn-primary" type="submit">Create</button>
+        <button class="btn btn-primary" type="submit" id="btn-new-load-create">Create</button>
       </div>
     </form>
-  </dialog>
-
-  <dialog class="modal manage" id="dlg-manage">
-    <div class="manage-head">
-      <h2>Manage loads <span class="manage-job" id="manage-job"></span></h2>
-      <button class="btn" type="button" id="btn-manage-refresh">&#8635; Refresh</button>
-      <button class="btn btn-primary" type="button" id="btn-manage-new">+ New Load</button>
-      <button class="btn btn-ghost" type="button" id="btn-manage-close" aria-label="Close">&times;</button>
-    </div>
-    <p class="muted manage-note">Hold the delete button for 7.5 seconds to delete a load and everything in it.</p>
-    <ul class="manage-list" id="manage-list"></ul>
   </dialog>
 
   <dialog class="modal server" id="dlg-server">
@@ -215,39 +191,20 @@
 
   <dialog class="modal ship-block" id="dlg-ship-block">
     <form method="dialog">
-      <p class="ship-block-kicker">You can&rsquo;t ship that</p>
+      <p class="ship-block-kicker">Not added</p>
       <h2 id="ship-block-title"></h2>
       <p class="ship-block-mark" id="ship-block-mark"></p>
       <p class="ship-block-msg" id="ship-block-msg"></p>
-      <p class="muted" id="ship-block-source"></p>
       <div class="modal-actions">
-        <button class="btn btn-lg btn-hold" type="button" id="btn-ship-override" data-hold="override" data-hold-ms="1500">Hold to add anyway</button>
-        <button class="btn btn-lg btn-primary" value="cancel" id="btn-ship-block-ok">Don&rsquo;t add</button>
+        <button class="btn btn-lg btn-primary" value="cancel" id="btn-ship-block-ok">OK</button>
       </div>
     </form>
-  </dialog>
-
-  <dialog class="modal ship" id="dlg-ship">
-    <h2>Shipping status</h2>
-    <p id="ship-summary"></p>
-    <fieldset class="job-choice">
-      <legend>PowerFab load</legend>
-      <div class="job-list" id="ship-pf-list"></div>
-      <p class="muted" id="ship-pf-note"></p>
-      <button class="btn btn-block" type="button" id="btn-ship-refresh">&#8635; Refresh from PowerFab</button>
-    </fieldset>
-    <div id="ship-compare"></div>
-    <p class="muted" id="ship-mark-note"></p>
-    <div class="modal-actions">
-      <button class="btn btn-hold" type="button" id="btn-ship-mark" data-hold="ship" data-hold-ms="3000">Hold to mark shipped</button>
-      <button class="btn btn-primary" type="button" id="btn-ship-close">Close</button>
-    </div>
   </dialog>
 
   <dialog class="modal" id="dlg-update">
     <h2>Update</h2>
     <p id="update-text">Checking&hellip;</p>
-    <p class="muted">Saved loads and server settings stay on this iPad. Only the app files are refreshed.</p>
+    <p class="muted">Server settings stay on this iPad. Only the app files are refreshed.</p>
     <div class="modal-actions">
       <button class="btn" type="button" id="btn-update-cancel">Close</button>
       <button class="btn btn-primary" type="button" id="btn-update-go">Force Update</button>

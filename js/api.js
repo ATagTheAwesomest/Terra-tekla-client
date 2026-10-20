@@ -1,5 +1,6 @@
 // TERRA API client: server address and key, production control jobs and each
-// job's assembly list, cached in localStorage so the app keeps working offline.
+// job's assembly list. Job data is read live and kept in memory only; the
+// address and key are the one thing this device stores.
 //
 // Nothing about the server is bundled with the app. The address and key are
 // entered once per device (typed, or read from a setup QR code made from the
@@ -12,8 +13,6 @@
 import { jobKey, normalizeMark } from './parts.js';
 
 const CONFIG_KEY = 'terra.api';
-const JOBS_KEY = 'terra.jobs';
-const PARTS_PREFIX = 'terra.parts.';
 export const SETUP_PREFIX = 'TERRACFG:';
 
 // ---- Settings --------------------------------------------------------------
@@ -175,19 +174,10 @@ export function parseJobs(reply) {
     .sort((a, b) => b.number.localeCompare(a.number, 'en', { numeric: true }));
 }
 
-export function cachedJobs() {
-  try {
-    return JSON.parse(localStorage.getItem(JOBS_KEY) ?? 'null') ?? { jobs: [], fetchedAt: null };
-  } catch {
-    return { jobs: [], fetchedAt: null };
-  }
-}
-
+// Every job this API user can reach, open or closed. (GetProductionControlJobs
+// lists open jobs only and came back empty for the test user.)
 export async function fetchJobs() {
-  const jobs = parseJobs(await powerfab('GetProductionControlJobs'));
-  const entry = { jobs, fetchedAt: new Date().toISOString() };
-  localStorage.setItem(JOBS_KEY, JSON.stringify(entry));
-  return entry;
+  return { jobs: parseJobs(await powerfab('ProductionControlJob_Get', {})), fetchedAt: new Date().toISOString() };
 }
 
 // ---- Assemblies (the job's part list) ----------------------------------------
@@ -235,26 +225,8 @@ export function parseAssemblies(reply, job) {
   return parts;
 }
 
-export function cachedParts(job) {
-  try {
-    return JSON.parse(localStorage.getItem(PARTS_PREFIX + jobKey(job)) ?? 'null');
-  } catch {
-    return null;
-  }
-}
-
-export function cachedPartJobs() {
-  return Object.keys(localStorage).filter((k) => k.startsWith(PARTS_PREFIX)).map((k) => k.slice(PARTS_PREFIX.length));
-}
-
 export async function fetchParts(job) {
   const number = jobKey(job);
   const parts = parseAssemblies(await powerfab('GetAssemblies', { JobNumber: number }), number);
-  const entry = { job: number, parts, fetchedAt: new Date().toISOString() };
-  try {
-    localStorage.setItem(PARTS_PREFIX + number, JSON.stringify(entry));
-  } catch (err) {
-    console.warn('Part list too big to cache offline:', err);
-  }
-  return entry;
+  return { job: number, parts, fetchedAt: new Date().toISOString() };
 }

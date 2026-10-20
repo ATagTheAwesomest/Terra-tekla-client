@@ -3,211 +3,77 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-// localStorage stand-in for the API settings and caches.
-const mem = new Map();
-globalThis.localStorage = {
-  getItem: (k) => (mem.has(k) ? mem.get(k) : null),
-  setItem: (k, v) => mem.set(k, String(v)),
-  removeItem: (k) => mem.delete(k),
-  key: (i) => [...mem.keys()][i] ?? null,
-  get length() { return mem.size; },
-};
+import { LB_PER_KG } from '../js/api.js';
+import { parseLoads, parseRemaining } from '../js/pf-loads.js';
+import { claimsText, cleanMark, loadSequences, loadTotals, pickRemaining, takeRemaining, toLoad } from '../js/shipping.js';
 
-import { setConfig } from '../js/api.js';
-import { createLoad, setJobNumbers } from '../js/model.js';
-import { addScan } from '../js/ops.js';
-import { lookupPart, setJobParts } from '../js/parts.js';
-import { cachedLoads, fetchLoads, parseLoads } from '../js/pf-loads.js';
-import { LOADED, MATERIAL, SHIPPED, findMaterial, pieceStatus, setMaterial, shipLoad, statusCounts, unshipLoad } from '../js/piece-status.js';
-import { vetScan } from '../js/ship-check.js';
+const live = JSON.parse(readFileSync(new URL('./fixtures/epm001_live.json', import.meta.url), 'utf8'));
+const lbs = (kg) => Math.round(kg * LB_PER_KG * 100) / 100;
 
-const JOB = '26123 - Shop';
-setJobNumbers([JOB, '26102 - Mill St']);
-setJobParts(JOB, [
-  { mark: '1001-C1', qty: 3, weight: 100 },
-  { mark: 'P1', qty: 1, weight: 10 },
-  { mark: 'B2', qty: 0, weight: 5 },
-]);
-
-// The API mock's GetLoads layout (tekla-conversion-layer MockPowerFab.cs).
-const MOCK_REPLY = {
-  GetLoads: {
-    Successful: '1',
-    Load: [
-      { TruckNumber: '3', Shipped: 'true', ShipDate: '2026-10-12', Material: { MainMark: '1001-c1', Sequence: '1', Quantity: '1' } },
-      { TruckNumber: '5', Shipped: 'false', Material: [{ MainMark: '1001-C1', Quantity: '1' }, { MainMark: 'P1', Quantity: '1' }] },
-    ],
-  },
-};
-
-function check(load, mark, { others = [], pf = null } = {}) {
-  return vetScan({ load, mark, others, pf, part: lookupPart(mark.replace(/-+$/, ''), load.job), partsKnown: true });
-}
-
-test('GetLoads: mock layout, single load, other field names, remaining material skipped', () => {
-  const loads = parseLoads(MOCK_REPLY);
-  assert.deepEqual(loads.map((l) => [l.number, l.shipped, l.count]), [['3', true, 1], ['5', false, 2]]);
-  assert.deepEqual(loads[0].pieces, { '1001-C1': 1 });
-  assert.equal(loads[0].shipDate, '2026-10-12');
-
-  const other = parseLoads({
-    FabSuiteXMLResponse: {
-      GetLoads: {
-        Load: {
-          LoadNumber: '7', IsShipped: '0',
-          CompletedMaterial: { Piece: [{ MainMark: 'B2', QuantityLoaded: '2' }, { MainMark: 'B2' }] },
-          RemainingMaterial: { Piece: { MainMark: 'P1', Quantity: '4' } },
-        },
-      },
-    },
-  });
-  assert.deepEqual(other, [{ number: '7', shipped: false, shipDate: '', pieces: { B2: 3 }, loaded: { B2: 2 }, count: 3 }]);
-  assert.deepEqual(parseLoads({ GetLoads: { Successful: '1' } }), []);
-  assert.deepEqual(parseLoads(null), []);
+test('ProductionControlLoad_Get: loads with pieces, kg weights in lbs', () => {
+  const [load] = parseLoads(live.loads);
+  assert.equal(load.id, '394');
+  assert.equal(load.number, '1');
+  assert.equal(load.shipped, false);
+  assert.deepEqual(load.items.map((it) => [it.mark, it.sequence, it.qty, it.loaded]), [['1B1', '1', 1, 1], ['A1', '1', 1, 0], ['A3', '1', 2, 2]]);
+  const b = load.items[0];
+  assert.equal(b.truckId, '542');
+  assert.equal(b.itemId, '8696');
+  assert.equal(b.weightEach, lbs(797.2516955));
+  assert.equal(b.description, 'W16x57 · A992');
+  // Unload names the load entry, not the truck item.
+  assert.equal(b.loads.length, 1);
+  assert.equal(b.loads[0].qty, 1);
+  assert.deepEqual(load.items[1].loads, []);
+  assert.deepEqual(loadTotals(load), { pieces: 4, loaded: 3, weight: b.weightEach + load.items[1].weightEach + 2 * load.items[2].weightEach });
+  assert.deepEqual(loadSequences(load), ['1']);
 });
 
-test('GetLoads: real PowerFab reply (trimmed from job 25-351)', () => {
-  const real = JSON.parse(readFileSync(new URL('./fixtures/getloads_real.json', import.meta.url), 'utf8'));
-  const [shipped, open] = parseLoads(real);
-  assert.deepEqual([shipped.number, shipped.shipped, shipped.shipDate, shipped.count], ['2', true, '2026-10-13', 13]);
-  assert.equal(open.number, '3');
-  assert.equal(open.shipped, false);
-  // Assigned to the truck but not loaded yet still counts as its claim.
-  assert.equal(open.pieces['52323012'], 1);
-  assert.equal(open.loaded['52323012'], 0);
-  // Remaining material is not on any truck.
-  assert.equal(Object.keys(shipped.pieces).some((m) => m === '52311004'), false);
+test('ProductionControlLoad_Get: one load and one piece arrive as objects, not lists', () => {
+  const reply = { ResultData: { ProductionControlLoad: { ProductionControlLoadID: '7', LoadNumber: '3', Shipped: '1', ShippedDate: '2026-10-20',
+    Material: { ProductionControlItemTruckID: '9', ProductionControlItemID: '5', MainMarkDisplay: 'b7', SequenceDisplay: '2', Quantity: '3', QuantityLoaded: '3', ShippingWeightEach: '10' } } } };
+  const [load] = parseLoads(reply);
+  assert.equal(load.shipped, true);
+  assert.equal(load.shipDate, '2026-10-20');
+  assert.equal(load.items.length, 1);
+  assert.equal(load.items[0].mark, 'B7');
+  assert.equal(load.weight, Math.round(3 * lbs(10) * 100) / 100);
+  assert.deepEqual(parseLoads({ ResultData: { FieldSettings: {} } }), []);
 });
 
-test('GetLoads: quantities read plain, with a unit, or with the number lost', () => {
-  const [load] = parseLoads({
-    Load: {
-      LoadNumber: { '#text': '7' },
-      Material: [
-        { MainMark: 'A1', AssignedQuantity: '2', LoadedQuantity: '1' },
-        { MainMark: 'A2', AssignedQuantity: { '@UOM': 'ea', '#text': '3' }, LoadedQuantity: { '@UOM': 'ea', '#text': '3' } },
-        { MainMark: 'A3', AssignedQuantity: { '@UOM': 'ea' }, LoadedQuantity: { '@UOM': 'ea' } },
-      ],
-    },
-  });
-  assert.equal(load.number, '7');
-  assert.deepEqual(load.pieces, { A1: 2, A2: 3, A3: 1 });
-  assert.deepEqual(load.loaded, { A1: 1, A2: 3, A3: 0 });
-  assert.equal(load.count, 6);
+test('ProductionControlLoadRemaining_Get: one row per piece and sequence with the IDs writes need', () => {
+  const rows = parseRemaining(live.remaining);
+  const ab1 = rows.filter((r) => r.mark === 'AB1');
+  assert.deepEqual(ab1.map((r) => [r.sequence, r.remaining]), [['1', 20], ['2', 20], ['3', 4], ['4', 24]]);
+  const a34 = rows.find((r) => r.mark === 'A34');
+  assert.deepEqual([a34.itemId, a34.sequenceId, a34.remaining], ['8865', '29', 4]);
 });
 
-test('fetchLoads posts GetLoads read-only and caches for offline', async () => {
-  setConfig({ url: 'https://api.test', key: 'k' });
-  const calls = [];
-  globalThis.fetch = async (url, init) => {
-    calls.push({ url, init });
-    return new Response(JSON.stringify(MOCK_REPLY), { status: 200 });
-  };
-  const entry = await fetchLoads(JOB);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, 'https://api.test/api/powerfab/GetLoads');
-  assert.equal(calls[0].init.method, 'POST');
-  assert.equal(JSON.parse(calls[0].init.body).JobNumber, '26123');
-  assert.equal(entry.loads.length, 2);
+test('a scan picks the lowest sequence PowerFab still has left, never more than that', () => {
+  const loads = parseLoads(live.loads);
+  let remaining = parseRemaining(live.remaining);
+  const first = pickRemaining('AB1', remaining, loads);
+  assert.equal(first.row.sequence, '1');
 
-  // Offline: the request fails, the cached copy is still there.
-  globalThis.fetch = async () => { throw new TypeError('offline'); };
-  await assert.rejects(fetchLoads(JOB), /Can’t reach the server/);
-  assert.equal(cachedLoads(JOB).loads.length, 2);
-  assert.equal(cachedLoads('26123').job, '26123');
+  // A30 has one left: after assigning it there is none.
+  const a30 = pickRemaining('A30', remaining, loads).row;
+  remaining = takeRemaining(remaining, a30);
+  assert.equal(pickRemaining('A30', remaining, loads).reason, 'not-on-job');
+
+  // A1 is on Load 1 and PowerFab has none left to assign.
+  const a1 = pickRemaining('A1', remaining, loads);
+  assert.equal(a1.reason, 'on-other-loads');
+  assert.equal(claimsText('A1', loads), 'Load 1: 1');
+
+  // Only on shipped loads: already shipped.
+  const shipped = loads.map((l) => ({ ...l, shipped: true }));
+  assert.equal(pickRemaining('A1', remaining, shipped).reason, 'shipped');
+  assert.equal(pickRemaining('ZZ9', remaining, loads).reason, 'not-on-job');
 });
 
-test('scans onto a load are blocked when shipped, on another load, or not on the job', () => {
-  const pf = { loads: parseLoads(MOCK_REPLY), fetchedAt: new Date().toISOString() };
-  const load = createLoad('TRUCK-9', JOB);
-
-  // 3 × 1001-C1 on the job: 1 shipped on truck 3, 1 on open truck 5, 1 free.
-  assert.equal(check(load, '1001-C1', { pf }), null);
-  addScan(load, '1001-C1');
-  const taken = check(load, '1001-c1', { pf });
-  assert.equal(taken.code, 'other-load');
-  assert.match(taken.message, /PowerFab load 5: 1/);
-
-  // P1: its only piece is on truck 5.
-  assert.equal(check(load, 'P1', { pf }).code, 'other-load');
-
-  // Not on the job at all.
-  assert.equal(check(load, 'ZZ9', { pf }).code, 'not-on-job');
-  // Manual marks with the trailing "-" are checked by their base mark.
-  assert.equal(check(load, 'P1-', { pf }).code, 'other-load');
-  // No quantity on the part list: only the job check applies.
-  assert.equal(check(load, 'B2', { pf }), null);
-});
-
-test('everything shipped says so; over quantity says too many', () => {
-  const pf = { loads: [{ number: '3', shipped: true, shipDate: '2026-10-12', pieces: { P1: 1 }, count: 1 }] };
-  const load = createLoad('A', JOB);
-  const v = check(load, 'P1', { pf });
-  assert.equal(v.code, 'shipped');
-  assert.equal(v.title, 'Already shipped');
-  assert.match(v.message, /PowerFab load 3: 1 shipped/);
-
-  const b = createLoad('B', JOB);
-  addScan(b, 'P1');
-  assert.equal(check(b, 'P1').code, 'over-qty');
-});
-
-test('the linked PowerFab load is this load, not another one', () => {
-  const pf = { loads: parseLoads(MOCK_REPLY) };
-  const load = createLoad('T5', JOB);
-  load.pfLoad = '5';
-  // P1 is on truck 5 in PowerFab, which is this load: it may be scanned.
-  assert.equal(check(load, 'P1', { pf }), null);
-  load.pfLoad = '3';
-  assert.equal(check(load, 'P1', { pf }).code, 'pf-load-shipped');
-});
-
-test('other tablet loads count, and a tablet load linked to a PowerFab load is not counted twice', () => {
-  const pf = { loads: parseLoads(MOCK_REPLY) };
-  const t5 = createLoad('T5', JOB);
-  t5.pfLoad = '5';
-  addScan(t5, '1001-C1');                 // the same piece PowerFab has on truck 5
-  const elsewhere = createLoad('OTHER-JOB', '26102 - Mill St');
-  addScan(elsewhere, '1001-C1');          // other job: ignored
-  const load = createLoad('NEW', JOB);
-  // Shipped 1 (truck 3) + truck 5 holding 1 (tablet T5 agrees) = 2, so 1 is free.
-  assert.equal(check(load, '1001-C1', { pf, others: [t5, elsewhere] }), null);
-  addScan(t5, '1001-C1');                 // T5 now has 2, more than PowerFab's 1
-  assert.equal(check(load, '1001-C1', { pf, others: [t5, elsewhere] }).code, 'other-load');
-});
-
-test('a load shipped on the tablet blocks scans and counts as shipped elsewhere', () => {
-  const a = createLoad('A', JOB);
-  addScan(a, 'P1');
-  shipLoad(a, '2026-10-19T12:00:00Z');
-  assert.equal(check(a, '1001-C1').code, 'load-shipped');
-  const b = createLoad('B', JOB);
-  const v = check(b, 'P1', { others: [a] });
-  assert.equal(v.code, 'shipped');
-  assert.match(v.message, /A: 1 shipped/);
-  unshipLoad(a);
-  assert.equal(check(b, 'P1', { others: [a] }).code, 'other-load');
-});
-
-test('without a part list or PowerFab data only tablet checks run', () => {
-  const load = createLoad('X', JOB);
-  assert.equal(vetScan({ load, mark: 'ANY1', partsKnown: false }), null);
-});
-
-test('piece status: scans are loaded, material can be laid out, shipped follows the load', () => {
-  const load = createLoad('S', JOB);
-  const a = addScan(load, 'P1');
-  assert.equal(a.status, LOADED);
-  assert.equal(a.loadedAt, a.scannedAt);
-  const b = addScan(load, '1001-C1');
-  setMaterial(b, '2026-10-19T10:00:00Z');
-  assert.equal(pieceStatus(b, load), MATERIAL);
-  assert.equal(findMaterial(load, '1001-c1-'), b);
-  assert.equal(findMaterial(load, 'P1'), null);
-  assert.deepEqual(statusCounts(load), { material: 1, loaded: 1, shipped: 0 });
-  // Items saved before statuses existed read as loaded.
-  assert.equal(pieceStatus({ mark: 'OLD' }), LOADED);
-  shipLoad(load);
-  assert.equal(pieceStatus(a, load), SHIPPED);
-  assert.deepEqual(statusCounts(load), { material: 0, loaded: 0, shipped: 2 });
+test('the Load step loads a piece already assigned to the load before adding a new one', () => {
+  const [load] = parseLoads(live.loads);
+  assert.equal(toLoad(load, 'A1').truckId, load.items[1].truckId);
+  assert.equal(toLoad(load, 'A3'), null); // both A3 are loaded
+  assert.equal(cleanMark(' a1- '), 'A1');
 });

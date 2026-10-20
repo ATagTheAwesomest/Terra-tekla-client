@@ -1,115 +1,208 @@
-// PowerFab loads (trucks) for a job, read with GetLoads and cached in
-// localStorage so the shipping checks keep working offline. Read only:
-// nothing here loads, unloads or ships anything in PowerFab.
+// A job's PowerFab loads (trucks), read live and changed through the API's
+// write commands. Nothing is kept on the device: every change is sent to
+// PowerFab, then the loads are read again.
 //
-// Request: POST /api/powerfab/GetLoads with JobNumber and the Include* flags,
-// the same fields the API's GET /api/jobs/{job}/loads sends.
+// Reads (all by ProductionControlID; the newer commands refuse JobNumber):
+//   MaxTruck                             { JobNumber } -> ProductionControlID
+//   ProductionControlLoad_Get            every load with its material
+//   ProductionControlLoadRemaining_Get   every piece not yet shipped, per
+//                                        item and sequence, with the IDs the
+//                                        writes need
+//   ProductionControlLoad_InputOptions_Get  next load number, destination group
 //
-// Reply layout, confirmed against a real PowerFab reply (job 25-351):
-//   Destination { DestinationName, Load: [ ... ], Remaining: { MaterialRemaining: [...] } }
-//   Load { LoadNumber, DateShipped (only once shipped), AssignedQuantity,
-//          LoadedQuantity, Material: [ { MainMark, PieceMark, Sequence,
-//          AssignedQuantity, LoadedQuantity, ... } ] }
-// Material not on any load sits under Remaining and is ignored here. A piece
-// can be assigned to a load (AssignedQuantity) before it is loaded
-// (LoadedQuantity 0); both count as that load's claim on the piece. When
-// several destinations exist the loads are merged by number.
+// Writes, each by ProductionControlLoadID:
+//   ProductionControlLoad_Insert / _Delete            create / delete a load
+//   ProductionControlLoadMaterial_Add / _Remove       assign material / take it off
+//   ProductionControlLoadMaterial_Load / _Unload      put it on the truck / take it off
+//   ProductionControlLoad_Ship / _Unship              ship the load / undo
+//   ProductionControlLoadMaterial_Return / _Unreturn  return shipped material / undo
 //
-// The parser stays tolerant of other spellings (TruckNumber/Number, Shipped,
-// ShipDate, Quantity) in case a PowerFab version differs. A load is shipped
-// when it has a DateShipped or ShipDate, or Shipped/IsShipped is true.
+// Numbers in these replies have no unit and are metric (kg, mm), so weights
+// are converted to lbs here. A list with one entry arrives as an object, so
+// every list is read through asList().
 
-import { pfValue, powerfab } from './api.js';
-import { jobKey, normalizeMark } from './parts.js';
-
-const LOADS_PREFIX = 'terra.pfloads.';
+import { LB_PER_KG, findAll, pfValue, powerfab } from './api.js';
+import { normalizeMark } from './parts.js';
 
 const text = pfValue;
-const first = (obj, keys) => keys.map((k) => text(obj?.[k])).find(Boolean) ?? '';
+const int = (v) => Number.parseInt(text(v), 10) || 0;
+const kgToLbs = (v) => Math.round((Number.parseFloat(text(v)) || 0) * LB_PER_KG * 100) / 100;
+const asList = (v) => [v ?? []].flat().filter((x) => x && typeof x === 'object');
 
-function truthy(v) {
-  return /^(true|1|yes|y)$/i.test(text(v));
+// "W16x57 · A992", from the shape, size and grade a piece row carries.
+function describe(row) {
+  const size = `${text(row.Shape)}${text(row.Dimensions).replace(/\s+/g, '')}`;
+  return [size, text(row.Grade)].filter(Boolean).join(' · ');
 }
 
-function findLoads(node, out = []) {
-  if (Array.isArray(node)) node.forEach((n) => findLoads(n, out));
-  else if (node && typeof node === 'object') {
-    for (const [k, v] of Object.entries(node)) {
-      if (k === 'Load') out.push(...[v].flat().filter((x) => x && typeof x === 'object'));
-      else findLoads(v, out);
-    }
-  }
-  return out;
-}
+// ---- Parsing ---------------------------------------------------------------
 
-// Objects with a MainMark inside a load, skipping "Remaining…" material.
-function pieceObjects(node, out = []) {
-  if (Array.isArray(node)) node.forEach((n) => pieceObjects(n, out));
-  else if (node && typeof node === 'object') {
-    if ('MainMark' in node) out.push(node);
-    for (const [k, v] of Object.entries(node)) {
-      if (!/remaining/i.test(k)) pieceObjects(v, out);
-    }
-  }
-  return out;
-}
+// Loaded / Returned history on a truck item: one object, or a list of them.
+const entries = (v) => asList(v).map((e) => ({ id: text(e.ID), qty: int(e.Quantity) })).filter((e) => e.id);
 
-// Quantity from the first of `keys` present; `blank` when none is.
-function quantity(obj, keys, blank = 1) {
-  const raw = first(obj, keys);
-  return raw === '' ? blank : Math.max(0, Number.parseInt(raw, 10) || 0);
-}
-
-// [{ number, shipped, shipDate, pieces: { MARK: assigned }, loaded: { MARK: loaded }, count }]
-// in reply order.
+// Load { id, number, shipped, shipDate, jobsite, items: TruckItem[], pieces, loaded, weight }
+// TruckItem { truckId, itemId, mark, sequence, qty, loaded, returned, loads, returns, weightEach, description }
+//   loads / returns: [{ id, qty }] from the Loaded / Returned entries; Unload and
+//   Unreturn name one of these by ID.
 export function parseLoads(reply) {
-  const byNumber = new Map();
-  for (const l of findLoads(reply)) {
-    const number = first(l, ['LoadNumber', 'TruckNumber', 'Number']);
-    if (!number) continue;
-    const shipDate = first(l, ['ShipDate', 'DateShipped', 'ShippedDate']);
-    const load = byNumber.get(number) ?? { number, shipped: false, shipDate: '', pieces: {}, loaded: {}, count: 0 };
-    load.shipped ||= truthy(l.Shipped) || truthy(l.IsShipped) || Boolean(shipDate);
-    load.shipDate ||= shipDate;
-    for (const p of pieceObjects(l)) {
-      const mark = normalizeMark(text(p.MainMark));
-      if (!mark) continue;
-      const qty = quantity(p, ['AssignedQuantity', 'Quantity', 'LoadedQuantity', 'QuantityLoaded', 'Qty']);
-      load.pieces[mark] = (load.pieces[mark] ?? 0) + qty;
-      load.loaded[mark] = (load.loaded[mark] ?? 0) + quantity(p, ['LoadedQuantity', 'QuantityLoaded'], 0);
-      load.count += qty;
-    }
-    byNumber.set(number, load);
-  }
-  return [...byNumber.values()];
+  const loads = findAll(reply, 'ProductionControlLoad').map((l) => {
+    const items = asList(l.Material).map((m) => ({
+      truckId: text(m.ProductionControlItemTruckID),
+      itemId: text(m.ProductionControlItemID),
+      mark: normalizeMark(text(m.MainMarkDisplay) || text(m.MainMark)),
+      sequence: text(m.SequenceDisplay) || text(m.Sequence),
+      qty: int(m.Quantity),
+      loaded: int(m.QuantityLoaded),
+      returned: int(m.QuantityReturned),
+      loads: entries(m.Loaded),
+      returns: entries(m.Returned),
+      weightEach: kgToLbs(m.ShippingWeightEach),
+      description: describe(m),
+    })).filter((it) => it.truckId && it.mark);
+    const pieces = items.reduce((n, it) => n + it.qty, 0);
+    return {
+      id: text(l.ProductionControlLoadID),
+      number: text(l.LoadNumber),
+      shipped: text(l.Shipped) === '1',
+      shipDate: text(l.ShippedDate),
+      // Empty for the jobsite. PowerFab won't take returns from the jobsite.
+      jobsite: !text(l.ShippingDestinationGroupID),
+      items,
+      pieces,
+      loaded: items.reduce((n, it) => n + it.loaded, 0),
+      weight: Math.round(items.reduce((n, it) => n + it.qty * it.weightEach, 0) * 100) / 100,
+    };
+  }).filter((l) => l.id);
+  return loads.sort((a, b) => a.number.localeCompare(b.number, 'en', { numeric: true }));
 }
 
-export function cachedLoads(job) {
-  try {
-    return JSON.parse(localStorage.getItem(LOADS_PREFIX + jobKey(job)) ?? 'null');
-  } catch {
-    return null;
-  }
+// Remaining { itemId, sequenceId, sequence, mark, remaining, total, weightEach, description }
+// One row per piece and sequence that still has something to ship.
+export function parseRemaining(reply) {
+  return findAll(reply, 'ProductionControlLoadRemaining').map((r) => ({
+    itemId: text(r.ProductionControlItemID),
+    sequenceId: text(r.SequenceID),
+    sequence: text(r.SequenceDisplay),
+    mark: normalizeMark(text(r.MainMarkDisplay)),
+    remaining: int(r.QuantityRemaining),
+    total: int(r.TotalQuantity),
+    weightEach: kgToLbs(r.ShippingWeightEach),
+    description: describe(r),
+  })).filter((r) => r.itemId && r.mark);
 }
 
-export async function fetchLoads(job) {
-  const number = jobKey(job);
-  const reply = await powerfab('GetLoads', {
-    JobNumber: number,
-    IncludeLoads: true,
-    IncludeUnshippedLoads: true,
-    IncludeCompletedMaterial: true,
-    IncludeRemainingMaterial: true,
+// ---- Reads -----------------------------------------------------------------
+
+// { number, pcid, nextLoad } for a job number, or an ApiError for an unknown job.
+export async function readJob(jobNumber) {
+  const reply = await powerfab('MaxTruck', { JobNumber: jobNumber });
+  const pcid = text(reply?.ProductionControlID);
+  if (!pcid) throw new Error(`PowerFab has no job ${jobNumber}.`);
+  return { number: text(reply.JobNumber) || jobNumber, pcid, nextLoad: text(reply.NextAvailableLoadNumber) };
+}
+
+export async function readLoads(pcid) {
+  return parseLoads(await powerfab('ProductionControlLoad_Get', { ProductionControlID: Number(pcid), GetOptions: { IncludeMaterial: 1 } }));
+}
+
+export async function readRemaining(pcid) {
+  return parseRemaining(await powerfab('ProductionControlLoadRemaining_Get', { ProductionControlID: Number(pcid) }));
+}
+
+// Next free load number and the default capacity for a new load.
+export async function readNewLoadOptions(pcid) {
+  const reply = await powerfab('ProductionControlLoad_InputOptions_Get', { ProductionControlID: Number(pcid) });
+  const opts = findAll(reply, 'InputOptions')[0] ?? {};
+  return { nextNumber: text(opts.NextLoadNumber), capacity: text(opts.DefaultCapacity) };
+}
+
+export async function isLoadNumberTaken(pcid, number) {
+  const reply = await powerfab('ProductionControlLoad_IsDuplicateLoadNumber', { ProductionControlID: Number(pcid), LoadNumber: String(number) });
+  return text(findAll(reply, 'ResultData')[0]?.IsDuplicate ?? reply?.IsDuplicate) === '1';
+}
+
+// ---- Writes ----------------------------------------------------------------
+
+const today = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+// Creates a load going to the jobsite (no destination group: on EPM-001 a load
+// to the galvanizer group refused every piece). Capacity (kg) is required; the
+// job's default is used. Returns its ProductionControlLoadID.
+export async function createLoad(pcid, { number, capacity }) {
+  const reply = await powerfab('ProductionControlLoad_Insert', {
+    ProductionControlID: Number(pcid),
+    LoadNumber: String(number),
+    ShippingDestinationGroupID: '',
+    Capacity: Number(capacity),
   });
-  const entry = { job: number, loads: parseLoads(reply), fetchedAt: new Date().toISOString() };
-  try {
-    localStorage.setItem(LOADS_PREFIX + number, JSON.stringify(entry));
-  } catch (err) {
-    console.warn('PowerFab loads too big to cache offline:', err);
-  }
-  return entry;
+  const id = text(findAll(reply, 'ProductionControlLoad')[0]?.ProductionControlLoadID);
+  if (!id) throw new Error('PowerFab did not return the new load.');
+  return id;
 }
 
-export function findPfLoad(entry, number) {
-  return entry?.loads?.find((l) => l.number === number) ?? null;
+export function deleteLoad(loadId) {
+  return powerfab('ProductionControlLoad_Delete', { ProductionControlLoadID: Number(loadId) });
+}
+
+// Assigns `qty` of one remaining row (piece + sequence) to a load.
+export function addMaterial(loadId, row, qty = 1) {
+  return powerfab('ProductionControlLoadMaterial_Add', {
+    ProductionControlLoadID: Number(loadId),
+    LoadItemsOnAssign: 0,
+    AddItem: [{ ProductionControlItemID: Number(row.itemId), SequenceID: Number(row.sequenceId), Quantity: qty }],
+  });
+}
+
+export function removeMaterial(loadId, item) {
+  return powerfab('ProductionControlLoadMaterial_Remove', {
+    ProductionControlLoadID: Number(loadId),
+    RemoveItem: [{ ProductionControlItemTruckID: Number(item.truckId), Quantity: item.qty }],
+  });
+}
+
+export function loadMaterial(loadId, item, qty = 1) {
+  return powerfab('ProductionControlLoadMaterial_Load', {
+    ProductionControlLoadID: Number(loadId),
+    DateLoaded: today(),
+    LoadItem: [{ ProductionControlItemTruckID: Number(item.truckId), Quantity: qty }],
+  });
+}
+
+// Takes the most recent load entry of a piece off the truck.
+export function unloadMaterial(loadId, item) {
+  const entry = item.loads.at(-1);
+  if (!entry) throw new Error(`PowerFab has no load record for ${item.mark}.`);
+  return powerfab('ProductionControlLoadMaterial_Unload', {
+    ProductionControlLoadID: Number(loadId),
+    UnloadItem: [{ ProductionControlItemTrucksLoadID: Number(entry.id), Quantity: entry.qty }],
+  });
+}
+
+export function shipLoad(loadId) {
+  return powerfab('ProductionControlLoad_Ship', { ProductionControlLoadID: Number(loadId), ShippedDate: today() });
+}
+
+export function unshipLoad(loadId) {
+  return powerfab('ProductionControlLoad_Unship', { ProductionControlLoadID: Number(loadId) });
+}
+
+export function returnMaterial(loadId, item, qty = 1) {
+  return powerfab('ProductionControlLoadMaterial_Return', {
+    ProductionControlLoadID: Number(loadId),
+    DateReturned: today(),
+    ReturnItem: [{ ProductionControlItemTruckID: Number(item.truckId), Quantity: qty }],
+  });
+}
+
+// Undoes the most recent return of a piece.
+export function unreturnMaterial(loadId, item) {
+  const entry = item.returns.at(-1);
+  if (!entry) throw new Error(`PowerFab has no return record for ${item.mark}.`);
+  return powerfab('ProductionControlLoadMaterial_Unreturn', {
+    ProductionControlLoadID: Number(loadId),
+    UnreturnItem: [{ ProductionControlItemTrucksReturnID: Number(entry.id), Quantity: entry.qty }],
+  });
 }

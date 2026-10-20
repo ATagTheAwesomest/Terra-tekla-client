@@ -26,7 +26,7 @@ export async function checkForUpdate() {
 }
 
 // Drops the service worker and every app cache, then reloads from the
-// network. Saved loads (IndexedDB / localStorage) are not touched. Refuses
+// network. Server settings in localStorage are not touched. Refuses
 // when the server is unreachable so an offline iPad never loses its shell.
 export async function forceUpdate() {
   const check = await checkForUpdate();

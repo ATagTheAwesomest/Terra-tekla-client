@@ -1,6 +1,6 @@
 /* Phone layout: everything here is scoped to body.layout-mobile, toggled from
-   the right-hand menu (js/mobile.js). The stack rows use their own markup
-   (.m-stack, .m-item); the rest of the app is restyled to stack vertically. */
+   the right-hand menu (js/mobile.js). The loads panel becomes a drawer (see
+   css/shipping.css) and the rest of the app stacks vertically. */
 
 body.layout-mobile { font-size: 16px; }
 
@@ -18,80 +18,18 @@ body.layout-mobile .scan-field { flex-basis: 100%; min-height: 60px; padding: 0 
 body.layout-mobile .scan-meta { max-width: 40%; }
 body.layout-mobile #scan-input { height: 48px; font-size: 1.3rem; }
 body.layout-mobile .scanbar .btn-lg { flex: 1; min-height: 56px; padding: 0 10px; font-size: 1.05rem; }
-body.layout-mobile .colhead { display: none; }
+body.layout-mobile .scan-steps { flex-basis: 100%; }
 body.layout-mobile .workspace { padding: 8px; }
 
-/* Stacks as cards */
-body.layout-mobile .m-stack {
-  background: var(--surface-1);
-  border: 2px solid var(--border);
-  border-radius: var(--radius);
-  margin-bottom: 12px;
-  overflow: hidden;
-}
-body.layout-mobile .m-stack.active { border-color: var(--accent); }
-body.layout-mobile .m-stack-head {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px;
-  background: var(--surface-2);
-  border-bottom: 2px solid var(--border);
-}
-body.layout-mobile .m-stack.active > .m-stack-head { background: #2e2a1a; }
-body.layout-mobile .m-stack-title { display: flex; align-items: center; gap: 4px; min-width: 0; }
-body.layout-mobile .m-stack-title .stack-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
-body.layout-mobile .m-stack-meta { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-body.layout-mobile .m-stack-meta > span:first-child { flex: 1; min-width: 0; }
-body.layout-mobile .m-stack-meta b { color: var(--text); }
-
-body.layout-mobile .m-items { list-style: none; margin: 0; padding: 0; }
-body.layout-mobile .m-item {
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-}
-body.layout-mobile .m-item:last-child { border-bottom: 0; }
-body.layout-mobile .m-item.expanded { background: var(--surface-2); }
-body.layout-mobile .m-item.flagged { background: var(--flag-bg); box-shadow: inset 5px 0 0 var(--flag); }
-body.layout-mobile .m-item.flagged .item-mark { color: var(--flag); }
-body.layout-mobile .m-item-top { display: flex; align-items: baseline; gap: 8px; }
-body.layout-mobile .m-index { min-width: 1.6em; color: var(--text-muted); font-variant-numeric: tabular-nums; font-size: 0.85rem; }
-body.layout-mobile .m-item .item-mark { flex: 1; min-width: 0; font-size: 1.15rem; overflow: hidden; text-overflow: ellipsis; }
-body.layout-mobile .m-weight { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
-body.layout-mobile .m-item-desc {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: calc(1.6em + 8px);
-  color: var(--text-muted);
-  font-size: 0.85rem;
-}
-body.layout-mobile .m-item-desc .item-count { white-space: nowrap; flex: none; }
-body.layout-mobile .m-item-desc > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-body.layout-mobile .m-item-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(5.5em, 1fr)); gap: 6px; margin-top: 8px; }
-body.layout-mobile .m-item-actions .btn { padding: 0 8px; min-height: 52px; }
-body.layout-mobile .m-item .item-detail { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 8px; padding: 8px 0 0 !important; }
-
-/* Truck check */
-body.layout-mobile .check-summary { grid-template-columns: 1fr; padding: 12px; gap: 8px; }
-body.layout-mobile .check-meta { justify-content: flex-start; font-size: 1rem; }
-body.layout-mobile .check-big { font-size: 1.8rem; }
-body.layout-mobile .check-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-body.layout-mobile .check-actions .btn { padding: 0 8px; }
-body.layout-mobile .check-actions .btn-hold { margin-left: 0; }
-body.layout-mobile .check-actions [data-action="check-exit"] { grid-column: 1 / -1; }
-body.layout-mobile .check-row {
-  grid-template-columns: 40px minmax(0, 1fr) auto var(--tap);
-  grid-template-areas: "tick mark time undo" "tick desc desc undo";
-  gap: 0 8px;
-  padding: 6px 8px;
-}
-body.layout-mobile .check-tick { grid-area: tick; }
-body.layout-mobile .check-mark { grid-area: mark; }
-body.layout-mobile .check-desc { grid-area: desc; font-size: 0.8rem; }
-body.layout-mobile .check-time { grid-area: time; font-size: 0.85rem; }
-body.layout-mobile .check-row > :last-child { grid-area: undo; }
+/* Piece rows as two-line cards */
+body.layout-mobile .ship-item { grid-template-columns: 6em minmax(0, 1fr) auto; grid-template-areas: "mark desc weight" "seq pill actions"; padding: 6px 8px; gap: 4px 8px; }
+body.layout-mobile .ship-item .item-mark { grid-area: mark; }
+body.layout-mobile .ship-item .item-desc { grid-area: desc; }
+body.layout-mobile .ship-item .item-weight { grid-area: weight; }
+body.layout-mobile .ship-item-seq { grid-area: seq; }
+body.layout-mobile .ship-item .ship-pill { grid-area: pill; }
+body.layout-mobile .ship-item .item-actions { grid-area: actions; }
+body.layout-mobile .ship-item-qty { display: none; }
 
 /* Drawers, dialogs and lists take the full width */
 body.layout-mobile .drawer { width: 100vw; }
@@ -102,12 +40,7 @@ body.layout-mobile .keypad-digits { grid-template-columns: repeat(3, minmax(0, 1
 body.layout-mobile .key { min-height: 52px; font-size: 1.2rem; }
 body.layout-mobile .key-row { gap: 3px; }
 body.layout-mobile .keypad-display { min-height: 56px; font-size: 1.5rem; }
-body.layout-mobile .modal.manage { width: 100vw; height: 100vh; max-height: 100vh; }
-body.layout-mobile .manage-row { grid-template-columns: minmax(0, 1fr); }
-body.layout-mobile .manage-actions { display: grid; grid-template-columns: 1fr 1fr; }
-body.layout-mobile .manage-delete { grid-column: 1 / -1; }
 body.layout-mobile .statusbar { gap: 10px; font-size: 0.65rem; padding: 4px 8px; }
-body.layout-mobile #status-storage { display: none; }
 
 /* Menu toggle row */
 .menu-toggle .toggle-state {
