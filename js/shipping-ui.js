@@ -14,7 +14,7 @@ import { bindHold } from './hold.js';
 import { jobKey } from './parts.js';
 import * as pf from './pf-loads.js';
 import { flashFeedback, focusScanner } from './scanner.js';
-import { claimsText, cleanMark, findLoad, formatWeight, loadSequences, loadTotals, pickRemaining, takeRemaining, toLoad } from './shipping.js';
+import { claimsText, cleanMark, findLoad, flagScan, formatWeight, loadSequences, loadTotals, pickRemaining, takeRemaining, toLoad, unflag } from './shipping.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -40,6 +40,9 @@ export const ship = {
 };
 
 let step = readStep();
+// Scans flagged as not assigned, per load (loadId -> [{ mark, count }]). Held in
+// memory only, and only until the user assigns or removes them.
+const unassigned = new Map();
 let queue = Promise.resolve();
 let readSeq = 0;
 
@@ -88,6 +91,7 @@ async function read({ remaining = false } = {}) {
 export function openJob(job) {
   const number = job ? jobKey(job) : null;
   if (number === ship.job && ship.readAt) return read();
+  unassigned.clear();
   Object.assign(ship, { job: number, pcid: null, loads: [], remaining: [], selectedId: null, readAt: null, error: '' });
   render();
   return number ? read({ remaining: true }) : null;
@@ -123,9 +127,9 @@ function change(fn, { remaining = false } = {}) {
   return p;
 }
 
-// What a scan of `raw` does on the open load: in the Load step it loads a
-// piece already assigned to the load, or assigns and loads one; in the Add
-// material step it only assigns.
+// What a scan of `raw` does on the open load. Load step (a check): a piece
+// assigned to the load is loaded; anything else is flagged, shown apart from
+// the list and not sent to PowerFab. Add material step: assigns the piece.
 export function scan(raw) {
   const mark = cleanMark(raw);
   if (!mark) return null;
@@ -141,20 +145,46 @@ export function scan(raw) {
         await pf.loadMaterial(load.id, item);
         return done(`${mark} loaded`);
       }
+      unassigned.set(load.id, flagScan(unassigned.get(load.id) ?? [], mark));
+      flashFeedback('bad');
+      toast(`${mark} is not assigned to load ${load.number}. Flagged, not loaded.`, 4000);
+      return undefined;
     }
     const pick = pickRemaining(mark, ship.remaining, ship.loads);
     if (!pick.row) throw blocked(mark, pick.reason, load);
     await pf.addMaterial(load.id, pick.row);
     ship.remaining = takeRemaining(ship.remaining, pick.row);
-    if (step === STEP_MATERIAL) return done(`${mark} added to load ${load.number}${pick.row.sequence ? ` (seq ${pick.row.sequence})` : ''}`);
-    // Load step: find the row PowerFab just made and load it.
-    const loads = await pf.readLoads(ship.pcid);
-    ship.loads = loads;
-    const fresh = toLoad(findLoad(loads, load.id), mark);
-    if (!fresh) throw new Error(`${mark} was added to load ${load.number} but could not be found to load it. Refresh and load it again.`);
-    await pf.loadMaterial(load.id, fresh);
-    return done(`${mark} loaded${pick.row.sequence ? ` (seq ${pick.row.sequence})` : ''}`);
+    return done(`${mark} added to load ${load.number}${pick.row.sequence ? ` (seq ${pick.row.sequence})` : ''}`);
   });
+}
+
+// Assigns a flagged piece to the open load and loads it, one at a time for as
+// many as were scanned. Pieces done come off the flagged list as they go.
+function assignFlagged(mark) {
+  const load = selectedLoad();
+  const entry = load && (unassigned.get(load.id) ?? []).find((e) => e.mark === mark);
+  if (!entry) return null;
+  return change(async () => {
+    for (let n = entry.count; n > 0; n--) {
+      const pick = pickRemaining(mark, ship.remaining, ship.loads);
+      if (!pick.row) throw blocked(mark, pick.reason, load);
+      await pf.addMaterial(load.id, pick.row);
+      ship.remaining = takeRemaining(ship.remaining, pick.row);
+      ship.loads = await pf.readLoads(ship.pcid);
+      const fresh = toLoad(findLoad(ship.loads, load.id), mark);
+      if (!fresh) throw new Error(`${mark} was assigned to load ${load.number} but could not be found to load it. Refresh and load it.`);
+      await pf.loadMaterial(load.id, fresh);
+      unassigned.set(load.id, unflag(unassigned.get(load.id) ?? [], mark, 1));
+    }
+    done(`${mark} assigned and loaded`);
+  }, { remaining: true });
+}
+
+function dropFlagged(mark) {
+  const load = selectedLoad();
+  if (!load) return;
+  unassigned.set(load.id, unflag(unassigned.get(load.id) ?? [], mark));
+  render();
 }
 
 function done(message) {
@@ -246,6 +276,35 @@ function itemRow(it, load) {
   </li>`;
 }
 
+// Pieces scanned in the Load step that aren't assigned to this load. They are
+// only on screen: Assign & load puts them on the load in PowerFab and loads
+// them; Remove just drops the flag.
+function flaggedSection(load) {
+  const list = unassigned.get(load.id) ?? [];
+  if (!list.length || load.shipped) return '';
+  const rows = list.map((e) => {
+    const pick = pickRemaining(e.mark, ship.remaining, ship.loads);
+    const why = pick.row ? 'On the job, not assigned to this load'
+      : pick.reason === 'not-on-job' ? `Not on job ${ship.job}`
+      : pick.reason === 'shipped' ? 'Already shipped'
+      : `All on other loads. ${claimsText(e.mark, ship.loads, load.id)}`;
+    return `<li class="ship-item is-flagged" data-unassigned="${escapeHtml(e.mark)}">
+      <span class="item-mark">${escapeHtml(e.mark)}</span>
+      <span class="ship-item-seq">${pick.row?.sequence ? `Seq ${escapeHtml(pick.row.sequence)}` : ''}</span>
+      <span class="item-desc">${escapeHtml(pick.row?.description ?? '')} ${escapeHtml(why)}</span>
+      <span class="ship-item-qty">${e.count > 1 ? `&times;${e.count}` : ''}</span>
+      <span class="item-weight"></span>
+      <span class="ship-pill flagged">Not assigned</span>
+      <span class="item-actions">
+        <button class="btn btn-primary" type="button" data-action="assign-flagged"${pick.row ? '' : ' disabled'}>Assign &amp; load</button>
+        <button class="btn" type="button" data-action="drop-flagged">Remove</button>
+      </span>
+    </li>`;
+  }).join('');
+  return `<section class="stack flagged"><header class="stack-head"><span class="stack-name">Scanned, not assigned to this load</span><span class="stack-stats">Not loaded. Nothing sent to PowerFab.</span></header>
+    <ol class="items">${rows}</ol></section>`;
+}
+
 function renderLoad(load) {
   const t = loadTotals(load);
   const toGo = load.items.filter((it) => it.loaded < it.qty);
@@ -255,6 +314,7 @@ function renderLoad(load) {
       <div>
         <h2>Load ${escapeHtml(load.number)}</h2>
         <p class="muted">${load.shipped ? `Shipped${load.shipDate ? ` ${escapeHtml(shortDate(load.shipDate))}` : ''}`
+          : step === STEP_LOAD ? `Checking: scan each piece to load it. ${t.pieces - t.loaded} of ${t.pieces} still to load · ${formatWeight(t.weight)}`
           : `${t.loaded} of ${t.pieces} pieces loaded · ${formatWeight(t.weight)}`}</p>
       </div>
       <div class="ship-actions">
@@ -264,8 +324,9 @@ function renderLoad(load) {
         ${load.items.length ? '' : `<button class="btn btn-hold" type="button" data-hold="delete" data-hold-ms="${DELETE_HOLD_MS}">Hold 7.5 s to delete load</button>`}
       </div>
     </header>`;
+  const flagged = flaggedSection(load);
   if (!load.items.length) {
-    return `${head}<p class="stack-empty">Nothing on this load yet. Scan pieces to ${step === STEP_LOAD ? 'load them' : 'add them as material'}.</p>`;
+    return `${head}${flagged}<p class="stack-empty">Nothing is assigned to this load yet. Switch to Add material and scan pieces to assign them${step === STEP_LOAD ? ', then Load checks them onto the truck' : ''}.</p>`;
   }
   const section = (title, items) => items.length
     ? `<section class="stack"><header class="stack-head"><span class="stack-name">${title}</span><span class="stack-stats"><b>${items.reduce((n, it) => n + it.qty, 0)}</b> pcs</span></header>
@@ -273,7 +334,7 @@ function renderLoad(load) {
     : '';
   return load.shipped
     ? head + section('Shipped', load.items)
-    : head + section('To load', toGo) + section('Loaded', loaded);
+    : head + flagged + section('To load', toGo) + section('Loaded', loaded);
 }
 
 function renderWorkspace() {
@@ -310,7 +371,7 @@ function renderScanbar() {
   if (!load) return;
   $('#scanbar').classList.toggle('adding-material', step === STEP_MATERIAL);
   $('#scanbar').classList.toggle('busy', ship.busy > 0);
-  $('#scan-label').textContent = ship.busy ? 'Sending to PowerFab…' : step === STEP_MATERIAL ? 'Adding material to' : 'Loading onto';
+  $('#scan-label').textContent = ship.busy ? 'Sending to PowerFab…' : step === STEP_MATERIAL ? 'Adding material to' : 'Checking and loading onto';
   $('#scan-stack').textContent = `Load ${load.number}`;
   document.querySelectorAll('[data-step]').forEach((b) => {
     const on = b.dataset.step === step;
@@ -430,6 +491,8 @@ export function initShipping() {
     if (action === 'pick-job') openJobPicker();
     else if (action === 'new-load') showNewLoad();
     else if (action === 'refresh') refresh();
+    else if (action === 'assign-flagged') assignFlagged(e.target.closest('[data-unassigned]')?.dataset.unassigned);
+    else if (action === 'drop-flagged') dropFlagged(e.target.closest('[data-unassigned]')?.dataset.unassigned);
     else if (action === 'load') {
       const load = selectedLoad();
       const item = itemFor(e.target);
