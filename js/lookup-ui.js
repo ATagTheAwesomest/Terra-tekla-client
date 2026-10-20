@@ -3,12 +3,17 @@
 // hold it, on the truck or shipped, last scanned), plus a Jobs view with each
 // cached job's piece counts. Read-only: it never changes a load or PowerFab.
 //
+// Job-first like the rest of the app: both views follow the current job
+// (js/current-job.js). "All jobs" widens the search to every job on the
+// tablet, and a mark found only on other jobs says so.
+//
 // The screen is a full-screen modal dialog, so the Shipping scanner never
 // takes focus (or a scan) while it's open. The lookup field keeps focus the
 // same way the scan bar does: inputmode="none", re-taken after every tap.
 
 import { escapeHtml, openLoad, setHome, toast } from './app.js';
 import * as api from './api.js';
+import { getCurrentJob, isCurrentJob, onCurrentJobChange, openJobPicker, requireCurrentJob } from './current-job.js';
 import { jobMarks, jobOverview, lookupMark } from './lookup.js';
 import { formatWeight } from './model.js';
 import { jobKey, setJobParts } from './parts.js';
@@ -25,6 +30,7 @@ const view = {
   mark: '',
   job: null, // job key whose marks are listed, on the jobs tab
   filter: 'all', // job marks filter: 'all' | 'left' | 'over' | 'extra'
+  scope: 'job', // 'job' (the current job only) | 'all'
   busy: false,
 };
 
@@ -35,6 +41,21 @@ let dialog = null;
 async function gather() {
   const partLists = api.cachedPartJobs().map((job) => api.cachedParts(job)).filter((l) => l?.parts);
   return { jobs: api.cachedJobs().jobs ?? [], partLists, loads: await store.listLoads() };
+}
+
+function inScope() {
+  return view.scope === 'job' && getCurrentJob() ? jobKey(getCurrentJob()) : null;
+}
+
+// The data narrowed to the current job, or all of it on "All jobs".
+function scoped(data) {
+  const job = inScope();
+  if (!job) return data;
+  return {
+    jobs: data.jobs.filter((j) => jobKey(j.number) === job),
+    partLists: data.partLists.filter((l) => jobKey(l.job) === job),
+    loads: data.loads.filter((l) => isCurrentJob(l.job)),
+  };
 }
 
 function canReachServer() {
@@ -126,7 +147,8 @@ function renderPlacements(hit) {
     const status = p.shippedAt ? `<span class="lk-pill ok">Shipped ${escapeHtml(when(p.shippedAt))}</span>`
       : p.onTruck ? '<span class="lk-pill ok">On truck</span>'
       : '<span class="lk-pill info">Loaded</span>';
-    return `<tr data-open-load="${escapeHtml(p.load.id)}">
+    const open = isCurrentJob(p.load.job) ? ` data-open-load="${escapeHtml(p.load.id)}"` : ' class="lk-other"';
+    return `<tr${open}>
       <td class="lk-strong">${escapeHtml(p.load.name)}</td>
       <td>${escapeHtml(p.stack.name)}</td>
       <td class="num">${p.index + 1}</td>
@@ -138,7 +160,7 @@ function renderPlacements(hit) {
     <thead><tr><th>Load</th><th>Stack</th><th class="num">Row</th><th>Scanned</th><th>Status</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
-  <p class="muted lk-hint">Tap a load to open it in Shipping.</p>`;
+  <p class="muted lk-hint">${isCurrentJob(hit.placements[0].load.job) ? 'Tap a load to open it in Shipping.' : 'Change to this job to open its loads in Shipping.'}</p>`;
 }
 
 function renderHit(hit) {
@@ -219,17 +241,26 @@ function renderPiece(data) {
     body.innerHTML = renderStart();
     return null;
   }
-  const result = lookupMark(view.mark, data);
+  const result = lookupMark(view.mark, scoped(data));
+  // On the current job only, still say when other jobs have the mark.
+  const others = inScope() ? lookupMark(view.mark, data).hits.filter((h) => h.job !== inScope()) : [];
+  const elsewhere = others.length
+    ? `<div class="lk-elsewhere"><span>${result.hits.length ? 'Also on' : 'Not on this job. Found on'} ${others.map((h) => escapeHtml(h.jobName)).join(', ')}.</span>
+      <button class="btn" type="button" data-scope="all">Show all jobs</button></div>`
+    : '';
   body.innerHTML = result.hits.length
-    ? `${result.hits.length > 1 ? `<p class="lk-multi">${escapeHtml(result.mark)} is on ${result.hits.length} jobs.</p>` : ''}${result.hits.map(renderHit).join('')}`
-    : renderSuggestions(result, data.partLists.length > 0);
-  return result;
+    ? `${result.hits.length > 1 ? `<p class="lk-multi">${escapeHtml(result.mark)} is on ${result.hits.length} jobs.</p>` : ''}${result.hits.map(renderHit).join('')}${elsewhere}`
+    : others.length ? `<div class="lk-empty"><h2>${escapeHtml(result.mark)}</h2>${elsewhere}</div>`
+    : renderSuggestions(result, scoped(data).partLists.length > 0);
+  return result.hits.length || !others.length ? result : { ...result, hits: others, elsewhere: true };
 }
 
 // ---- Jobs view -------------------------------------------------------------------------
 
 function missingPartJobs() {
   const have = new Set(api.cachedPartJobs());
+  const job = inScope();
+  if (job) return have.has(job) ? [] : [job];
   return (api.cachedJobs().jobs ?? []).map((j) => jobKey(j.number)).filter((j) => j && !have.has(j));
 }
 
@@ -260,7 +291,8 @@ function renderJobRow(r) {
 
 function renderJobs(data) {
   const body = $('#lookup-body');
-  if (view.job !== null) return renderJobMarks(data);
+  if (inScope()) return renderJobMarks(data, inScope());
+  if (view.job !== null) return renderJobMarks(data, view.job);
   const rows = jobOverview(data);
   const missing = missingPartJobs();
   const totals = rows.reduce((t, r) => ({ pieces: t.pieces + r.pieces, loaded: t.loaded + r.loaded, shipped: t.shipped + r.shipped }), { pieces: 0, loaded: 0, shipped: 0 });
@@ -276,15 +308,20 @@ function renderJobs(data) {
 const FILTERS = [['all', 'All'], ['left', 'Not loaded'], ['over', 'Over qty'], ['extra', 'Not on list']];
 const KEEP = { all: () => true, left: (m) => m.remaining > 0, over: (m) => m.over, extra: (m) => m.extra };
 
-function renderJobMarks(data) {
-  const all = jobMarks(view.job, data);
-  const row = jobOverview(data).find((r) => r.job === view.job);
+function renderJobMarks(data, job) {
+  const all = jobMarks(job, data);
+  const row = jobOverview(data).find((r) => r.job === job);
+  const missing = missingPartJobs().includes(job);
   const marks = all.filter(KEEP[view.filter] ?? KEEP.all);
   $('#lookup-body').innerHTML = `
     <div class="lk-jobs-head">
       <button class="btn" type="button" data-back-jobs>&larr; All jobs</button>
-      <h2>${escapeHtml(row?.jobName ?? view.job)}</h2>
+      <h2>${escapeHtml(row?.jobName ?? job)}</h2>
+      ${missing ? `<button class="btn btn-primary" type="button" data-download="${escapeHtml(job)}">Download part list</button>` : ''}
     </div>
+    ${row ? `<p class="lk-counts lk-job-sum"><span><b>${n(row.loaded - row.extra)}</b>${row.pieces ? ` of ${n(row.pieces)}` : ''} pcs loaded</span>
+      <span><b>${n(row.onTruck)}</b> on truck</span><span><b>${n(row.shipped)}</b> shipped</span>
+      <span><b>${n(row.loads)}</b> load${row.loads === 1 ? '' : 's'}</span>${row.pieces ? `<span>${formatWeight(row.weight)} on the job</span>` : ''}</p>` : ''}
     <div class="lk-filters" role="group" aria-label="Filter marks">${FILTERS.map(([key, label]) => {
       const count = all.filter(KEEP[key]).length;
       return `<button class="btn${view.filter === key ? ' active' : ''}" type="button" data-filter="${key}" aria-pressed="${view.filter === key}">${label} <span class="muted">${count}</span></button>`;
@@ -315,6 +352,13 @@ let renderSeq = 0;
 // Redraws the open tab. Only the newest call draws, so a slow read of the
 // loads can't paint an old tab over the one just tapped.
 async function render() {
+  const job = getCurrentJob();
+  $('#lookup-job').textContent = job ?? 'No job picked';
+  dialog.querySelectorAll('[data-scope]').forEach((b) => {
+    const on = b.dataset.scope === (inScope() ? 'job' : 'all');
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
   dialog.querySelectorAll('[data-tab]').forEach((b) => {
     const on = b.dataset.tab === view.tab;
     b.classList.toggle('active', on);
@@ -343,7 +387,7 @@ export async function lookup(raw) {
   const result = await render();
   if (!result) return;
   if (result.hits.length) remember(result.mark);
-  flash(result.hits.some((h) => h.part) ? 'ok' : 'flag');
+  flash(!result.elsewhere && result.hits.some((h) => h.part) ? 'ok' : 'flag');
   $('#lookup-body').scrollTop = 0;
 }
 
@@ -358,6 +402,7 @@ export function openLookup(tab = 'piece') {
   build();
   view.tab = tab;
   view.job = null;
+  view.scope = 'job';
   if (!dialog.open) dialog.showModal();
   render();
   focusField();
@@ -375,6 +420,14 @@ function build() {
           <button class="btn" type="button" data-tab="jobs">Jobs</button>
         </div>
       </header>
+      <div class="lookup-scope">
+        <span class="stat-label">Job</span>
+        <button class="btn btn-ghost lookup-job" type="button" data-pick-job><span id="lookup-job"></span> <span class="muted">Change &#9662;</span></button>
+        <div class="lk-tabs" role="group" aria-label="Search">
+          <button class="btn" type="button" data-scope="job">This job</button>
+          <button class="btn" type="button" data-scope="all">All jobs</button>
+        </div>
+      </div>
       <div class="lookup-bar">
         <label class="lookup-field" for="lookup-input">
           <span class="stat-label">Look up</span>
@@ -396,10 +449,21 @@ function build() {
     lookup(value);
   });
   dialog.addEventListener('pointerup', () => setTimeout(focusField, 0));
+  // Back from the job picker or keypad on top: take focus again, or the
+  // dialog hands it to the button that opened the picker and a scan's Enter
+  // would press it.
+  document.addEventListener('close', (e) => { if (e.target !== dialog) setTimeout(focusField, 0); }, true);
 
   dialog.addEventListener('click', async (e) => {
     const t = e.target;
     if (t.closest('[data-close]')) return dialog.close();
+    if (t.closest('[data-pick-job]')) return openJobPicker();
+    const scope = t.closest('[data-scope]')?.dataset.scope;
+    if (scope) {
+      view.scope = scope;
+      view.job = null;
+      return render();
+    }
     const tab = t.closest('[data-tab]')?.dataset.tab;
     if (tab) {
       if (tab === 'jobs' && view.tab === 'jobs') view.job = null;
@@ -426,6 +490,7 @@ function build() {
     }
     if (t.closest('[data-back-jobs]')) {
       view.job = null;
+      view.scope = 'all';
       return render();
     }
     const job = t.closest('[data-open-job]')?.dataset.openJob;
@@ -444,8 +509,14 @@ function build() {
   });
 }
 
-// Home tile and Shipping menu entry.
+// Home tile and Shipping menu entry. Like Shipping, it needs a job first.
 $('#home').addEventListener('click', (e) => {
-  if (e.target.closest('[data-module="lookup"]')) openLookup();
+  if (e.target.closest('[data-module="lookup"]') && requireCurrentJob()) openLookup();
+});
+
+onCurrentJobChange(() => {
+  view.scope = 'job';
+  view.job = null;
+  if (dialog?.open) render();
 });
 $('#btn-lookup')?.addEventListener('click', () => openLookup());
