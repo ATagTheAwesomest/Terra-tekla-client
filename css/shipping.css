@@ -28,7 +28,12 @@
 .loads-head .btn { padding: 0 14px; }
 .loads-close { font-size: 1.6rem; }
 .loads-note { margin: 0; font-size: 0.85rem; }
-.loads-dialog .load-list { overflow-y: auto; min-height: 0; }
+.loads-dialog .load-list {
+  flex: 0 1 auto;
+  max-height: calc(88vh - 8rem);
+  overflow-y: auto;
+  min-height: 0;
+}
 .load-row-name { display: flex; align-items: center; gap: 8px; font-weight: 700; }
 .load-row.shipped { opacity: 0.75; }
 .badge-open { background: var(--ok); color: #000; }
