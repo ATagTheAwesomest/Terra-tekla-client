@@ -26,6 +26,7 @@ export const STEP_LOAD = 'load';
 const SHIP_HOLD_MS = 3000;
 const DELETE_HOLD_MS = 10000;
 const ROW_HOLD_MS = 1500;
+const VIEW_KEY = 'terra.load-view';
 
 // Everything Shipping knows, all of it read from PowerFab for the open job.
 export const ship = {
@@ -46,6 +47,25 @@ let step = readStep();
 const unassigned = new Map();
 let queue = Promise.resolve();
 let readSeq = 0;
+const expandedPieces = new Set();
+
+function readView() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(VIEW_KEY) ?? 'null');
+    return {
+      collapsed: saved?.collapsed !== false,
+      sort: ['scan', 'sequence', 'shape', 'status'].includes(saved?.sort) ? saved.sort : 'scan',
+    };
+  } catch {
+    return { collapsed: true, sort: 'scan' };
+  }
+}
+
+const view = readView();
+
+function saveView() {
+  try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch { /* view is still usable for this session */ }
+}
 
 function readStep() {
   try {
@@ -265,6 +285,79 @@ function renderLoadList() {
     : '';
 }
 
+function pieceKey(it) {
+  return `${it.truckId}:${it.sequence}:${it.mark}`;
+}
+
+function formatLength(mm) {
+  const n = Number(mm);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  return `${Math.round(n)} mm (${(n / 304.8).toFixed(2)} ft)`;
+}
+
+function factsFor(it, load) {
+  const same = ship.loads.flatMap((entry) => entry.items)
+    .filter((entry) => entry.mark === it.mark && entry.sequence === it.sequence);
+  const assigned = same.reduce((n, entry) => n + entry.qty, 0);
+  const onOpenLoads = same.reduce((n, entry) => n + (ship.loads.find((entryLoad) => entryLoad.items.includes(entry) && !entryLoad.shipped) ? entry.qty : 0), 0);
+  const shipped = same.reduce((n, entry) => n + (ship.loads.find((entryLoad) => entryLoad.items.includes(entry) && entryLoad.shipped) ? entry.loaded : 0), 0);
+  const remaining = ship.remaining.find((entry) => entry.mark === it.mark && entry.sequence === it.sequence);
+  const made = remaining?.total || assigned + (remaining?.remaining ?? 0) + shipped;
+  return {
+    made,
+    available: remaining?.remaining ?? 0,
+    onOpenLoads,
+    loadedHere: it.loaded,
+    shipped,
+    returned: it.returned,
+    total: it.qty,
+    weight: it.weightEach,
+    loadNumber: load.number,
+  };
+}
+
+function detailMarkup(it, load) {
+  const facts = factsFor(it, load);
+  const rows = [
+    ['Part number', it.partNumber],
+    ['Remark', it.remark],
+    ['Shape', it.shape],
+    ['Dimensions', it.dimensions],
+    ['Grade', it.grade],
+    ['Length', formatLength(it.length)],
+    ['Made', facts.made],
+    ['Available to ship', facts.available],
+    ['On open loads', facts.onOpenLoads],
+    [`Loaded on Load ${facts.loadNumber}`, `${facts.loadedHere} of ${facts.total}`],
+    ['Shipped', facts.shipped],
+    ['Returned', facts.returned],
+    ['Assembly weight each', formatWeight(facts.weight)],
+  ].filter(([, value]) => value !== '' && value !== null && value !== undefined);
+  return `<dl class="piece-details">${rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl>`;
+}
+
+function sortItems(items) {
+  const sorted = [...items];
+  if (view.sort === 'sequence') sorted.sort((a, b) => a.sequence.localeCompare(b.sequence, 'en', { numeric: true }) || a.mark.localeCompare(b.mark));
+  else if (view.sort === 'shape') sorted.sort((a, b) => a.description.localeCompare(b.description) || a.mark.localeCompare(b.mark));
+  else if (view.sort === 'status') sorted.sort((a, b) => (b.loaded / Math.max(1, b.qty)) - (a.loaded / Math.max(1, a.qty)));
+  return sorted;
+}
+
+function collapseItems(items) {
+  const grouped = new Map();
+  for (const item of items) {
+    const key = `${item.mark}|${item.sequence}|${item.description}|${item.weightEach}`;
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.qty += item.qty;
+      existing.loaded += item.loaded;
+      existing.returned += item.returned;
+    } else grouped.set(key, { ...item });
+  }
+  return [...grouped.values()];
+}
+
 function itemRow(it, load) {
   const status = load.shipped ? (it.returned ? `${it.returned} returned` : 'Shipped')
     : it.loaded >= it.qty ? 'Loaded' : it.loaded ? `${it.loaded} of ${it.qty} loaded` : 'Material';
@@ -275,14 +368,51 @@ function itemRow(it, load) {
     : [it.loaded < it.qty ? '<button class="btn" type="button" data-action="load">Load</button>' : '',
       it.loaded ? hold('unload', 'Unload', 'Hold to take one off the truck') : hold('remove', 'Remove', 'Hold to take it off this load')];
   const manual = stacks.isManual(load, it.mark);
-  return `<li class="ship-item is-${cls}" data-truck-id="${escapeHtml(it.truckId)}">
+  const key = pieceKey(it);
+  const expanded = expandedPieces.has(key);
+  return `<li class="ship-item is-${cls}${expanded ? ' expanded' : ''}" data-truck-id="${escapeHtml(it.truckId)}" data-expand-piece="${escapeHtml(key)}">
     <span class="item-mark">${escapeHtml(it.mark)}${manual ? ' <span class="badge manual-badge">Manual</span>' : ''}</span>
+    <span class="ship-item-part">${escapeHtml(it.partNumber || '')}</span>
     <span class="ship-item-seq">${it.sequence ? `Seq ${escapeHtml(it.sequence)}` : ''}</span>
-    <span class="item-desc">${escapeHtml(it.description)}</span>
+    <span class="ship-item-shape">${escapeHtml(it.shape || '')}</span>
+    <span class="ship-item-dimensions">${escapeHtml(it.dimensions || '')}</span>
+    <span class="ship-item-grade">${escapeHtml(it.grade || '')}</span>
+    <span class="ship-item-remark">${escapeHtml(it.remark || '')}</span>
     <span class="ship-item-qty">${it.qty > 1 ? `&times;${it.qty}` : ''}</span>
     <span class="item-weight">${formatWeight(it.qty * it.weightEach)}</span>
     <span class="ship-pill ${cls}">${escapeHtml(status)}</span>
     <span class="item-actions">${actions.join('')}</span>
+    ${expanded ? detailMarkup(it, load) : ''}
+  </li>`;
+}
+
+function localScanRow(item, load) {
+  const fake = {
+    ...item,
+    truckId: item.id,
+    qty: 1,
+    loaded: 1,
+    returned: 0,
+    weightEach: item.weight,
+  };
+  const key = `local:${item.id}`;
+  const expanded = expandedPieces.has(key);
+  const manual = item.manual ? ' <span class="badge manual-badge">Manual</span>' : '';
+  const stack = item.stackName ? ` · ${item.stackName}` : '';
+  const scanned = new Date(item.scannedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return `<li class="ship-item local-scan-row${expanded ? ' expanded' : ''}" data-expand-piece="${escapeHtml(key)}">
+    <span class="item-mark">${escapeHtml(item.mark)}${manual}</span>
+    <span class="ship-item-part">${escapeHtml(item.partNumber || '')}</span>
+    <span class="ship-item-seq">${item.sequence ? `Seq ${escapeHtml(item.sequence)}` : ''}</span>
+    <span class="ship-item-shape">${escapeHtml(item.shape || '')}</span>
+    <span class="ship-item-dimensions">${escapeHtml(item.dimensions || '')}</span>
+    <span class="ship-item-grade">${escapeHtml(item.grade || '')}</span>
+    <span class="ship-item-remark">${escapeHtml(item.remark || '')}</span>
+    <span class="ship-item-qty">1</span>
+    <span class="item-weight">${formatWeight(item.weight)}</span>
+    <span class="ship-pill loaded">Loaded</span>
+    <span class="local-scan-time">${escapeHtml(scanned)}${escapeHtml(stack)}</span>
+    ${expanded ? detailMarkup(fake, load) : ''}
   </li>`;
 }
 
@@ -324,10 +454,19 @@ function renderLoad(load) {
       <div>
         <h2>Load ${escapeHtml(load.number)}</h2>
         <p class="muted">${load.shipped ? `Shipped${load.shipDate ? ` ${escapeHtml(shortDate(load.shipDate))}` : ''}`
-          : step === STEP_LOAD ? `Checking: scan each piece to load it. ${t.pieces - t.loaded} of ${t.pieces} still to load · ${formatWeight(t.weight)}`
-          : `${t.loaded} of ${t.pieces} pieces loaded · ${formatWeight(t.weight)}`}</p>
+          : step === STEP_LOAD ? `Checking: scan each piece to load it. ${t.loaded} out of ${t.pieces} total pieces loaded · ${formatWeight(t.weight)}`
+          : `${t.loaded} out of ${t.pieces} total pieces loaded · ${formatWeight(t.weight)}`}</p>
       </div>
       <div class="ship-actions">
+        <button class="btn" type="button" data-view-action="toggle">${view.collapsed ? 'Expand pieces' : 'Collapse pieces'}</button>
+        <label class="sort-control" title="Sort pieces"><span aria-hidden="true">&#8645;</span>
+          <select data-view-sort aria-label="Sort pieces">
+            <option value="scan"${view.sort === 'scan' ? ' selected' : ''}>Scan order</option>
+            <option value="sequence"${view.sort === 'sequence' ? ' selected' : ''}>Sequence</option>
+            <option value="shape"${view.sort === 'shape' ? ' selected' : ''}>Shape / size</option>
+            <option value="status"${view.sort === 'status' ? ' selected' : ''}>Loaded status</option>
+          </select>
+        </label>
         ${load.shipped
           ? `<button class="btn btn-hold" type="button" data-hold="unship" data-hold-ms="${SHIP_HOLD_MS}">Hold to unship</button>`
           : `<button class="btn btn-hold btn-ship" type="button" data-hold="ship" data-hold-ms="${SHIP_HOLD_MS}"${t.pieces && t.loaded >= t.pieces ? '' : ' disabled'} title="Every piece has to be loaded first">Hold to ship</button>`}
@@ -340,12 +479,25 @@ function renderLoad(load) {
     return `${head}${localStacks}${flagged}<p class="stack-empty">Nothing is assigned to this load yet. Switch to Add material and scan pieces to assign them${step === STEP_LOAD ? ', then Load checks them onto the truck' : ''}.</p>`;
   }
   const section = (title, items) => items.length
-    ? `<section class="stack"><header class="stack-head"><span class="stack-name">${title}</span><span class="stack-stats"><b>${items.reduce((n, it) => n + it.qty, 0)}</b> pcs</span></header>
-        <ol class="items">${items.map((it) => itemRow(it, load)).join('')}</ol></section>`
+    ? `<section class="stack"><header class="stack-head"><span class="stack-name">${title}</span><span class="stack-stats"><b>${items.reduce((n, it) => n + it.loaded, 0)}</b> out of <b>${items.reduce((n, it) => n + it.qty, 0)}</b> total pieces</span></header>
+        <ol class="items">${sortItems(view.collapsed ? collapseItems(items) : items).map((it) => itemRow(it, load)).join('')}</ol></section>`
     : '';
+  const loadedSection = (items) => {
+    if (view.collapsed) return section('Loaded', items);
+    let scans = [];
+    try {
+      const state = stacks.get(load);
+      scans = state.stacks.flatMap((stack) => stack.items.map((item) => ({ ...item, stackName: stack.name })));
+    } catch { /* the normal PowerFab rows remain available */ }
+    return scans.length
+      ? `<section class="stack"><header class="stack-head"><span class="stack-name">Loaded · scan order</span><span class="stack-stats"><b>${load.loaded}</b> out of <b>${load.pieces}</b> total pieces</span></header>
+        ${scans.length < load.loaded ? `<p class="muted local-scan-note">${load.loaded - scans.length} loaded piece${load.loaded - scans.length === 1 ? '' : 's'} predate local scan tracking.</p>` : ''}
+        <ol class="items">${sortItems(scans).map((item) => localScanRow(item, load)).join('')}</ol></section>`
+      : section('Loaded', items);
+  };
   return load.shipped
     ? head + localStacks + section('Shipped', load.items)
-    : head + localStacks + flagged + section('To load', toGo) + section('Loaded', loaded);
+    : head + localStacks + flagged + section('To load', toGo) + loadedSection(loaded);
 }
 
 function renderLocalStacks(load) {
@@ -360,6 +512,7 @@ function renderLocalStacks(load) {
       <span class="item-mark">${escapeHtml(item.mark)}${item.manual ? ' <span class="badge manual-badge">Manual</span>' : ''}</span>
       <span class="ship-item-seq">${item.sequence ? `Seq ${escapeHtml(item.sequence)}` : ''}</span>
       <span class="item-desc">${escapeHtml(item.description)}</span>
+      <span class="local-scan-time">${escapeHtml(new Date(item.scannedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}</span>
     </li>`).join('');
     return `<section class="local-stack${active ? ' active' : ''}">
       <header class="local-stack-head">
@@ -544,6 +697,13 @@ export function canScan() {
 export function initShipping() {
   const ws = $('#workspace');
   ws.addEventListener('click', (e) => {
+    const expandKey = e.target.closest('[data-expand-piece]')?.dataset.expandPiece;
+    if (expandKey && !e.target.closest('[data-action], [data-hold]')) {
+      if (expandedPieces.has(expandKey)) expandedPieces.delete(expandKey);
+      else expandedPieces.add(expandKey);
+      render();
+      return;
+    }
     const stackAction = e.target.closest('[data-stack-action]')?.dataset.stackAction;
     if (stackAction) {
       const load = selectedLoad();
@@ -568,6 +728,19 @@ export function initShipping() {
       const item = itemFor(e.target);
       if (load && item) change(() => pf.loadMaterial(load.id, item)).then((ok) => ok && done(`${item.mark} loaded`));
     }
+  });
+  ws.addEventListener('change', (e) => {
+    if (e.target.matches('[data-view-sort]')) {
+      view.sort = e.target.value;
+      saveView();
+      render();
+    }
+  });
+  ws.addEventListener('click', (e) => {
+    if (!e.target.closest('[data-view-action="toggle"]')) return;
+    view.collapsed = !view.collapsed;
+    saveView();
+    render();
   });
   bindHold(ws, {
     onComplete: onHold,

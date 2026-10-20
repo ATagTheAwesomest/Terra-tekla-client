@@ -41,7 +41,7 @@ function describe(row) {
 const entries = (v) => asList(v).map((e) => ({ id: text(e.ID), qty: int(e.Quantity) })).filter((e) => e.id);
 
 // Load { id, number, shipped, shipDate, jobsite, items: TruckItem[], pieces, loaded, weight }
-// TruckItem { truckId, itemId, mark, sequence, qty, loaded, returned, loads, returns, weightEach, description }
+// TruckItem { truckId, itemId, mark, partNumber, remark, sequence, shape, dimensions, grade, length, qty, loaded, returned, loads, returns, weightEach, description }
 //   loads / returns: [{ id, qty }] from the Loaded / Returned entries; Unload and
 //   Unreturn name one of these by ID.
 export function parseLoads(reply) {
@@ -50,7 +50,13 @@ export function parseLoads(reply) {
       truckId: text(m.ProductionControlItemTruckID),
       itemId: text(m.ProductionControlItemID),
       mark: normalizeMark(text(m.MainMarkDisplay) || text(m.MainMark)),
+      partNumber: text(m.PieceMarkDisplay) || text(m.PartMarkDisplay) || text(m.MainMarkDisplay),
+      remark: text(m.ReferenceNumber),
       sequence: text(m.SequenceDisplay) || text(m.Sequence),
+      shape: text(m.Shape),
+      dimensions: text(m.Dimensions),
+      grade: text(m.Grade),
+      length: Number.parseFloat(text(m.Length) || text(m.ShippingLength)) || 0,
       qty: int(m.Quantity),
       loaded: int(m.QuantityLoaded),
       returned: int(m.QuantityReturned),
