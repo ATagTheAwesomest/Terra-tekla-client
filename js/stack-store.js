@@ -54,6 +54,66 @@ export function get(load) {
   return current;
 }
 
+const keyOf = (mark, sequence) => `${mark}|${sequence ?? ''}`;
+
+// Makes the stacks agree with PowerFab: every piece PowerFab has loaded (and not
+// returned) on the load is in a stack, and none that it doesn't. A piece loaded
+// or unloaded elsewhere is added to the active stack or taken off the most
+// recently scanned one. The stack names, order and who scanned what stay local;
+// the pieces themselves are always the server's. Writes only when it changed.
+export function sync(load) {
+  const all = readAll();
+  const state = normalizeState(all[load.id], load);
+  let changed = !all[load.id];
+
+  const want = new Map();
+  for (const it of load.items) {
+    const n = Math.max(0, it.loaded - it.returned);
+    if (!n) continue;
+    const key = keyOf(it.mark, it.sequence);
+    const w = want.get(key) ?? { n: 0, item: it };
+    w.n += n;
+    want.set(key, w);
+  }
+
+  const have = new Map();
+  for (const stack of state.stacks) {
+    for (const entry of stack.items) {
+      const key = keyOf(entry.mark, entry.sequence);
+      if (!have.has(key)) have.set(key, []);
+      have.get(key).push({ stack, entry });
+    }
+  }
+
+  for (const [key, refs] of have) {
+    let extra = refs.length - (want.get(key)?.n ?? 0);
+    while (extra-- > 0) {
+      const { stack, entry } = refs.pop();
+      stack.items.splice(stack.items.indexOf(entry), 1);
+      changed = true;
+    }
+  }
+
+  const active = state.stacks.find((s) => s.id === state.activeStackId) ?? state.stacks.at(-1);
+  for (const [key, w] of want) {
+    for (let missing = w.n - (have.get(key)?.length ?? 0); missing > 0; missing--) {
+      const it = w.item;
+      active.items.push({
+        id: newId(), mark: it.mark, sequence: it.sequence, partNumber: it.partNumber, remark: it.remark,
+        shape: it.shape, dimensions: it.dimensions, grade: it.grade, length: it.length,
+        description: it.description, weight: it.weightEach, manual: false, scannedAt: null, synced: true,
+      });
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    all[load.id] = state;
+    writeAll(all);
+  }
+  return state;
+}
+
 function update(load, updateFn) {
   const all = readAll();
   const state = normalizeState(all[load.id], load);
