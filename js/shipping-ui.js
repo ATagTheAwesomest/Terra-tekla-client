@@ -391,6 +391,13 @@ function itemRow(it, load) {
   </li>`;
 }
 
+// When a stacked piece was scanned here, or that PowerFab has it loaded (loaded
+// elsewhere, or before stack tracking).
+function scanTime(item) {
+  if (!item.scannedAt) return 'Loaded in PowerFab';
+  return new Date(item.scannedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
 function localScanRow(item, load) {
   const fake = {
     ...item,
@@ -404,7 +411,7 @@ function localScanRow(item, load) {
   const expanded = expandedPieces.has(key);
   const manual = item.manual ? ' <span class="badge manual-badge">Manual</span>' : '';
   const stack = item.stackName ? ` · ${item.stackName}` : '';
-  const scanned = new Date(item.scannedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const scanned = scanTime(item);
   return `<li class="ship-item local-scan-row${expanded ? ' expanded' : ''}" data-expand-piece="${escapeHtml(key)}">
     <span class="item-mark">${escapeHtml(item.mark)}${manual}</span>
     <span class="ship-item-part">${escapeHtml(item.partNumber || '')}</span>
@@ -452,9 +459,20 @@ function flaggedSection(load) {
 
 // Marks entered by hand on the open load, read once per render (not per row).
 let manualMarks = {};
+let syncedAt = null; // which load and read the stacks were last synced for
 
 function renderLoad(load) {
-  try { manualMarks = stacks.get(load).manualMarks; } catch { manualMarks = {}; }
+  // The stacks are brought in line with what PowerFab has loaded, once per read
+  // of the loads. (Drawing while a read is under way still shows the old data,
+  // and syncing with it would undo a piece that was just recorded.)
+  const syncKey = `${load.id}:${ship.readAt?.getTime()}`;
+  try {
+    if (syncKey !== syncedAt) {
+      syncedAt = syncKey;
+      stacks.sync(load);
+    }
+    manualMarks = stacks.get(load).manualMarks;
+  } catch { manualMarks = {}; }
   const t = loadTotals(load);
   const toGo = load.items.filter((it) => it.loaded < it.qty);
   const loaded = load.items.filter((it) => it.loaded >= it.qty);
@@ -500,7 +518,6 @@ function renderLoad(load) {
     } catch { /* the normal PowerFab rows remain available */ }
     return scans.length
       ? `<section class="stack"><header class="stack-head"><span class="stack-name">Loaded · scan order</span><span class="stack-stats"><b>${load.loaded}</b> out of <b>${load.pieces}</b> total pieces</span></header>
-        ${scans.length < load.loaded ? `<p class="muted local-scan-note">${load.loaded - scans.length} loaded piece${load.loaded - scans.length === 1 ? '' : 's'} predate local scan tracking.</p>` : ''}
         <ol class="items">${sortItems(scans).map((item) => localScanRow(item, load)).join('')}</ol></section>`
       : section('Loaded', items);
   };
@@ -521,7 +538,7 @@ function renderLocalStacks(load) {
       <span class="item-mark">${escapeHtml(item.mark)}${item.manual ? ' <span class="badge manual-badge">Manual</span>' : ''}</span>
       <span class="ship-item-seq">${item.sequence ? `Seq ${escapeHtml(item.sequence)}` : ''}</span>
       <span class="item-desc">${escapeHtml(item.description)}</span>
-      <span class="local-scan-time">${escapeHtml(new Date(item.scannedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}</span>
+      <span class="local-scan-time">${escapeHtml(scanTime(item))}</span>
     </li>`).join('');
     return `<section class="local-stack${active ? ' active' : ''}">
       <header class="local-stack-head">
@@ -686,13 +703,11 @@ function onHold(btn) {
     }),
     unload: () => item && change(() => pf.unloadMaterial(load.id, item)).then((ok) => {
       if (!ok) return;
-      try { stacks.removeLoaded(load, item.mark); } catch (err) { toast(err.message, 5000); }
       toast(`${item.mark} taken off the truck`);
     }),
     remove: () => item && change(() => pf.removeMaterial(load.id, item), { remaining: true }).then((ok) => ok && toast(`${item.mark} taken off load ${load.number}`)),
     return: () => item && change(() => pf.returnMaterial(load.id, item), { remaining: true }).then((ok) => {
       if (!ok) return;
-      try { stacks.removeLoaded(load, item.mark); } catch (err) { toast(err.message, 5000); }
       toast(`${item.mark} returned`);
     }),
     unreturn: () => item && change(() => pf.unreturnMaterial(load.id, item), { remaining: true }).then((ok) => ok && toast(`Return of ${item.mark} undone`)),
@@ -737,11 +752,10 @@ export function initShipping() {
       const load = selectedLoad();
       const item = itemFor(e.target);
       if (load && item) {
-        change(() => pf.loadMaterial(load.id, item)).then((ok) => {
-          if (!ok) return;
+        change(async () => {
+          await pf.loadMaterial(load.id, item);
           try { stacks.recordLoaded(load, item, item.mark); } catch (err) { toast(err.message, 5000); }
-          done(`${item.mark} loaded`);
-        });
+        }).then((ok) => ok && done(`${item.mark} loaded`));
       }
     }
   });

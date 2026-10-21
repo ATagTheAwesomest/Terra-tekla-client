@@ -76,6 +76,10 @@ piece.
 Every one of these was run from the app against the test job TESTTEST on
 2026-10-20 (create, assign, load, unload, ship, unship, remove, delete).
 
+A scanner types like a keyboard, so keys typed with no text field focused (an
+installed iPad app starts and resumes that way) are collected and sent on Enter
+as a scan.
+
 Scans are sent one at a time in order, and after every change the loads are
 read again, so the screen always shows what PowerFab has. If PowerFab refuses
 a change, its reason is shown and nothing changes on screen.
@@ -173,10 +177,14 @@ python3 -m http.server 8000
 The server address and key (`terra.api`), the current job (`terra.currentJob`),
 the scan step (`terra.step`), the piece view and sort (`terra.load-view`), the phone layout (`terra.layout`), recent
 lookups (`terra.lookup.recent`), stack tracking (`terra.local-stacks.v1`) and
-manual-entry marks in that stack data are kept on this iPad. Stack tracking is
-a local overlay keyed by PowerFab load ID: successful Load-step scans are
-recorded in the selected stack, and keypad-entered marks are labeled **Manual**.
-No stack or manual-entry metadata is sent to Tekla/PowerFab. The caches older
+manual-entry marks in that stack data are kept on this iPad. Stack tracking
+only keeps how loaded pieces are grouped into stacks (names, order, who scanned
+what, **Manual** marks for keypad entries); the pieces themselves are always
+PowerFab's. Every time the loads are read, the stacks are brought in line with
+what PowerFab has loaded on the load: a piece loaded elsewhere is added to the
+active stack ("Loaded in PowerFab"), and one unloaded or returned elsewhere
+comes off the most recently scanned stack. No stack or manual-entry metadata is
+sent to Tekla/PowerFab. The caches older
 versions kept
 (`terra.jobs`, `terra.parts.*`, `terra.pfloads.*`) are removed on launch. The
 `terra-loads` IndexedDB database is left alone, since GitHub Pages shares it

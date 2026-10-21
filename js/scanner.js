@@ -60,6 +60,40 @@ function onScanKey(e) {
   if (value.trim()) ctx.scan(value);
 }
 
+// A scanner types like a keyboard, so a scan has to land somewhere even when
+// the scan field isn't focused. iOS does not let a page focus a field without
+// a tap, and an installed (home screen) app starts, resumes and closes dialogs
+// with nothing focused. So keys typed with no text field focused are collected
+// here and sent on Enter, exactly as if the field had been focused. The
+// characters show in the field while they arrive. A scanner sends its
+// characters within milliseconds, so a pause starts a new scan.
+let typed = '';
+let typedAt = 0;
+const SCAN_GAP_MS = 500;
+
+function onLooseKey(e) {
+  if (!ctx.canScan() || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (document.body.classList.contains('at-home') || document.querySelector('dialog[open]')) return;
+  const a = document.activeElement;
+  if (a && a.matches('input, textarea, [contenteditable="true"]')) return; // that field handles its own keys
+  const input = $('#scan-input');
+  if (e.key === 'Enter') {
+    if (!typed) return;
+    e.preventDefault(); // also stops Enter pressing a focused button
+    const value = typed;
+    typed = '';
+    input.value = '';
+    ctx.scan(value);
+  } else if (e.key.length === 1 && e.key !== ' ') {
+    const now = Date.now();
+    if (now - typedAt > SCAN_GAP_MS) typed = '';
+    typedAt = now;
+    typed += e.key;
+    input.value = typed;
+    e.preventDefault();
+  }
+}
+
 // ---- On-screen keypad ----------------------------------------------------
 
 const DIGITS = ['7', '8', '9', '4', '5', '6', '1', '2', '3'];
@@ -161,6 +195,12 @@ export function initScanner(context) {
   // end of every tap that didn't land on another text field.
   document.addEventListener('pointerup', () => setTimeout(focusScanner, 0));
   document.addEventListener('close', () => setTimeout(focusScanner, 0), true);
+  // Scans with nothing focused (see onLooseKey), and focus again after the app
+  // comes back from the background.
+  document.addEventListener('keydown', onLooseKey, true);
+  window.addEventListener('focus', focusScanner);
+  window.addEventListener('pageshow', focusScanner);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) focusScanner(); });
 
   $('#btn-keypad').addEventListener('click', manualEntry);
 
