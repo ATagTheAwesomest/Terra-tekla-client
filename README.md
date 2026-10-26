@@ -170,6 +170,7 @@ python3 -m http.server 8000
 | `js/vendor/` | `qrcode.js` (QR generator, MIT) and `jsQR.js` (QR reader, Apache-2.0) |
 | `tools/setup-qr.mjs` | Makes a setup QR from `.env` |
 | `tools/chop-report.mjs` / `js/chop.js` | Terminal program: chop-optimised cut list for a combine |
+| `tools/text-pdf.mjs` | Plain text to PDF (Courier), no dependencies |
 | `sw.js` | Precaches the app shell; API calls always go to the network |
 | `version.js` | The app version (single source of truth) |
 
@@ -187,8 +188,8 @@ out of the totals. It only reads; nothing is written to PowerFab.
 PF_URL=https://<api address> PF_KEY=<api key> node tools/chop-report.mjs
 # or with TERRA_API_URL / TERRA_API_KEY in .env:
 node tools/chop-report.mjs
-# skip the lists and save a copy to print:
-node tools/chop-report.mjs --job TESTTEST --combine 3 --out cut-list.txt
+# skip the lists and save a PDF to print (--job also takes part of a job, e.g. 418):
+node tools/chop-report.mjs --job TESTTEST --combine 3 --pdf cut-list.pdf
 ```
 
 On Windows PowerShell: `$env:PF_URL="https://..."; $env:PF_KEY="..."; node tools/chop-report.mjs`.

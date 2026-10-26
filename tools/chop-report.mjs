@@ -5,7 +5,7 @@
 // ProductionControlJob_Get, ProductionControlCutList_Get and GetCutList.
 //
 //   PF_URL=https://your-api PF_KEY=... node tools/chop-report.mjs
-//   node tools/chop-report.mjs --job TESTTEST --combine 3 --out cut-list.txt
+//   node tools/chop-report.mjs --job TESTTEST --combine 3 --pdf cut-list.pdf
 //
 // PF_URL / PF_KEY may also come from TERRA_API_URL / TERRA_API_KEY in .env
 // (git-ignored, same file tools/setup-qr.mjs reads). Never commit the key.
@@ -13,11 +13,14 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 import { buildChopReport, formatChopReport, parseCombines, parseJobList } from '../js/chop.js';
+import { textToPdf } from './text-pdf.mjs';
 
-const HELP = `Usage: node tools/chop-report.mjs [--job <number>] [--combine <id>] [--out <file>] [--raw <file>]
+const HELP = `Usage: node tools/chop-report.mjs [--job <number>] [--combine <id>] [--pdf <file>] [--out <file>] [--raw <file>]
 
-  --job      production control job number (skips the job list)
+  --job      production control job number, or part of one / its description
+             if only one job matches (skips the job list)
   --combine  cut list ID of the combine (skips the combine list)
+  --pdf      also write the report as a PDF, ready to print
   --out      also write the report to this text file
   --raw      also write PowerFab's GetCutList reply as JSON (for checking)
 
@@ -51,7 +54,7 @@ async function main() {
   const jobs = parseJobList(await powerfab('ProductionControlJob_Get', {}));
   let job;
   if (args.job) {
-    job = jobs.find((j) => j.number.toLowerCase() === args.job.toLowerCase()) ?? { number: args.job, description: '' };
+    job = findJob(jobs, args.job);
   } else {
     if (!jobs.length) throw new Error('PowerFab returned no production control jobs for this API user.');
     job = await choose('Production control jobs', jobs, (j) => `${pad(j.number, 14)} ${pad(j.description, 36)} ${j.status}`,
@@ -80,6 +83,28 @@ async function main() {
     writeFileSync(args.out, `${text}\n`);
     console.log(`Saved to ${args.out}`);
   }
+  if (args.pdf) {
+    const footer = `Chop-optimised cut list - ${job.number} - ${report.name} (combine #${report.id})`;
+    writeFileSync(args.pdf, textToPdf(text, { bold: isHeading, footer }));
+    console.log(`PDF saved to ${args.pdf}`);
+  }
+}
+
+// Title, size headers and summary rows print bold in the PDF.
+function isHeading(line) {
+  return /^(CHOP|SUMMARY|Size |TOTAL)/.test(line) || /^[^\s=-]/.test(line) && !/^(Job |\d+ bars)/.test(line);
+}
+
+// --job: an exact job number, else the one job whose number or description
+// contains the text ("418" finds "26123 - 25-418").
+function findJob(jobs, wanted) {
+  const w = wanted.toLowerCase();
+  const exact = jobs.find((j) => j.number.toLowerCase() === w);
+  if (exact) return exact;
+  const loose = jobs.filter((j) => `${j.number} ${j.description}`.toLowerCase().includes(w));
+  if (loose.length === 1) return loose[0];
+  if (loose.length > 1) throw new Error(`"${wanted}" matches ${loose.length} jobs: ${loose.map((j) => j.number).join(', ')}. Be more exact.`);
+  return { number: wanted, description: '' };
 }
 
 // Numbered pick list; the operator types the number, or the item itself
@@ -124,8 +149,8 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '-h' || a === '--help') out.help = true;
-    else if (/^--(job|combine|out|raw)$/.test(a)) out[a.slice(2)] = argv[++i];
-    else if (/^--(job|combine|out|raw)=/.test(a)) out[a.slice(2, a.indexOf('='))] = a.slice(a.indexOf('=') + 1);
+    else if (/^--(job|combine|out|raw|pdf)$/.test(a)) out[a.slice(2)] = argv[++i];
+    else if (/^--(job|combine|out|raw|pdf)=/.test(a)) out[a.slice(2, a.indexOf('='))] = a.slice(a.indexOf('=') + 1);
     else fail(`Unknown option ${a}. See --help.`);
   }
   return out;

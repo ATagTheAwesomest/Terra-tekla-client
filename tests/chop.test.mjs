@@ -79,3 +79,14 @@ test('chop report: bars grouped by size, invalidated bars listed but not counted
   assert.match(text, /#450 .*NOT COUNTED/);
   assert.match(text, /^TOTAL\s+2\s+5\s+80'-0"/m);
 });
+
+test('text to PDF: a valid paged Courier PDF with escapes', async () => {
+  const { textToPdf } = await import('../tools/text-pdf.mjs');
+  const text = Array.from({ length: 150 }, (_, i) => `line ${i} (a\\b) 6'-3"`).join('\n');
+  const pdf = textToPdf(text, { footer: 'job' }).toString('latin1');
+  assert.match(pdf, /^%PDF-1\.4/);
+  assert.match(pdf, /\/Count 3 /);
+  assert.match(pdf, /\(line 0 \\\(a\\\\b\\\) 6'-3"\) Tj/);
+  const xref = Number(pdf.match(/startxref\n(\d+)/)[1]);
+  assert.equal(pdf.slice(xref, xref + 4), 'xref');
+});
