@@ -37,6 +37,7 @@ import * as pf from './pf-loads.js';
 import { flashFeedback, focusScanner } from './scanner.js';
 import * as stacks from './stack-store.js';
 import { initStacks, renderStacks } from './stacks-ui.js';
+import { initPhotos, openPhotos, photoButton, photoOfButton } from './photos-ui.js';
 import { claimsText, cleanMark, formatWeight, lastLoaded, loadSequences, loadTotals, pickRemaining, takeRemaining, toLoad } from './shipping.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -444,6 +445,7 @@ function renderLoad(load) {
         <p class="muted">${load.shipped ? `Shipped${load.shipDate ? ` ${escapeHtml(shortDate(load.shipDate))}` : ''} · ` : ''}${t.pieces} pcs · ${formatWeight(t.weight)}</p>
       </div>
       <div class="ship-actions">
+        ${photoButton(ship.job, load.number)}
         <button class="btn${checking ? ' btn-primary' : ''}" type="button" data-action="truck-check">${checking ? 'Back to loading' : '&#10003; Truck check'}</button>
         ${load.shipped
           ? `<button class="btn btn-hold" type="button" data-hold="unship" data-hold-ms="${SHIP_HOLD_MS}">Hold to unship</button>`
@@ -636,6 +638,20 @@ export function canScan() {
   return Boolean(selectedLoad());
 }
 
+// Photos window for the open load: of the whole load, a stack or a piece.
+function showPhotos(mark = '') {
+  const load = selectedLoad();
+  if (!load) return;
+  let state = null;
+  try { state = stacks.get(load); } catch { /* storage blocked: whole load only */ }
+  const marks = [...new Set((state?.stacks ?? []).flatMap((st) => st.items.map((it) => it.mark)))];
+  const choices = [
+    ...(state?.stacks ?? []).map((st) => ({ label: st.name, value: st.name })),
+    ...marks.map((m) => ({ label: `Piece ${m}`, value: m })),
+  ];
+  openPhotos({ job: ship.job, load: load.number, choices, mark });
+}
+
 function newStack() {
   const load = selectedLoad();
   if (!load) return;
@@ -648,7 +664,13 @@ function newStack() {
 
 export function initShipping() {
   const ws = $('#workspace');
-  initStacks({ load: selectedLoad, render, toast, deleteEntry, deleteStack, detailRows, jobTotal });
+  initStacks({
+    load: selectedLoad, render, toast, deleteEntry, deleteStack, detailRows, jobTotal,
+    detailActions: (entry) => photoOfButton(entry.mark, 'this piece'),
+    stackActions: (stack) => photoOfButton(stack.name, stack.name),
+    photo: showPhotos,
+  });
+  initPhotos({ render, closed: focusScanner });
   initCheck({ load: selectedLoad, checking: () => checking, render, toast, exit: () => setChecking(false) });
   ws.addEventListener('click', (e) => {
     const action = e.target.closest('[data-action]')?.dataset.action;
@@ -656,6 +678,7 @@ export function initShipping() {
     else if (action === 'new-load') showNewLoad();
     else if (action === 'refresh') refresh();
     else if (action === 'truck-check') setChecking(!checking);
+    else if (action === 'photos') showPhotos();
   });
   const holdSelector = '[data-hold]:not([data-hold="item"]):not([data-hold="stack"]):not([data-hold^="check-"])';
   bindHold(ws, {

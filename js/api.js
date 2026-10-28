@@ -69,15 +69,18 @@ export class ApiError extends Error {
   }
 }
 
+// `body` is sent as JSON, or as it is when it's FormData (the browser sets
+// the multipart Content-Type itself).
 async function request(path, { method = 'GET', body } = {}) {
   const config = getConfig();
   if (!config) throw new ApiError('No server set up. Open Server settings in the menu.');
+  const form = typeof FormData !== 'undefined' && body instanceof FormData;
   let res;
   try {
     res = await fetch(`${config.url}${path}`, {
       method,
-      headers: { Authorization: `Bearer ${config.key}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
-      body: body ? JSON.stringify(body) : undefined,
+      headers: { Authorization: `Bearer ${config.key}`, ...(body && !form ? { 'Content-Type': 'application/json' } : {}) },
+      body: form ? body : body ? JSON.stringify(body) : undefined,
       cache: 'no-store',
     });
   } catch {
@@ -97,6 +100,32 @@ export function health() {
 
 export function powerfab(command, fields = {}) {
   return request(`/api/powerfab/${encodeURIComponent(command)}`, { method: 'POST', body: fields });
+}
+
+// ---- Files (photos) -----------------------------------------------------------
+// The server keeps them in a folder per job, then per load (tekla-conversion-
+// layer docs/FILES.md). Off on the server unless FILES_ENABLED.
+
+function filesPath(job, load) {
+  return `/api/files/${encodeURIComponent(job)}/${encodeURIComponent(load)}`;
+}
+
+// { enabled, maxBytes, maxFiles, types }. A server older than files answers 404.
+export function filesStatus() {
+  return request('/api/files');
+}
+
+export function listFiles(job, load) {
+  return request(filesPath(job, load));
+}
+
+// Sends photos of a load; `mark` says what they show (a piece mark or stack
+// name), left out for the whole load. Resolves { saved: [{ name, bytes }] }.
+export function uploadFiles(job, load, files, { mark = '' } = {}) {
+  const form = new FormData();
+  for (const f of files) form.append('file', f.blob ?? f, f.name ?? 'photo.jpg');
+  if (mark) form.append('mark', mark);
+  return request(filesPath(job, load), { method: 'POST', body: form });
 }
 
 // Every object stored under `name` anywhere in a reply, as one flat array.

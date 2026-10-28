@@ -50,7 +50,7 @@ function renderDetail(entry) {
   if (entry.manual) rows.push(['Entry', 'Typed on keypad']);
   rows.push(...(ctx.detailRows?.(entry) ?? []));
   return `<dl class="item-detail">${rows.filter(([, v]) => v !== '' && v !== null && v !== undefined)
-    .map(([k, v]) => `<div><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd></div>`).join('')}</dl>`;
+    .map(([k, v]) => `<div><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd></div>`).join('')}</dl>${ctx.detailActions?.(entry) ?? ''}`;
 }
 
 // "2 of 3" on this load, then in blue how many of the mark the job has.
@@ -94,6 +94,7 @@ function renderStack(stack, state, locked, counts) {
         ${active
           ? '<span class="badge badge-active">Scanning here</span>'
           : '<button class="btn" type="button" data-action="activate">Scan here</button>'}
+        ${ctx.stackActions?.(stack) ?? ''}
         ${locked ? '' : `<button class="btn btn-icon btn-hold" type="button" data-hold="stack" data-hold-ms="${STACK_HOLD_MS}" aria-label="Hold 4 seconds to delete stack" title="Hold 4 seconds to delete stack">&#128465;</button>`}
       </header>
       ${stack.items.length
@@ -243,7 +244,9 @@ function endDrag(e, commit = true) {
 
 // ctx: { load() the open PowerFab load, render(), toast(msg, ms),
 //        deleteEntry(entryId), deleteStack(stackId), detailRows?(entry),
-//        jobTotal?(mark) how many of the mark the job has }
+//        jobTotal?(mark) how many of the mark the job has,
+//        detailActions?(entry) / stackActions?(stack) extra buttons (html),
+//        photo?(label) for a [data-action="photo"] button }
 export function initStacks(context) {
   ctx = context;
   const ws = document.getElementById('workspace');
@@ -279,6 +282,9 @@ export function initStacks(context) {
         break;
       case 'rename':
         startRename(stackEl);
+        break;
+      case 'photo':
+        ctx.photo?.(btn.dataset.photoOf);
         break;
     }
   });

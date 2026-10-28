@@ -4,6 +4,7 @@
 import { escapeHtml, toast } from './app.js';
 import * as api from './api.js';
 import { JOB_NUMBERS, setJobNumbers } from './current-job.js';
+import { drawPhotoSetting } from './photos-ui.js';
 
 const $ = (sel) => document.querySelector(sel);
 const dialog = () => $('#dlg-server');
@@ -57,6 +58,7 @@ function fillForm() {
 export function openServerSettings() {
   fillForm();
   dialog().showModal();
+  drawPhotoSetting();
 }
 
 async function saveAndTest(config) {
