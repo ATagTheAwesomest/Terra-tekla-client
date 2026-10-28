@@ -1,6 +1,8 @@
 // Local-only stack tracking for live PowerFab loads. Stack data is keyed by
 // load ID and is intentionally never included in API requests.
 
+import { addCheckScan, emptyCheck, removeCheckScan } from './check.js';
+
 const KEY = 'terra.local-stacks.v1';
 
 function newId() {
@@ -39,6 +41,7 @@ function normalizeState(state, load) {
     loadNumber: load.number,
     activeStackId: stacks.some((stack) => stack.id === state.activeStackId) ? state.activeStackId : stacks[stacks.length - 1].id,
     stacks,
+    ...(state.truckCheck && Array.isArray(state.truckCheck.scans) ? { truckCheck: state.truckCheck } : {}),
   };
 }
 
@@ -255,6 +258,27 @@ export function recordLoaded(load, item, mark, { manual = false } = {}) {
     activeStack(state).items.push(entry);
     return entry;
   });
+}
+
+// ---- Truck check (js/check.js), kept with the stacks --------------------------
+
+export function startCheck(load) {
+  return update(load, (state) => { state.truckCheck ??= emptyCheck(); });
+}
+
+export function resetCheck(load) {
+  return update(load, (state) => { state.truckCheck = emptyCheck(); });
+}
+
+export function addCheck(load, rawMark, { manual = false } = {}) {
+  return update(load, (state) => {
+    state.truckCheck ??= emptyCheck();
+    return addCheckScan(state.truckCheck, rawMark, { manual });
+  });
+}
+
+export function removeCheck(load, scanId) {
+  return update(load, (state) => removeCheckScan(state.truckCheck, scanId));
 }
 
 export function clear(load) {

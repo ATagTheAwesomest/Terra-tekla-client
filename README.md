@@ -77,8 +77,21 @@ The load's pieces are shown in stacks, exactly as in terra-loads-web:
 - pieces typed on the keypad are orange.
 
 Stacks are only kept on this iPad; moving pieces between stacks or renaming
-one never touches PowerFab. Pieces that are on the load in PowerFab but not
-loaded are listed above the stacks with **Load** (tap) and **Remove** (hold).
+one never touches PowerFab. There are no separate assign, load or unload
+buttons. If PowerFab refuses to load a scanned piece, the assign is undone and
+a warning says why; a mark whose pieces are all on other loads gets a warning
+naming those loads. Pieces put on the load in PowerFab itself but not loaded
+are counted in a note above the stacks; scanning one loads it.
+
+### Truck check
+
+**Truck check** (load header) works as in terra-loads-web: the stacks become a
+checklist and each scan ticks off one piece of that mark, in stack order. A
+scan not on the load, or one more than the load has, is listed red as an
+extra. **Show missing only**, hold to undo a check (1.5 s) or **Start over**
+(4 s), and **Done checking** goes back to loading. The check is kept with the
+stacks on this iPad and never changes PowerFab; the Loads window shows how far
+each load's check got.
 
 The load has **Hold to ship** (3 s), which PowerFab only allows once every
 piece is loaded, and once shipped **Hold to unship**. Shipped loads going
@@ -172,7 +185,8 @@ python3 -m http.server 8000
 | `js/shipping.js` | Pure helpers: which remaining row a scan takes, totals, sequences |
 | `js/shipping-ui.js` | Shipping screen: loads window, scan handling, write queue, new load |
 | `js/stacks-ui.js` | Stack rows: active stack, rename, move, drag and drop, hold to delete |
-| `js/stack-store.js` | Local-only stack tracking keyed by PowerFab load ID |
+| `js/stack-store.js` | Local-only stack tracking (and truck check scans) keyed by PowerFab load ID |
+| `js/check.js` / `js/check-ui.js` | Truck check: matching scans to stacked pieces, and its screen (`css/check.css`) |
 | `js/lookup.js` / `js/lookup-ui.js` | Piece lookup data and screen (`css/lookup.css`) |
 | `js/export.js` | Text export, share sheet and print ticket |
 | `js/scanner.js` | Always-focused scan field and on-screen keypad |

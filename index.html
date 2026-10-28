@@ -11,13 +11,14 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TERRA">
   <meta name="format-detection" content="telephone=no">
-  <meta name="terra-version" content="0.9.0">
+  <meta name="terra-version" content="0.9.1">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="stylesheet" href="css/app.css">
   <link rel="stylesheet" href="css/current-job.css">
   <link rel="stylesheet" href="css/shipping.css">
+  <link rel="stylesheet" href="css/check.css">
   <link rel="stylesheet" href="css/mobile.css">
   <link rel="stylesheet" href="css/lookup.css">
   <link rel="stylesheet" href="css/print.css">
@@ -39,7 +40,7 @@
       <button class="btn home-tile" type="button" data-module="shipping">
         <span class="home-tile-icon" aria-hidden="true">&#128666;</span>
         <span class="home-tile-name">Shipping</span>
-        <span class="muted">Scan pieces onto the job's PowerFab loads, in stacks</span>
+        <span class="muted">Scan pieces onto the job's PowerFab loads, in stacks, and truck check them</span>
       </button>
       <button class="btn home-tile" type="button" data-module="lookup">
         <span class="home-tile-icon" aria-hidden="true">&#128269;</span>
@@ -66,7 +67,7 @@
       <span class="icon" aria-hidden="true">&#9776;</span><span>Loads</span>
     </button>
     <div class="stats" id="stats">
-      <div class="stat stat-load"><span class="stat-label">Load</span><span class="stat-value" id="stat-load">&mdash;</span><span class="stat-sub" id="stat-job"></span><span class="mode-badge ship-badge" id="ship-badge" hidden>Shipped</span></div>
+      <div class="stat stat-load"><span class="stat-label">Load</span><span class="stat-value" id="stat-load">&mdash;</span><span class="stat-sub" id="stat-job"></span><span class="mode-badge ship-badge" id="ship-badge" hidden>Shipped</span><span class="mode-badge check-badge" id="check-badge" hidden>Truck check</span></div>
       <div class="stat"><span class="stat-label">Sequences</span><span class="stat-value" id="stat-seq">&mdash;</span></div>
       <div class="stat"><span class="stat-label">Pieces</span><span class="stat-value" id="stat-pieces">0</span></div>
       <div class="stat"><span class="stat-label">Weight</span><span class="stat-value" id="stat-weight">0 lbs</span></div>
@@ -87,6 +88,7 @@
     </label>
     <button class="btn btn-lg" id="btn-keypad" type="button"><span class="icon" aria-hidden="true">&#9783;</span><span>Keypad</span></button>
     <button class="btn btn-lg btn-primary" id="btn-new-stack" type="button">+ New Stack</button>
+    <button class="btn btn-lg btn-primary" id="btn-check-done" type="button" hidden>Done checking</button>
   </section>
   <div class="colhead" id="colhead" hidden aria-hidden="true">
     <span></span><span>#</span><span>Mark</span><span>Description</span><span class="colhead-num">Weight</span><span></span>

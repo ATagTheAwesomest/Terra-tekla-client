@@ -5,8 +5,12 @@
 //
 // A scan puts the piece on the load: it is assigned to the load in PowerFab
 // (when it isn't already) and loaded in the same step, then added to the
-// bottom of the active stack. There is no separate assign step. Deleting a
-// piece or a stack (a hold) takes the pieces off the truck and off the load.
+// bottom of the active stack. There is no separate assign or load step: if
+// PowerFab refuses either half, the assign is undone and a warning says why.
+// Deleting a piece or a stack (a hold) takes the pieces off the load.
+//
+// Truck check (js/check-ui.js) turns the stacks into a checklist, as in
+// terra-loads-web; while it is on, scans only check pieces off.
 // Every change is a PowerFab write through the API (js/pf-loads.js), followed
 // by a fresh read of the loads. The stacks themselves (names, order, which
 // piece is in which stack) are only kept on this iPad (js/stack-store.js) and
@@ -17,6 +21,8 @@
 import { escapeHtml, toast } from './app.js';
 import { getConfig } from './api.js';
 import { getCurrentJob, onCurrentJobChange, openJobPicker } from './current-job.js';
+import { checkSummary } from './check.js';
+import { initCheck, renderCheck, submitCheck } from './check-ui.js';
 import { bindHold } from './hold.js';
 import { isMobile } from './mobile.js';
 import { jobKey } from './parts.js';
@@ -45,6 +51,8 @@ export const ship = {
   busy: 0,            // writes in flight
 };
 
+// Truck check on: scans check pieces off instead of loading them.
+let checking = false;
 let queue = Promise.resolve();
 let readSeq = 0;
 
@@ -162,29 +170,24 @@ async function assignOne(load, mark) {
 // load if it isn't already, loaded, and added to the bottom of the active
 // stack. A mark PowerFab has none left of is refused with the reason.
 export function scan(raw, { manual = false } = {}) {
+  if (checking) return submitCheck(raw, { manual });
   const mark = cleanMark(raw);
   if (!mark) return null;
   const jobThen = ship.job;
   return change(async () => {
     const load = openLoadFor(jobThen, mark);
+    const wasWaiting = Boolean(toLoad(load, mark));
     const item = await assignOne(load, mark);
-    await pf.loadMaterial(load.id, item);
+    try {
+      await pf.loadMaterial(load.id, item);
+    } catch (err) {
+      // Assigning and loading are one step: don't leave it assigned but not loaded.
+      if (!wasWaiting) await pf.removeMaterial(load.id, item, 1).catch(() => {});
+      throw Object.assign(err, { title: err.title ?? 'PowerFab wouldn’t load that', mark });
+    }
     safely(() => stacks.recordLoaded(load, item, mark, { manual }));
     done(`${mark} loaded on load ${load.number}${item.sequence ? ` (seq ${item.sequence})` : ''}`);
   }, { remaining: true });
-}
-
-// Loads a piece that is on the load in PowerFab but not on the truck yet.
-function loadWaiting(truckId) {
-  const jobThen = ship.job;
-  return change(async () => {
-    const load = openLoadFor(jobThen);
-    const item = load.items.find((it) => it.truckId === truckId && it.loaded < it.qty);
-    if (!item) return;
-    await pf.loadMaterial(load.id, item);
-    safely(() => stacks.recordLoaded(load, item, item.mark));
-    done(`${item.mark} loaded`);
-  });
 }
 
 // Takes the piece a stack row stands for off the truck and off the load, then
@@ -238,7 +241,7 @@ function blocked(mark, reason) {
   const messages = {
     'not-on-job': [`Not on job ${ship.job}`, `${mark} isn’t a piece PowerFab has left to ship on ${ship.job}.`],
     shipped: ['Already shipped', `Every ${mark} on ${ship.job} has shipped.${where ? ` ${where}.` : ''}`],
-    'on-other-loads': ['On another load', `Every ${mark} left to ship is already on a load.${where ? ` ${where}.` : ''}`],
+    'on-other-loads': ['Already on other loads', `There are no more ${mark} to load: every one the job has left is already on another load.${where ? ` ${where}.` : ''}`],
   };
   const [title, message] = messages[reason] ?? ['Can’t add that', reason];
   return Object.assign(new Error(message), { title, mark });
@@ -273,16 +276,21 @@ function renderStats() {
   $('#stat-pieces').textContent = !load ? '0' : t.loaded < t.pieces ? `${t.loaded} of ${t.pieces}` : t.pieces.toLocaleString('en-US');
   $('#stat-weight').textContent = formatWeight(t.weight);
   $('#ship-badge').hidden = !load?.shipped;
+  $('#check-badge').hidden = !(load && checking);
+  document.body.classList.toggle('mode-check', Boolean(load && checking));
   document.body.classList.toggle('load-shipped', Boolean(load?.shipped));
 }
 
 function loadRow(l) {
   const t = loadTotals(l);
+  let check = null;
+  try { check = checkSummary(stacks.get(l)); } catch { /* storage blocked */ }
   const status = l.shipped ? `Shipped${l.shipDate ? ` ${shortDate(l.shipDate)}` : ''}` : 'Open';
   return `<li class="load-list-item" data-load-id="${escapeHtml(l.id)}">
     <button class="btn load-row${l.id === ship.selectedId ? ' active' : ''}${l.shipped ? ' shipped' : ''}" type="button" data-load-id="${escapeHtml(l.id)}">
       <span class="load-row-name">Load ${escapeHtml(l.number)} <span class="badge ${l.shipped ? '' : 'badge-open'}">${escapeHtml(status)}</span></span>
       <span class="load-row-meta">${t.pieces} pcs${t.loaded < t.pieces ? ` (${t.pieces - t.loaded} not loaded)` : ''} &middot; ${formatWeight(t.weight)}</span>
+      ${check ? `<span class="load-row-meta check-meta-line">${escapeHtml(check)}</span>` : ''}
     </button>
     ${l.shipped || l.items.length ? '' : `<button class="btn btn-hold load-delete" type="button" data-hold="delete" data-hold-ms="${DELETE_HOLD_MS}" aria-label="Hold 10 seconds to delete load ${escapeHtml(l.number)}">Hold 10 s<br>to delete</button>`}
   </li>`;
@@ -315,37 +323,29 @@ function detailRows(entry) {
   ];
 }
 
-// A PowerFab piece row, for the two lists stacks can't show: pieces on the
-// load but not loaded, and a shipped load's returns.
-function itemRow(it, load) {
+// A PowerFab piece row on a shipped load, for returns.
+function itemRow(it) {
   const hold = (action, label, title) => `<button class="btn btn-hold" type="button" data-hold="${action}" data-hold-ms="${ROW_HOLD_MS}" title="${title}">${label}</button>`;
-  const actions = load.shipped
-    ? [it.returned < it.qty ? hold('return', 'Return', 'Hold to return one to the shop') : '', it.returned ? hold('unreturn', 'Undo return', 'Hold to undo a return') : '']
-    : ['<button class="btn btn-primary" type="button" data-action="load">Load</button>',
-      hold('remove', 'Remove', 'Hold to take it off this load')];
-  const status = load.shipped ? (it.returned ? `${it.returned} returned` : 'Shipped')
-    : it.loaded ? `${it.loaded} of ${it.qty} loaded` : 'Not loaded';
-  return `<li class="ship-item is-${load.shipped ? 'shipped' : 'material'}" data-truck-id="${escapeHtml(it.truckId)}">
+  const actions = [it.returned < it.qty ? hold('return', 'Return', 'Hold to return one to the shop') : '', it.returned ? hold('unreturn', 'Undo return', 'Hold to undo a return') : ''];
+  const status = it.returned ? `${it.returned} returned` : 'Shipped';
+  return `<li class="ship-item is-shipped" data-truck-id="${escapeHtml(it.truckId)}">
     <span class="item-mark">${escapeHtml(it.mark)}</span>
     <span class="ship-item-seq">${it.sequence ? `Seq ${escapeHtml(it.sequence)}` : ''}</span>
     <span class="item-desc">${escapeHtml(it.description)}</span>
     <span class="ship-item-qty">${it.qty > 1 ? `&times;${it.qty}` : ''}</span>
     <span class="item-weight">${formatWeight(it.qty * it.weightEach)}</span>
-    <span class="ship-pill ${load.shipped ? 'shipped' : 'material'}">${escapeHtml(status)}</span>
+    <span class="ship-pill shipped">${escapeHtml(status)}</span>
     <span class="item-actions">${actions.join('')}</span>
   </li>`;
 }
 
-// Pieces on the load in PowerFab that aren't on the truck: put there in
-// PowerFab itself, by an older version of this app, or left behind when a
-// load step failed. Scanning one loads it; so does its Load button.
-function waitingSection(load) {
-  const waiting = load.items.filter((it) => it.loaded < it.qty);
-  if (load.shipped || !waiting.length) return '';
-  const n = waiting.reduce((sum, it) => sum + it.qty - it.loaded, 0);
-  return `<section class="stack waiting"><header class="stack-head"><span class="stack-name">On this load in PowerFab, not loaded</span>
-      <span class="stack-stats"><b>${n}</b> pcs. Scan them or tap Load.</span></header>
-    <ol class="items">${waiting.map((it) => itemRow(it, load)).join('')}</ol></section>`;
+// Pieces on the load in PowerFab that aren't on the truck (put there in
+// PowerFab itself, or by an older version of this app) aren't in any stack.
+// There is nothing to press: scanning one loads it into the active stack.
+function waitingNote(load) {
+  if (load.shipped) return '';
+  const n = load.items.reduce((sum, it) => sum + Math.max(0, it.qty - it.loaded), 0);
+  return n ? `<p class="ship-diff">${n} piece${n === 1 ? ' is' : 's are'} on this load in PowerFab but not loaded. Scan ${n === 1 ? 'it' : 'them'} to load into a stack.</p>` : '';
 }
 
 function returnsSection(load) {
@@ -353,7 +353,7 @@ function returnsSection(load) {
   if (!load.shipped || load.jobsite || !load.items.length) return '';
   return `<section class="stack"><header class="stack-head"><span class="stack-name">Returns</span>
       <span class="stack-stats">Hold Return to bring a piece back to the shop</span></header>
-    <ol class="items">${load.items.map((it) => itemRow(it, load)).join('')}</ol></section>`;
+    <ol class="items">${load.items.map(itemRow).join('')}</ol></section>`;
 }
 
 let syncedAt = null; // which load and read the stacks were last synced for
@@ -381,18 +381,20 @@ function renderLoad(load) {
         <p class="muted">${load.shipped ? `Shipped${load.shipDate ? ` ${escapeHtml(shortDate(load.shipDate))}` : ''} · ` : ''}${t.pieces} pcs · ${formatWeight(t.weight)}</p>
       </div>
       <div class="ship-actions">
+        <button class="btn${checking ? ' btn-primary' : ''}" type="button" data-action="truck-check">${checking ? 'Back to loading' : '&#10003; Truck check'}</button>
         ${load.shipped
           ? `<button class="btn btn-hold" type="button" data-hold="unship" data-hold-ms="${SHIP_HOLD_MS}">Hold to unship</button>`
           : `<button class="btn btn-hold btn-ship" type="button" data-hold="ship" data-hold-ms="${SHIP_HOLD_MS}"${t.pieces && t.loaded >= t.pieces ? '' : ' disabled'} title="Every piece has to be loaded first">Hold to ship</button>`}
         ${load.shipped || load.items.length ? '' : `<button class="btn btn-hold" type="button" data-hold="delete" data-hold-ms="${DELETE_HOLD_MS}">Hold 10 s to delete load</button>`}
       </div>
     </header>`;
-  return head + waitingSection(load) + renderStacks(state, { locked: load.shipped }) + returnsSection(load);
+  if (checking) return head + renderCheck(state);
+  return head + waitingNote(load) + renderStacks(state, { locked: load.shipped }) + returnsSection(load);
 }
 
 function renderWorkspace() {
   const ws = $('#workspace');
-  $('#colhead').hidden = !selectedLoad() || isMobile();
+  $('#colhead').hidden = !selectedLoad() || checking || isMobile();
   if (!ship.job) {
     ws.innerHTML = `<div class="empty"><h1>Pick a job first</h1>
       <p class="muted">Shipping shows the job’s PowerFab loads.</p>
@@ -422,14 +424,17 @@ function renderWorkspace() {
 function renderScanbar() {
   const load = selectedLoad();
   $('#scanbar').hidden = !load;
-  $('#colhead').hidden = !load || isMobile();
+  $('#colhead').hidden = !load || checking || isMobile();
   if (!load) return;
   $('#scanbar').classList.toggle('busy', ship.busy > 0);
+  $('#scanbar').classList.toggle('checking', checking);
   let stackName = '—';
   try { stackName = stacks.activeStack(stacks.get(load)).name; } catch { /* storage blocked */ }
-  $('#scan-label').textContent = ship.busy ? 'Sending to PowerFab…' : 'Scanning into';
-  $('#scan-stack').textContent = stackName;
+  $('#scan-label').textContent = ship.busy ? 'Sending to PowerFab…' : checking ? 'Truck check' : 'Scanning into';
+  $('#scan-stack').textContent = checking ? `Load ${load.number}` : stackName;
+  $('#btn-new-stack').hidden = checking;
   $('#btn-new-stack').disabled = load.shipped;
+  $('#btn-check-done').hidden = !checking;
 }
 
 export function render() {
@@ -531,13 +536,27 @@ function onHold(btn) {
       safely(() => stacks.clear(load));
       toast(`Load ${load.number} deleted`);
     }),
-    // Only the part not on the truck; the loaded part is in a stack.
-    remove: () => item && change(() => pf.removeMaterial(load.id, item, item.qty - item.loaded), { remaining: true })
-      .then((ok) => ok && toast(`${item.mark} taken off load ${load.number}`)),
     return: () => item && change(() => pf.returnMaterial(load.id, item), { remaining: true }).then((ok) => ok && toast(`${item.mark} returned`)),
     unreturn: () => item && change(() => pf.unreturnMaterial(load.id, item), { remaining: true }).then((ok) => ok && toast(`Return of ${item.mark} undone`)),
   };
   actions[btn.dataset.hold]?.();
+}
+
+// Switches between loading and the truck check.
+function setChecking(on) {
+  const load = selectedLoad();
+  if (on && !load) {
+    toast('Open a load first');
+    return;
+  }
+  checking = on;
+  if (on) {
+    try { stacks.startCheck(load); } catch (err) { toast(err.message, 5000); }
+  }
+  render();
+  $('#workspace').scrollTop = 0;
+  focusScanner();
+  toast(on ? `Truck check: scan every piece on load ${load.number}` : 'Back to loading');
 }
 
 export function canScan() {
@@ -557,17 +576,15 @@ function newStack() {
 export function initShipping() {
   const ws = $('#workspace');
   initStacks({ load: selectedLoad, render, toast, deleteEntry, deleteStack, detailRows });
+  initCheck({ load: selectedLoad, checking: () => checking, render, toast, exit: () => setChecking(false) });
   ws.addEventListener('click', (e) => {
     const action = e.target.closest('[data-action]')?.dataset.action;
     if (action === 'pick-job') openJobPicker();
     else if (action === 'new-load') showNewLoad();
     else if (action === 'refresh') refresh();
-    else if (action === 'load') {
-      const item = itemFor(e.target);
-      if (item) loadWaiting(item.truckId);
-    }
+    else if (action === 'truck-check') setChecking(!checking);
   });
-  const holdSelector = '[data-hold]:not([data-hold="item"]):not([data-hold="stack"])';
+  const holdSelector = '[data-hold]:not([data-hold="item"]):not([data-hold="stack"]):not([data-hold^="check-"])';
   bindHold(ws, {
     selector: holdSelector,
     onComplete: onHold,
@@ -595,6 +612,7 @@ export function initShipping() {
   $('#form-new-load').addEventListener('submit', submitNewLoad);
   $('#btn-new-load-cancel').addEventListener('click', () => $('#dlg-new-load').close());
   $('#btn-new-stack').addEventListener('click', newStack);
+  $('#btn-check-done').addEventListener('click', () => setChecking(false));
   onCurrentJobChange((job) => openJob(job));
 }
 

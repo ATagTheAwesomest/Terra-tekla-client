@@ -88,3 +88,32 @@ test('stacks work like terra-loads-web: new stack below the active one, moves cr
   assert.deepEqual(names(state), ['Stack 1 - 1']);
   assert.equal(stacks.activeStack(state), state.stacks[0]);
 });
+
+test('truck check: scans check pieces off in stack order; extras and over-counts are flagged', async () => {
+  const { checkStatus, checkSummary } = await import('../js/check.js');
+  mem.clear();
+  const l = load([]);
+  stacks.recordLoaded(l, item('A1', '1', 1), 'A1');
+  stacks.recordLoaded(l, item('A1', '1', 1), 'A1');
+  stacks.recordLoaded(l, item('B2', '1', 1), 'B2');
+  assert.equal(checkSummary(stacks.get(l)), null);
+  stacks.startCheck(l);
+  stacks.addCheck(l, 'a1');
+  stacks.addCheck(l, 'ZZ9');
+  let s = checkStatus(stacks.get(l));
+  assert.equal(s.checked, 1);
+  assert.equal(s.missing, 2);
+  assert.deepEqual(s.extras.map((x) => [x.scan.mark, x.reason]), [['ZZ9', 'not-on-load']]);
+  stacks.addCheck(l, 'A1');
+  stacks.addCheck(l, 'A1');
+  stacks.addCheck(l, 'B2');
+  s = checkStatus(stacks.get(l));
+  assert.deepEqual(s.extras.map((x) => [x.scan.mark, x.reason, x.of]), [['ZZ9', 'not-on-load', 0], ['A1', 'over', 2]]);
+  assert.equal(s.missing, 0);
+  for (const x of s.extras) stacks.removeCheck(l, x.scan.id);
+  s = checkStatus(stacks.get(l));
+  assert.equal(s.complete, true);
+  assert.equal(checkSummary(stacks.get(l)), 'Truck check done (3)');
+  stacks.resetCheck(l);
+  assert.equal(checkStatus(stacks.get(l)).checked, 0);
+});

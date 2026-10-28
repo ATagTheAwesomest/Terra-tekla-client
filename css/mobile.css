@@ -70,3 +70,23 @@ body.layout-mobile .statusbar { gap: 10px; font-size: 0.65rem; padding: 4px 8px;
   font-size: 0.8rem;
 }
 .menu-toggle[aria-pressed="true"] .toggle-state { border-color: var(--accent); background: var(--accent); color: var(--accent-text); }
+
+/* Truck check */
+body.layout-mobile .check-summary { grid-template-columns: 1fr; padding: 12px; gap: 8px; }
+body.layout-mobile .check-meta { justify-content: flex-start; font-size: 1rem; }
+body.layout-mobile .check-big { font-size: 1.8rem; }
+body.layout-mobile .check-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+body.layout-mobile .check-actions .btn { padding: 0 8px; }
+body.layout-mobile .check-actions .btn-hold { margin-left: 0; }
+body.layout-mobile .check-actions [data-action="check-exit"] { grid-column: 1 / -1; }
+body.layout-mobile .check-row {
+  grid-template-columns: 40px minmax(0, 1fr) auto var(--tap);
+  grid-template-areas: "tick mark time undo" "tick desc desc undo";
+  gap: 0 8px;
+  padding: 6px 8px;
+}
+body.layout-mobile .check-tick { grid-area: tick; }
+body.layout-mobile .check-mark { grid-area: mark; }
+body.layout-mobile .check-desc { grid-area: desc; font-size: 0.8rem; }
+body.layout-mobile .check-time { grid-area: time; font-size: 0.85rem; }
+body.layout-mobile .check-row > :last-child { grid-area: undo; }
