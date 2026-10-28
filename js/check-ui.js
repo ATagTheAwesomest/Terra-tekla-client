@@ -18,11 +18,13 @@ let missingOnly = false;
 
 // ---- Sound when the whole load is checked ------------------------------------
 // Safari only lets a page play sound after a tap or key press, so the audio
-// is unlocked on the first one (a barcode scanner's keys count).
+// is unlocked by the tap on Truck check (primeSound). It is not done on every
+// tap and key: starting or resuming audio during a tap on the installed iPad
+// app can stop the tapped text field from taking focus or typing.
 
 let audio = null;
 
-function unlockAudio() {
+export function primeSound() {
   try {
     audio ??= new (window.AudioContext || window.webkitAudioContext)();
     if (audio.state === 'suspended') audio.resume();
@@ -31,7 +33,7 @@ function unlockAudio() {
 
 // Three loud rising beeps, then a long high one.
 export function playComplete() {
-  unlockAudio();
+  primeSound();
   if (!audio) return;
   const t0 = audio.currentTime + 0.05;
   [[880, 0, 0.18], [1175, 0.22, 0.18], [1568, 0.44, 0.18], [2093, 0.7, 0.6]].forEach(([freq, at, len]) => {
@@ -203,8 +205,6 @@ function completeHold(btn) {
 //        render(), toast(msg, ms), exit() back to loading }
 export function initCheck(context) {
   ctx = context;
-  document.addEventListener('pointerdown', unlockAudio, { capture: true });
-  document.addEventListener('keydown', unlockAudio, { capture: true });
   const ws = document.getElementById('workspace');
   ws.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-action]');

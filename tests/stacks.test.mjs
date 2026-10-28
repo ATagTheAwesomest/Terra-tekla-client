@@ -144,3 +144,26 @@ test('stack rows count each mark across the load, and each stack lists its own s
   assert.deepEqual(state.stacks.flatMap((s) => s.items.map((e) => `${e.mark} ${c.get(e.id).n}/${c.get(e.id).of}`)), ['A1 1/2', 'A1 2/2', 'B2 1/1']);
   assert.deepEqual(stackSequences(state.stacks[1]), ['2', '10']);
 });
+
+test('a shipped load is view and truck check only', () => {
+  mem.clear();
+  const open = load([item('A1', '1', 1)]);
+  const state = stacks.sync(open);
+  const entryId = state.stacks[0].items[0].id;
+  stacks.addStack(open);
+  const shipped = { ...open, shipped: true };
+  for (const change of [
+    () => stacks.addStack(shipped),
+    () => stacks.rename(shipped, state.stacks[0].id, 'X'),
+    () => stacks.setActive(shipped, state.stacks[0].id),
+    () => stacks.moveEntry(shipped, entryId, 1),
+    () => stacks.moveEntryTo(shipped, entryId, state.stacks[0].id, 0),
+    () => stacks.removeEntry(shipped, entryId),
+    () => stacks.removeStack(shipped, state.stacks[0].id),
+    () => stacks.recordLoaded(shipped, item('B2', '1', 1), 'B2'),
+  ]) assert.throws(change, /view and truck check only/);
+  assert.equal(stacks.get(shipped).stacks.length, 2);
+  // Truck check still works.
+  stacks.startCheck(shipped);
+  assert.ok(stacks.addCheck(shipped, 'A1'));
+});

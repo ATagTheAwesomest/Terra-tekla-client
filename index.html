@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TERRA">
   <meta name="format-detection" content="telephone=no">
-  <meta name="terra-version" content="0.10.0">
+  <meta name="terra-version" content="0.11.0">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -159,7 +159,10 @@
       <h2>New load</h2>
       <p class="new-load-job"><span class="muted">Job</span> <b id="new-load-job"></b></p>
       <label for="input-load-number">Load number</label>
-      <input id="input-load-number" name="number" autocomplete="off" autocapitalize="characters" spellcheck="false" required maxlength="20">
+      <div class="server-key-row">
+        <input id="input-load-number" name="number" autocomplete="off" autocapitalize="characters" spellcheck="false" required maxlength="20">
+        <button class="btn" type="button" id="btn-new-load-keypad"><span class="icon" aria-hidden="true">&#9783;</span><span>Keypad</span></button>
+      </div>
       <p class="muted">Created in PowerFab straight away.</p>
       <p class="field-error" id="new-load-error" role="alert"></p>
       <div class="modal-actions">

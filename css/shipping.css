@@ -234,3 +234,8 @@ body.load-shipped .topbar { border-bottom-color: var(--accent); }
 .item-count { display: inline-block; margin-right: 6px; padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--text); font-variant-numeric: tabular-nums; }
 .item-count.job { border-color: var(--material); color: var(--material); }
 .stack-seqs { color: var(--text-muted); }
+
+/* Shipped load: view and truck check only */
+.ship-locked { margin: 0 0 12px; padding: 10px 14px; border: 2px solid var(--accent); border-radius: var(--radius); color: var(--accent); font-weight: 700; }
+.scanbar.view-only .scan-field { border-color: var(--accent); border-style: solid; }
+.scanbar.view-only .scan-stack { color: var(--text-muted); }

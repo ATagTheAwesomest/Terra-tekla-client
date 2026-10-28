@@ -27,6 +27,19 @@ export function partName(base, sequence) {
   return `${base}.${sequence}`;
 }
 
+// The number a new load defaults to: one past the highest plain load number
+// on the job. PowerFab's own suggestion follows its last load name, so once a
+// load is split it suggests "8.1012" (load 8 plus a sequence); only its base
+// counts here, and a "<base>.<seq>" name means load <base> is taken.
+export function nextLoadNumber(loads, suggested = '') {
+  const used = loads.map((l) => splitNumber(l.number).base);
+  const { base, seq } = splitNumber(suggested);
+  if (base) used.push(seq ? base : String(Number(base) - 1));
+  const ints = used.filter((n) => /^\d+$/.test(n)).map(Number);
+  if (ints.length) return String(Math.max(...ints) + 1);
+  return base && !seq ? base : '1';
+}
+
 // The app's ID for load <base> on a job. Stable while the load is split and
 // merged, so its stacks and truck check stay with it.
 export function groupId(pcid, base) {
