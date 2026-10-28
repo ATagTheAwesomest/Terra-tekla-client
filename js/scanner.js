@@ -192,7 +192,11 @@ export function initScanner(context) {
     if (!e.target.closest('button')) focusScanner();
   });
   // iOS only honours focus() inside a user gesture, so re-take focus at the
-  // end of every tap that didn't land on another text field.
+  // end of every tap that didn't land on another text field. The click
+  // handler runs inside the tap itself (after the tapped control's own
+  // handler), which the installed app needs; a focus() from a timer there is
+  // ignored. The pointerup one catches taps that never make a click.
+  document.addEventListener('click', focusScanner);
   document.addEventListener('pointerup', () => setTimeout(focusScanner, 0));
   document.addEventListener('close', () => setTimeout(focusScanner, 0), true);
   // Scans with nothing focused (see onLooseKey), and focus again after the app

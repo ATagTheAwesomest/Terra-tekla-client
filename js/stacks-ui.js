@@ -64,15 +64,15 @@ function renderItem(entry, i, locked, count) {
   const desc = [entry.sequence ? `Seq ${entry.sequence}` : '', entry.description].filter(Boolean).join(' · ');
   return `
     <li class="item${entry.manual ? ' flagged' : ''}${expanded.has(entry.id) ? ' expanded' : ''}" data-item-id="${escapeHtml(entry.id)}">
-      <span class="item-drag" data-drag aria-label="Drag to move" title="Drag to move">&#10303;</span>
+      ${locked ? '<span class="item-drag"></span>' : '<span class="item-drag" data-drag aria-label="Drag to move" title="Drag to move">&#10303;</span>'}
       <span class="item-index">${i + 1}</span>
       <span class="item-mark">${escapeHtml(entry.mark)}</span>
       <span class="item-desc">${countBadge(entry, count)}${escapeHtml(desc)}</span>
       <span class="item-weight">${formatWeight(entry.weight)}</span>
       <span class="item-actions">
-        <button class="btn btn-icon" type="button" data-action="up" aria-label="Move up">&#9650;</button>
+        ${locked ? '' : `<button class="btn btn-icon" type="button" data-action="up" aria-label="Move up">&#9650;</button>
         <button class="btn btn-icon" type="button" data-action="down" aria-label="Move down">&#9660;</button>
-        ${locked ? '' : `<button class="btn btn-icon btn-hold" type="button" data-hold="item" data-hold-ms="${ITEM_HOLD_MS}" aria-label="Hold to take off the load" title="Hold to take off the load">&#128465;</button>`}
+        <button class="btn btn-icon btn-hold" type="button" data-hold="item" data-hold-ms="${ITEM_HOLD_MS}" aria-label="Hold to take off the load" title="Hold to take off the load">&#128465;</button>`}
       </span>
       ${expanded.has(entry.id) ? renderDetail(entry) : ''}
     </li>`;
@@ -88,22 +88,23 @@ function renderStack(stack, state, locked, counts) {
       <header class="stack-head">
         <div class="stack-title">
           <span class="stack-name">${escapeHtml(stack.name)}</span>
-          <button class="btn btn-icon btn-ghost" type="button" data-action="rename" aria-label="Rename stack" title="Rename stack">&#9998;</button>
+          ${locked ? '' : '<button class="btn btn-icon btn-ghost" type="button" data-action="rename" aria-label="Rename stack" title="Rename stack">&#9998;</button>'}
         </div>
         <span class="stack-stats">${seqs.length ? `<span class="stack-seqs">${seqs.length} seq${seqs.length === 1 ? '' : 's'}: <b>${escapeHtml(seqs.join(', '))}</b></span> &middot; ` : ''}<b>${t.pieces}</b> pcs &middot; <b>${formatWeight(t.weight)}</b>${manual ? ` &middot; <span class="stack-flagged">${manual} typed</span>` : ''}</span>
-        ${active
+        ${locked ? '' : active
           ? '<span class="badge badge-active">Scanning here</span>'
           : '<button class="btn" type="button" data-action="activate">Scan here</button>'}
         ${locked ? '' : `<button class="btn btn-icon btn-hold" type="button" data-hold="stack" data-hold-ms="${STACK_HOLD_MS}" aria-label="Hold 4 seconds to delete stack" title="Hold 4 seconds to delete stack">&#128465;</button>`}
       </header>
       ${stack.items.length
         ? `<ol class="items">${stack.items.map((entry, i) => renderItem(entry, i, locked, counts.get(entry.id))).join('')}</ol>`
-        : '<p class="stack-empty">No pieces yet. Scan, or drag pieces here.</p>'}
+        : `<p class="stack-empty">${locked ? 'No pieces.' : 'No pieces yet. Scan, or drag pieces here.'}</p>`}
     </section>`;
 }
 
-// Every stack of the load. `locked` (a shipped load) hides the delete holds,
-// since PowerFab won't change a shipped load.
+// Every stack of the load. `locked` (a shipped load) leaves only viewing: no
+// drag, move, rename, scan-here or delete. js/stack-store.js refuses those
+// changes on a shipped load too.
 export function renderStacks(state, { locked = false } = {}) {
   const counts = pieceCounts(state);
   return state.stacks.map((stack) => renderStack(stack, state, locked, counts)).join('');
@@ -113,6 +114,7 @@ export function renderStacks(state, { locked = false } = {}) {
 
 function startRename(stackEl) {
   const load = ctx.load();
+  if (load?.shipped) return;
   const stack = load && stacks.get(load).stacks.find((s) => s.id === stackEl.dataset.stackId);
   const nameEl = stackEl.querySelector('.stack-name');
   if (!stack || !nameEl) return;
@@ -192,6 +194,7 @@ function dropTargetAt(x, y) {
 }
 
 function startDrag(handle, e) {
+  if (ctx.load()?.shipped) return;
   const row = handle.closest('[data-item-id]');
   if (!row) return;
   e.preventDefault();
@@ -264,6 +267,8 @@ export function initStacks(context) {
       return;
     }
     const itemId = btn.closest('[data-item-id]')?.dataset.itemId;
+    // Shipped: view only (the store refuses these too).
+    if (load.shipped && ['up', 'down', 'activate', 'rename'].includes(btn.dataset.action)) return;
     switch (btn.dataset.action) {
       case 'up':
       case 'down':

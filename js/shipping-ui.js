@@ -28,13 +28,13 @@ import { escapeHtml, toast } from './app.js';
 import { getConfig } from './api.js';
 import { getCurrentJob, onCurrentJobChange, openJobPicker } from './current-job.js';
 import { checkSummary } from './check.js';
-import { initCheck, renderCheck, submitCheck } from './check-ui.js';
+import { initCheck, primeSound, renderCheck, submitCheck } from './check-ui.js';
 import { bindHold } from './hold.js';
 import { isMobile } from './mobile.js';
 import { jobKey } from './parts.js';
-import { findGroup, groupId, groupLoads, splitNote, targetFor, tidyPlan } from './load-groups.js';
+import { findGroup, groupId, groupLoads, nextLoadNumber, splitNote, targetFor, tidyPlan } from './load-groups.js';
 import * as pf from './pf-loads.js';
-import { flashFeedback, focusScanner } from './scanner.js';
+import { flashFeedback, focusScanner, openKeypad } from './scanner.js';
 import * as stacks from './stack-store.js';
 import { initStacks, renderStacks } from './stacks-ui.js';
 import { claimsText, cleanMark, formatWeight, lastLoaded, loadSequences, loadTotals, pickRemaining, takeRemaining, toLoad } from './shipping.js';
@@ -199,6 +199,14 @@ export function scan(raw, { manual = false } = {}) {
   if (checking) return submitCheck(raw, { manual });
   const mark = cleanMark(raw);
   if (!mark) return null;
+  // A shipped load is view and truck check only: refuse straight away,
+  // without a PowerFab write.
+  const open = selectedLoad();
+  if (open?.shipped) {
+    flashFeedback('bad');
+    showBlock({ title: 'Load already shipped', mark, message: `Load ${open.number} has shipped, so it is view and truck check only. Tap Truck check to check pieces off, or hold to unship to change it.` });
+    return null;
+  }
   const jobThen = ship.job;
   return change(async () => {
     const load = openLoadFor(jobThen, mark);
@@ -452,7 +460,10 @@ function renderLoad(load) {
       </div>
     </header>`;
   if (checking) return head + renderCheck(state);
-  return head + waitingNote(load) + renderStacks(state, { locked: load.shipped }) + returnsSection(load);
+  const locked = load.shipped
+    ? '<p class="ship-locked">Shipped: view and truck check only. Pieces and stacks can’t be scanned on, moved, renamed or taken off. Hold to unship to change this load.</p>'
+    : '';
+  return head + locked + waitingNote(load) + renderStacks(state, { locked: load.shipped }) + returnsSection(load);
 }
 
 function renderWorkspace() {
@@ -486,17 +497,22 @@ function renderWorkspace() {
 
 function renderScanbar() {
   const load = selectedLoad();
+  const appearing = Boolean(load) && $('#scanbar').hidden;
   $('#scanbar').hidden = !load;
   $('#colhead').hidden = !load || checking || isMobile();
   if (!load) return;
+  // The scan bar shows once the job's loads are read, after the tap that
+  // opened Shipping: take focus now, as terra-loads-web does when a load opens.
+  if (appearing) setTimeout(focusScanner, 0);
   $('#scanbar').classList.toggle('busy', ship.busy > 0);
   $('#scanbar').classList.toggle('checking', checking);
   let stackName = '—';
   try { stackName = stacks.activeStack(stacks.get(load)).name; } catch { /* storage blocked */ }
-  $('#scan-label').textContent = ship.busy ? 'Sending to PowerFab…' : checking ? 'Truck check' : 'Scanning into';
-  $('#scan-stack').textContent = checking ? `Load ${load.number}` : stackName;
-  $('#btn-new-stack').hidden = checking;
-  $('#btn-new-stack').disabled = load.shipped;
+  const viewOnly = load.shipped && !checking;
+  $('#scanbar').classList.toggle('view-only', viewOnly);
+  $('#scan-label').textContent = ship.busy ? 'Sending to PowerFab…' : checking ? 'Truck check' : viewOnly ? 'Shipped, view only' : 'Scanning into';
+  $('#scan-stack').textContent = checking ? `Load ${load.number}` : viewOnly ? 'Tap Truck check to scan' : stackName;
+  $('#btn-new-stack').hidden = checking || load.shipped;
   $('#btn-check-done').hidden = !checking;
 }
 
@@ -537,7 +553,7 @@ async function showNewLoad() {
   try {
     const opts = await pf.readNewLoadOptions(ship.pcid);
     newLoadOptions = opts;
-    if (!input.value) input.value = opts.nextNumber;
+    if (!input.value) input.value = nextLoadNumber(ship.loads, opts.nextNumber);
   } catch (err) {
     $('#new-load-error').textContent = err.message;
   }
@@ -624,6 +640,7 @@ function setChecking(on) {
   }
   checking = on;
   if (on) {
+    primeSound();
     try { stacks.startCheck(load); } catch (err) { toast(err.message, 5000); }
   }
   render();
@@ -684,6 +701,13 @@ export function initShipping() {
   $('#btn-new-load').addEventListener('click', showNewLoad);
   $('#form-new-load').addEventListener('submit', submitNewLoad);
   $('#btn-new-load-cancel').addEventListener('click', () => $('#dlg-new-load').close());
+  // The on-screen keypad types the number when the iPad's own keyboard won't
+  // come up (a paired barcode scanner counts as a hardware keyboard).
+  $('#btn-new-load-keypad').addEventListener('click', async () => {
+    const input = $('#input-load-number');
+    const value = await openKeypad({ mode: 'mark', title: 'Load number', okLabel: 'Use', initial: input.value, note: 'Just the load number, like 9. Sequences are added in PowerFab on their own.' });
+    if (value) input.value = value.trim().toUpperCase();
+  });
   $('#btn-new-stack').addEventListener('click', newStack);
   $('#btn-check-done').addEventListener('click', () => setChecking(false));
   onCurrentJobChange((job) => openJob(job));

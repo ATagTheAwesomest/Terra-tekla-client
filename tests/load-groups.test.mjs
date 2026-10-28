@@ -1,7 +1,7 @@
 // Run with: node --test tests/*.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findGroup, groupLoads, partSequence, splitNote, splitNumber, targetFor, tidyPlan } from '../js/load-groups.js';
+import { findGroup, groupLoads, nextLoadNumber, partSequence, splitNote, splitNumber, targetFor, tidyPlan } from '../js/load-groups.js';
 
 const item = (sequence, qty = 1) => ({ truckId: `t${sequence}${Math.random()}`, mark: 'A1', sequence, qty, loaded: qty, returned: 0, weightEach: 10, items: [] });
 const pfLoad = (id, number, seqs = [], shipped = false) => ({ id, number, shipped, shipDate: '', jobsite: true, items: seqs.map((s) => item(s)) });
@@ -135,4 +135,13 @@ test('a leftover empty part is used or deleted, never left behind', () => {
     { op: 'delete', loadId: '2', number: '8.1011' },
     { op: 'rename', loadId: '1', from: '8.1010', to: '8' },
   ]);
+});
+
+test('a new load defaults to the next plain number, never a load plus a sequence', () => {
+  const loads = groupLoads([pfLoad('1', '7'), pfLoad('2', '8.1010', ['1010']), pfLoad('3', '8.1011', ['1011'])], 'PC');
+  assert.equal(nextLoadNumber(loads, '8.1012'), '9');
+  assert.equal(nextLoadNumber(loads, '12'), '12');
+  assert.equal(nextLoadNumber([], '3'), '3');
+  assert.equal(nextLoadNumber([], '5.1010'), '6');
+  assert.equal(nextLoadNumber([], ''), '1');
 });

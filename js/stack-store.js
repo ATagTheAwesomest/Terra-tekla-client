@@ -124,6 +124,17 @@ export function sync(load) {
   return state;
 }
 
+// A shipped load is view and truck check only: its stacks can't be added to,
+// moved, renamed or deleted from. Truck check and sync() still work on it.
+export function assertEditable(load) {
+  if (load?.shipped) throw new Error(`Load ${load.number} has shipped. It is view and truck check only. Hold to unship to change it.`);
+}
+
+function edit(load, updateFn) {
+  assertEditable(load);
+  return update(load, updateFn);
+}
+
 function update(load, updateFn) {
   const all = readAll();
   const state = normalizeState(stored(all, load), load);
@@ -158,7 +169,7 @@ function nextStackName(state, load) {
 
 // Inserts a new empty stack directly below the active one and makes it active.
 export function addStack(load) {
-  return update(load, (state) => {
+  return edit(load, (state) => {
     const stack = { id: newId(), name: nextStackName(state, load), items: [] };
     state.stacks.splice(state.stacks.indexOf(activeStack(state)) + 1, 0, stack);
     state.activeStackId = stack.id;
@@ -166,16 +177,17 @@ export function addStack(load) {
 }
 
 export function setActive(load, stackId) {
-  return update(load, (state) => {
+  return edit(load, (state) => {
     if (state.stacks.some((stack) => stack.id === stackId)) state.activeStackId = stackId;
   });
 }
 
 // A blank name keeps the current one.
 export function rename(load, stackId, name) {
+  assertEditable(load);
   const clean = String(name ?? '').trim().replace(/\s+/g, ' ');
   if (!clean) return get(load);
-  return update(load, (state) => {
+  return edit(load, (state) => {
     const stack = state.stacks.find((entry) => entry.id === stackId);
     if (stack) stack.name = clean;
   });
@@ -185,7 +197,7 @@ export function rename(load, stackId, name) {
 // A load always keeps one stack, so removing the only one leaves a fresh empty
 // one in its place.
 export function removeStack(load, stackId) {
-  return update(load, (state) => {
+  return edit(load, (state) => {
     const index = state.stacks.findIndex((stack) => stack.id === stackId);
     if (index < 0) return;
     state.stacks.splice(index, 1);
@@ -201,7 +213,7 @@ export function removeStack(load, stackId) {
 // of the stack above, down from the bottom lands at the top of the one below.
 // Returns true when it moved.
 export function moveEntry(load, entryId, dir) {
-  return update(load, (state) => {
+  return edit(load, (state) => {
     const hit = findEntry(state, entryId);
     if (!hit) return false;
     const { stack, stackIndex, index, entry } = hit;
@@ -223,7 +235,7 @@ export function moveEntry(load, entryId, dir) {
 // Moves an entry so it sits at position `index` of the target stack, where
 // index counts rows as they are shown before the move (drop-before semantics).
 export function moveEntryTo(load, entryId, stackId, index) {
-  return update(load, (state) => {
+  return edit(load, (state) => {
     const hit = findEntry(state, entryId);
     const target = state.stacks.find((stack) => stack.id === stackId);
     if (!hit || !target) return false;
@@ -238,7 +250,7 @@ export function moveEntryTo(load, entryId, stackId, index) {
 
 // Takes one entry off its stack, after PowerFab has taken the piece off.
 export function removeEntry(load, entryId) {
-  return update(load, (state) => {
+  return edit(load, (state) => {
     const hit = findEntry(state, entryId);
     if (!hit) return null;
     hit.stack.items.splice(hit.index, 1);
@@ -248,7 +260,7 @@ export function removeEntry(load, entryId) {
 
 // Adds a piece PowerFab just loaded to the bottom of the active stack.
 export function recordLoaded(load, item, mark, { manual = false } = {}) {
-  return update(load, (state) => {
+  return edit(load, (state) => {
     const entry = {
       id: newId(),
       mark,
