@@ -1,5 +1,6 @@
 // Local-only stack tracking for live PowerFab loads. Stack data is keyed by
-// load ID and is intentionally never included in API requests.
+// the app's load ID (js/load-groups.js groupId, which stays the same while
+// PowerFab splits the load by sequence) and is never included in API requests.
 
 import { addCheckScan, emptyCheck, removeCheckScan } from './check.js';
 
@@ -32,6 +33,14 @@ function defaultState(load) {
   return { loadId: load.id, loadNumber: load.number, activeStackId: stack.id, stacks: [stack] };
 }
 
+// The load's saved state. Stacks saved before loads were grouped are kept
+// under the PowerFab load's own ID; they are picked up from there once.
+function stored(all, load) {
+  if (all[load.id]) return all[load.id];
+  const old = (load.parts ?? []).map((p) => all[p.id]).find(Boolean);
+  return old ? { ...old, loadId: load.id } : undefined;
+}
+
 function normalizeState(state, load) {
   if (!state || state.loadId !== load.id || !Array.isArray(state.stacks)) return defaultState(load);
   const stacks = state.stacks.filter((stack) => stack && stack.id && Array.isArray(stack.items));
@@ -47,7 +56,7 @@ function normalizeState(state, load) {
 
 export function get(load) {
   const all = readAll();
-  const current = normalizeState(all[load.id], load);
+  const current = normalizeState(stored(all, load), load);
   if (!all[load.id]) {
     all[load.id] = current;
     writeAll(all);
@@ -64,7 +73,7 @@ const keyOf = (mark, sequence) => `${mark}|${sequence ?? ''}`;
 // the pieces themselves are always the server's. Writes only when it changed.
 export function sync(load) {
   const all = readAll();
-  const state = normalizeState(all[load.id], load);
+  const state = normalizeState(stored(all, load), load);
   let changed = !all[load.id];
 
   const want = new Map();
@@ -117,7 +126,7 @@ export function sync(load) {
 
 function update(load, updateFn) {
   const all = readAll();
-  const state = normalizeState(all[load.id], load);
+  const state = normalizeState(stored(all, load), load);
   const result = updateFn(state);
   all[load.id] = state;
   writeAll(all);
@@ -284,5 +293,6 @@ export function removeCheck(load, scanId) {
 export function clear(load) {
   const all = readAll();
   delete all[load.id];
+  for (const p of load.parts ?? []) delete all[p.id];
   writeAll(all);
 }

@@ -117,3 +117,16 @@ test('truck check: scans check pieces off in stack order; extras and over-counts
   stacks.resetCheck(l);
   assert.equal(checkStatus(stacks.get(l)).checked, 0);
 });
+
+test('stacks saved under a PowerFab load ID carry over to the grouped load, and stay through a split', () => {
+  mem.clear();
+  const pfOnly = { id: 'PF1', number: '8', items: [] };
+  stacks.rename(pfOnly, stacks.get(pfOnly).stacks[0].id, 'Front of truck');
+  const grouped = { id: 'load:PC:8', number: '8', parts: [{ id: 'PF1', number: '8' }], items: [] };
+  assert.equal(stacks.get(grouped).stacks[0].name, 'Front of truck');
+  // Split in PowerFab: new part IDs, same app load.
+  const split = { ...grouped, parts: [{ id: 'PF1', number: '8.1010' }, { id: 'PF2', number: '8.1011' }] };
+  assert.equal(stacks.get(split).stacks[0].name, 'Front of truck');
+  stacks.clear(split);
+  assert.equal(stacks.get(pfOnly).stacks[0].name, 'Stack 8 - 1');
+});

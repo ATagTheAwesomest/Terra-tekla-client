@@ -30,6 +30,7 @@ const PRECACHE = [
   './js/mobile.js',
   './js/parts.js',
   './js/pf-loads.js',
+  './js/load-groups.js',
   './js/scanner.js',
   './js/server-ui.js',
   './js/stack-store.js',
