@@ -308,6 +308,17 @@ function renderLoadList() {
     : '';
 }
 
+// How many of `mark` the job has, all sequences: PowerFab's total for each
+// sequence that still has pieces left, else what is on loads (all of it is).
+function jobTotal(mark) {
+  const bySeq = new Map();
+  for (const l of ship.loads) {
+    for (const it of l.items) if (it.mark === mark) bySeq.set(it.sequence, (bySeq.get(it.sequence) ?? 0) + it.qty);
+  }
+  for (const r of ship.remaining) if (r.mark === mark && r.total) bySeq.set(r.sequence, r.total);
+  return [...bySeq.values()].reduce((n, q) => n + q, 0);
+}
+
 // PowerFab's counts for the piece a stack row stands for, shown in its details.
 function detailRows(entry) {
   const same = ship.loads.flatMap((l) => l.items.map((it) => ({ it, l })))
@@ -575,7 +586,7 @@ function newStack() {
 
 export function initShipping() {
   const ws = $('#workspace');
-  initStacks({ load: selectedLoad, render, toast, deleteEntry, deleteStack, detailRows });
+  initStacks({ load: selectedLoad, render, toast, deleteEntry, deleteStack, detailRows, jobTotal });
   initCheck({ load: selectedLoad, checking: () => checking, render, toast, exit: () => setChecking(false) });
   ws.addEventListener('click', (e) => {
     const action = e.target.closest('[data-action]')?.dataset.action;

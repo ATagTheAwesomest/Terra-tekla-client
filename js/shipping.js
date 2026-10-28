@@ -79,6 +79,29 @@ export function loadTotals(load) {
   };
 }
 
+// Running count of each mark across the load, in stack then row order, against
+// how many of that mark are on the load: Map(entryId -> { n, of }).
+export function pieceCounts(state) {
+  const totals = new Map();
+  for (const stack of state.stacks) for (const e of stack.items) totals.set(e.mark, (totals.get(e.mark) ?? 0) + 1);
+  const seen = new Map();
+  const counts = new Map();
+  for (const stack of state.stacks) {
+    for (const e of stack.items) {
+      const n = (seen.get(e.mark) ?? 0) + 1;
+      seen.set(e.mark, n);
+      counts.set(e.id, { n, of: totals.get(e.mark) });
+    }
+  }
+  return counts;
+}
+
+// Sequences in one stack, sorted the way PowerFab numbers them.
+export function stackSequences(stack) {
+  return [...new Set(stack.items.map((e) => e.sequence).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+}
+
 export function formatWeight(lbs) {
   return `${Math.round(lbs).toLocaleString('en-US')} lbs`;
 }

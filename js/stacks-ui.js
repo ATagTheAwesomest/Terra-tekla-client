@@ -11,7 +11,7 @@
 import { escapeHtml } from './app.js';
 import { bindHold } from './hold.js';
 import { focusScanner } from './scanner.js';
-import { formatWeight, stackTotals } from './shipping.js';
+import { formatWeight, pieceCounts, stackSequences, stackTotals } from './shipping.js';
 import * as stacks from './stack-store.js';
 
 export const ITEM_HOLD_MS = 1500;
@@ -53,14 +53,21 @@ function renderDetail(entry) {
     .map(([k, v]) => `<div><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd></div>`).join('')}</dl>`;
 }
 
-function renderItem(entry, i, locked) {
+// "2 of 3" on this load, then in blue how many of the mark the job has.
+function countBadge(entry, count) {
+  if (!count) return '';
+  const job = ctx.jobTotal?.(entry.mark);
+  return `<span class="item-count" title="Piece ${count.n} of ${count.of} of this mark on the load">${count.n} of ${count.of}</span>${job ? `<span class="item-count job" title="${job} of this mark on the job">${job} on job</span>` : ''} `;
+}
+
+function renderItem(entry, i, locked, count) {
   const desc = [entry.sequence ? `Seq ${entry.sequence}` : '', entry.description].filter(Boolean).join(' · ');
   return `
     <li class="item${entry.manual ? ' flagged' : ''}${expanded.has(entry.id) ? ' expanded' : ''}" data-item-id="${escapeHtml(entry.id)}">
       <span class="item-drag" data-drag aria-label="Drag to move" title="Drag to move">&#10303;</span>
       <span class="item-index">${i + 1}</span>
       <span class="item-mark">${escapeHtml(entry.mark)}</span>
-      <span class="item-desc">${escapeHtml(desc)}</span>
+      <span class="item-desc">${countBadge(entry, count)}${escapeHtml(desc)}</span>
       <span class="item-weight">${formatWeight(entry.weight)}</span>
       <span class="item-actions">
         <button class="btn btn-icon" type="button" data-action="up" aria-label="Move up">&#9650;</button>
@@ -71,8 +78,9 @@ function renderItem(entry, i, locked) {
     </li>`;
 }
 
-function renderStack(stack, state, locked) {
+function renderStack(stack, state, locked, counts) {
   const t = stackTotals(stack);
+  const seqs = stackSequences(stack);
   const manual = stack.items.filter((entry) => entry.manual).length;
   const active = stacks.activeStack(state) === stack;
   return `
@@ -82,14 +90,14 @@ function renderStack(stack, state, locked) {
           <span class="stack-name">${escapeHtml(stack.name)}</span>
           <button class="btn btn-icon btn-ghost" type="button" data-action="rename" aria-label="Rename stack" title="Rename stack">&#9998;</button>
         </div>
-        <span class="stack-stats"><b>${t.pieces}</b> pcs &middot; <b>${formatWeight(t.weight)}</b>${manual ? ` &middot; <span class="stack-flagged">${manual} typed</span>` : ''}</span>
+        <span class="stack-stats">${seqs.length ? `<span class="stack-seqs">${seqs.length} seq${seqs.length === 1 ? '' : 's'}: <b>${escapeHtml(seqs.join(', '))}</b></span> &middot; ` : ''}<b>${t.pieces}</b> pcs &middot; <b>${formatWeight(t.weight)}</b>${manual ? ` &middot; <span class="stack-flagged">${manual} typed</span>` : ''}</span>
         ${active
           ? '<span class="badge badge-active">Scanning here</span>'
           : '<button class="btn" type="button" data-action="activate">Scan here</button>'}
         ${locked ? '' : `<button class="btn btn-icon btn-hold" type="button" data-hold="stack" data-hold-ms="${STACK_HOLD_MS}" aria-label="Hold 4 seconds to delete stack" title="Hold 4 seconds to delete stack">&#128465;</button>`}
       </header>
       ${stack.items.length
-        ? `<ol class="items">${stack.items.map((entry, i) => renderItem(entry, i, locked)).join('')}</ol>`
+        ? `<ol class="items">${stack.items.map((entry, i) => renderItem(entry, i, locked, counts.get(entry.id))).join('')}</ol>`
         : '<p class="stack-empty">No pieces yet. Scan, or drag pieces here.</p>'}
     </section>`;
 }
@@ -97,7 +105,8 @@ function renderStack(stack, state, locked) {
 // Every stack of the load. `locked` (a shipped load) hides the delete holds,
 // since PowerFab won't change a shipped load.
 export function renderStacks(state, { locked = false } = {}) {
-  return state.stacks.map((stack) => renderStack(stack, state, locked)).join('');
+  const counts = pieceCounts(state);
+  return state.stacks.map((stack) => renderStack(stack, state, locked, counts)).join('');
 }
 
 // ---- Rename --------------------------------------------------------------
@@ -233,7 +242,8 @@ function endDrag(e, commit = true) {
 // ---- Wiring --------------------------------------------------------------
 
 // ctx: { load() the open PowerFab load, render(), toast(msg, ms),
-//        deleteEntry(entryId), deleteStack(stackId), detailRows?(entry) }
+//        deleteEntry(entryId), deleteStack(stackId), detailRows?(entry),
+//        jobTotal?(mark) how many of the mark the job has }
 export function initStacks(context) {
   ctx = context;
   const ws = document.getElementById('workspace');

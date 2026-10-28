@@ -229,3 +229,8 @@ body.load-shipped .topbar { border-bottom-color: var(--accent); }
   .ship-item .item-actions { grid-area: actions; }
   .ship-item-qty { display: none; }
 }
+
+/* "n of m" on the load, then the job's total of the mark in blue */
+.item-count { display: inline-block; margin-right: 6px; padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--text); font-variant-numeric: tabular-nums; }
+.item-count.job { border-color: var(--material); color: var(--material); }
+.stack-seqs { color: var(--text-muted); }

@@ -74,7 +74,10 @@ The load's pieces are shown in stacks, exactly as in terra-loads-web:
 - the bin on a row (hold 1.5 s) takes that piece off the truck and off the
   load in PowerFab; the bin on a stack (hold 4 s) deletes the stack and takes
   all its pieces off the load. A load always keeps one stack.
-- pieces typed on the keypad are orange.
+- pieces typed on the keypad are orange;
+- each row shows "n of m" (which of this mark's pieces on the load it is) and,
+  in blue, how many of the mark the job has; each stack's header lists its own
+  sequences.
 
 Stacks are only kept on this iPad; moving pieces between stacks or renaming
 one never touches PowerFab. There are no separate assign, load or unload
@@ -89,7 +92,9 @@ are counted in a note above the stacks; scanning one loads it.
 checklist and each scan ticks off one piece of that mark, in stack order. A
 scan not on the load, or one more than the load has, is listed red as an
 extra. **Show missing only**, hold to undo a check (1.5 s) or **Start over**
-(4 s), and **Done checking** goes back to loading. The check is kept with the
+(4 s), and **Done checking** goes back to loading. When every piece is
+checked with no extras, the iPad plays a loud beep (sound needs the iPad's
+volume up and silent mode off). The check is kept with the
 stacks on this iPad and never changes PowerFab; the Loads window shows how far
 each load's check got.
 
