@@ -169,6 +169,29 @@ line per piece, never collapsed, as terra-loads-web writes them. Pieces on the
 load but not loaded follow under `{NOT LOADED}`. **Print shipping ticket**
 prints the load stack by stack with each stack's pieces and weight.
 
+### Photos
+
+Off until **Server settings → Send photos to the server** is turned on (per
+device, `terra.photos`). Then each load gets a **📷 Photos** button, each stack
+header a 📷 button, and each piece's details a **Photo of this piece** button.
+The Photos window takes a photo with the camera or picks some from the
+library, for the whole load, a stack or a piece ("Photo of"), and lists what
+the server already has for the load.
+
+Photos go to the server's files routes (`POST /api/files/<job>/<load>`, with
+the stack name or piece mark as `mark`), which save them in a folder for the
+job, then one per load: see tekla-conversion-layer `docs/FILES.md` (also
+served at `GET /api/files/help`) for the server side, its `FILES_*` settings
+and the regex rules that pick a job's folder. The server has to have
+`FILES_ENABLED` on too; the switch's note says whether it does.
+
+Each photo is shrunk to a JPEG of at most 2048 px and kept on the iPad
+(IndexedDB `terra-photos`) until the server has it, so going offline loses
+nothing: the button shows "n to send", and they are sent when the iPad is back
+online (and every two minutes while any wait). One the server refuses (too
+big, bad name) stays with the reason, to send again or hold to discard.
+Code: `js/photos.js` (queue, sending), `js/photos-ui.js` (window, switch).
+
 ## Piece lookup
 
 **Piece lookup** (home tile, or the menu inside Shipping) answers "what is
@@ -231,7 +254,8 @@ python3 -m http.server 8000
 
 The server address and key (`terra.api`), the current job (`terra.currentJob`),
 the phone layout (`terra.layout`), recent lookups (`terra.lookup.recent`) and
-the stacks (`terra.local-stacks.v1`) are kept on this iPad. The stacks only
+the stacks (`terra.local-stacks.v1`) are kept on this iPad, as are the photos
+switch (`terra.photos`) and photos not sent yet (IndexedDB `terra-photos`). The stacks only
 keep how loaded pieces are grouped (names, order, scan times, which were typed
 on the keypad); the pieces themselves are always PowerFab's. Every time the loads are read, the stacks are brought in line with
 what PowerFab has loaded on the load: a piece loaded elsewhere is added to the

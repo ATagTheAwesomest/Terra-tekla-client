@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="css/check.css">
   <link rel="stylesheet" href="css/mobile.css">
   <link rel="stylesheet" href="css/lookup.css">
+  <link rel="stylesheet" href="css/photos.css">
   <link rel="stylesheet" href="css/print.css">
   <script src="js/error-banner.js"></script>
   <script src="version.js"></script>
@@ -191,12 +192,44 @@
       <video id="server-video" playsinline muted hidden></video>
       <div id="server-qr" class="server-qr" hidden></div>
       <p class="server-result" id="server-result" role="status"></p>
+      <button class="btn btn-block menu-toggle photos-toggle" id="btn-photos-toggle" type="button" aria-pressed="false">
+        <span class="icon" aria-hidden="true">&#128247;</span><span>Send photos to the server</span><span class="toggle-state" id="photos-toggle-state">Off</span>
+      </button>
+      <p class="muted photos-setting-note" id="photos-setting-note"></p>
       <div class="modal-actions server-actions">
         <button class="btn" type="button" id="btn-server-camera">Scan QR with camera</button>
         <button class="btn" type="button" id="btn-server-qr">Show setup QR</button>
         <button class="btn btn-primary" type="submit">Save &amp; test</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog class="modal photos" id="dlg-photos">
+    <div class="server-head">
+      <div>
+        <h2 id="photos-title">Photos</h2>
+        <p class="muted photos-job" id="photos-job"></p>
+      </div>
+      <button class="btn btn-ghost" type="button" id="btn-photos-close" aria-label="Close">&times;</button>
+    </div>
+    <label for="photos-of">Photo of</label>
+    <select id="photos-of" class="photos-of"></select>
+    <div class="photos-take">
+      <label class="btn btn-lg btn-primary photos-pick">&#128247; Take photo
+        <input id="photos-camera" type="file" accept="image/*" capture="environment" class="photos-input">
+      </label>
+      <label class="btn btn-lg photos-pick">&#128444; From library
+        <input id="photos-library" type="file" accept="image/*" multiple class="photos-input">
+      </label>
+    </div>
+    <p class="photos-status" id="photos-status" role="status"></p>
+    <h3 id="photos-waiting-head" hidden>Waiting on this iPad</h3>
+    <ul class="photo-grid" id="photos-waiting"></ul>
+    <div class="photos-server-head">
+      <h3 id="photos-server-head">On the server</h3>
+      <button class="btn" type="button" id="btn-photos-refresh" aria-label="Send and read again">&#8635;</button>
+    </div>
+    <ul class="photo-list" id="photos-server"></ul>
   </dialog>
 
   <dialog class="modal ship-block" id="dlg-ship-block">
