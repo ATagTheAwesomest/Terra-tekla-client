@@ -12,6 +12,7 @@
 //
 // Writes, each by ProductionControlLoadID:
 //   ProductionControlLoad_Insert / _Delete            create / delete a load
+//   ProductionControlLoad_Update                      rename a load
 //   ProductionControlLoadMaterial_Add / _Remove       assign material / take it off
 //   ProductionControlLoadMaterial_Load / _Unload      put it on the truck / take it off
 //   ProductionControlLoad_Ship / _Unship              ship the load / undo
@@ -151,6 +152,12 @@ export async function createLoad(pcid, { number, capacity }) {
 
 export function deleteLoad(loadId) {
   return powerfab('ProductionControlLoad_Delete', { ProductionControlLoadID: Number(loadId) });
+}
+
+// Renames a load. Only LoadNumber is sent; the rest of the load is left as it
+// is (not yet checked on the live server that PowerFab keeps fields left out).
+export function renameLoad(loadId, number) {
+  return powerfab('ProductionControlLoad_Update', { ProductionControlLoadID: Number(loadId), LoadNumber: String(number) });
 }
 
 // Assigns `qty` of one remaining row (piece + sequence) to a load.

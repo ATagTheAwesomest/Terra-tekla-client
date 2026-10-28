@@ -17,6 +17,12 @@
 // are never sent to PowerFab.
 //
 // Scans run one at a time in order, so a fast scanner can't race two writes.
+//
+// A load here can be several PowerFab loads: PowerFab keeps one load per
+// sequence ("8.1010", "8.1011") while the app shows and truck checks them as
+// one "Load 8" (js/load-groups.js). Writes go to the PowerFab load a piece is
+// on, and after each scan or removal the PowerFab loads are split, merged and
+// renamed to match the sequences on the truck.
 
 import { escapeHtml, toast } from './app.js';
 import { getConfig } from './api.js';
@@ -26,11 +32,12 @@ import { initCheck, renderCheck, submitCheck } from './check-ui.js';
 import { bindHold } from './hold.js';
 import { isMobile } from './mobile.js';
 import { jobKey } from './parts.js';
+import { findGroup, groupId, groupLoads, splitNote, targetFor, tidyPlan } from './load-groups.js';
 import * as pf from './pf-loads.js';
 import { flashFeedback, focusScanner } from './scanner.js';
 import * as stacks from './stack-store.js';
 import { initStacks, renderStacks } from './stacks-ui.js';
-import { claimsText, cleanMark, findLoad, formatWeight, lastLoaded, loadSequences, loadTotals, pickRemaining, takeRemaining, toLoad } from './shipping.js';
+import { claimsText, cleanMark, formatWeight, lastLoaded, loadSequences, loadTotals, pickRemaining, takeRemaining, toLoad } from './shipping.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -42,7 +49,7 @@ const ROW_HOLD_MS = 1500;
 export const ship = {
   job: null,          // job number, e.g. "EPM-001"
   pcid: null,         // its ProductionControlID
-  loads: [],          // pf.parseLoads()
+  loads: [],          // groupLoads(): the app's loads, each one or more PowerFab loads
   remaining: [],      // pf.parseRemaining()
   selectedId: null,   // ProductionControlLoadID in the workspace
   readAt: null,
@@ -57,7 +64,7 @@ let queue = Promise.resolve();
 let readSeq = 0;
 
 export function selectedLoad() {
-  return findLoad(ship.loads, ship.selectedId);
+  return findGroup(ship.loads, ship.selectedId);
 }
 
 // Stack data lives in localStorage, which can be full or blocked. The PowerFab
@@ -71,6 +78,10 @@ function safely(fn) {
 
 // ---- Reading ---------------------------------------------------------------
 
+async function readGroups() {
+  return groupLoads(await pf.readLoads(ship.pcid), ship.pcid);
+}
+
 // Reads the job's loads (and, with `remaining`, what is left to ship).
 async function read({ remaining = false } = {}) {
   const seq = ++readSeq;
@@ -81,7 +92,7 @@ async function read({ remaining = false } = {}) {
   try {
     if (!ship.pcid) ship.pcid = (await pf.readJob(job)).pcid;
     const [loads, rest] = await Promise.all([
-      pf.readLoads(ship.pcid),
+      readGroups(),
       remaining || !ship.readAt ? pf.readRemaining(ship.pcid) : null,
     ]);
     if (seq !== readSeq || ship.job !== job) return;
@@ -89,7 +100,8 @@ async function read({ remaining = false } = {}) {
     if (rest) ship.remaining = rest;
     ship.readAt = new Date();
     ship.error = '';
-    if (!findLoad(loads, ship.selectedId)) ship.selectedId = loads.find((l) => !l.shipped)?.id ?? loads[0]?.id ?? null;
+    // A PowerFab load ID (from Lookup) opens the load it is part of.
+    ship.selectedId = findGroup(loads, ship.selectedId)?.id ?? loads.find((l) => !l.shipped)?.id ?? loads[0]?.id ?? null;
   } catch (err) {
     if (seq === readSeq) ship.error = err.message;
   } finally {
@@ -149,19 +161,33 @@ function openLoadFor(jobThen, mark = '') {
   return load;
 }
 
+// The PowerFab load a piece of `sequence` goes on, created ("8.1011") when the
+// load hasn't got that sequence yet.
+async function partFor(load, sequence) {
+  const target = targetFor(load, sequence);
+  if (target.loadId) return target.loadId;
+  if (await pf.isLoadNumberTaken(ship.pcid, target.create)) {
+    throw new Error(`PowerFab already has a load ${target.create} that isn’t part of load ${load.number}. Rename it in PowerFab first.`);
+  }
+  return pf.createLoad(ship.pcid, { number: target.create, ...(await pf.readNewLoadOptions(ship.pcid)) });
+}
+
 // Puts one piece of `mark` on `load` and returns the PowerFab piece to load:
 // one already on the load and not loaded yet, or else one assigned now from
-// what the job has left (lowest sequence first).
+// what the job has left (lowest sequence first), on the PowerFab load for its
+// sequence.
 async function assignOne(load, mark) {
   const waiting = toLoad(load, mark);
   if (waiting) return waiting;
   const pick = pickRemaining(mark, ship.remaining, ship.loads);
   if (!pick.row) throw blocked(mark, pick.reason);
-  await pf.addMaterial(load.id, pick.row);
+  const partId = await partFor(load, pick.row.sequence);
+  await pf.addMaterial(partId, pick.row);
   ship.remaining = takeRemaining(ship.remaining, pick.row);
-  ship.loads = await pf.readLoads(ship.pcid);
-  const fresh = findLoad(ship.loads, load.id);
-  const item = toLoad(fresh, mark, pick.row.sequence) ?? toLoad(fresh, mark);
+  ship.loads = await readGroups();
+  const fresh = findGroup(ship.loads, load.id);
+  const onPart = fresh && { items: fresh.items.filter((it) => it.loadId === partId) };
+  const item = toLoad(onPart, mark, pick.row.sequence) ?? toLoad(fresh, mark, pick.row.sequence);
   if (!item) throw new Error(`${mark} was put on load ${load.number} but PowerFab didn’t list it to load. Refresh and scan it again.`);
   return item;
 }
@@ -177,16 +203,22 @@ export function scan(raw, { manual = false } = {}) {
   return change(async () => {
     const load = openLoadFor(jobThen, mark);
     const wasWaiting = Boolean(toLoad(load, mark));
-    const item = await assignOne(load, mark);
+    // Whatever happens, the PowerFab loads end up split or merged to match:
+    // a refused piece can leave a new "8.<seq>" load empty.
     try {
-      await pf.loadMaterial(load.id, item);
-    } catch (err) {
-      // Assigning and loading are one step: don't leave it assigned but not loaded.
-      if (!wasWaiting) await pf.removeMaterial(load.id, item, 1).catch(() => {});
-      throw Object.assign(err, { title: err.title ?? 'PowerFab wouldn’t load that', mark });
+      const item = await assignOne(load, mark);
+      try {
+        await pf.loadMaterial(item.loadId, item);
+      } catch (err) {
+        // Assigning and loading are one step: don't leave it assigned but not loaded.
+        if (!wasWaiting) await pf.removeMaterial(item.loadId, item, 1).catch(() => {});
+        throw Object.assign(err, { title: err.title ?? 'PowerFab wouldn’t load that', mark });
+      }
+      safely(() => stacks.recordLoaded(load, item, mark, { manual }));
+      done(`${mark} loaded on load ${load.number}${item.sequence ? ` (seq ${item.sequence})` : ''}`);
+    } finally {
+      await tidy(load.id);
     }
-    safely(() => stacks.recordLoaded(load, item, mark, { manual }));
-    done(`${mark} loaded on load ${load.number}${item.sequence ? ` (seq ${item.sequence})` : ''}`);
   }, { remaining: true });
 }
 
@@ -195,8 +227,8 @@ export function scan(raw, { manual = false } = {}) {
 async function takeOff(load, entry) {
   const item = lastLoaded(load, entry.mark, entry.sequence);
   if (item) {
-    await pf.unloadMaterial(load.id, item, 1);
-    await pf.removeMaterial(load.id, item, 1);
+    await pf.unloadMaterial(item.loadId, item, 1);
+    await pf.removeMaterial(item.loadId, item, 1);
   }
   safely(() => stacks.removeEntry(load, entry.id));
 }
@@ -209,6 +241,7 @@ function deleteEntry(entryId) {
     if (!entry) return;
     await takeOff(load, entry);
     toast(`${entry.mark} taken off load ${load.number}`);
+    await tidy(load.id);
   }, { remaining: true });
 }
 
@@ -223,12 +256,30 @@ function deleteStack(stackId) {
     const pieces = stack.items.length;
     for (const entry of [...stack.items]) {
       await takeOff(load, entry);
-      ship.loads = await pf.readLoads(ship.pcid);
-      load = findLoad(ship.loads, load.id) ?? load;
+      ship.loads = await readGroups();
+      load = findGroup(ship.loads, load.id) ?? load;
     }
     safely(() => stacks.removeStack(load, stackId));
     toast(`Deleted ${stack.name}${pieces ? ` and took its ${pieces} piece${pieces === 1 ? '' : 's'} off the load` : ''}`);
+    await tidy(load.id);
   }, { remaining: true });
+}
+
+// Splits, merges and renames the load's PowerFab loads to match the sequences
+// on it (js/load-groups.js tidyPlan). The pieces are already where they
+// belong, so a refusal here is a warning, not a failed scan.
+async function tidy(loadId) {
+  try {
+    ship.loads = await readGroups();
+    const load = findGroup(ship.loads, loadId);
+    if (!load) return;
+    for (const step of tidyPlan(load)) {
+      if (step.op === 'delete') await pf.deleteLoad(step.loadId);
+      else await pf.renameLoad(step.loadId, step.to);
+    }
+  } catch (err) {
+    toast(`Couldn’t rename load ${ship.loads.find((l) => l.id === loadId)?.number ?? ''} by sequence in PowerFab: ${err.message}`, 6000);
+  }
 }
 
 function done(message) {
@@ -290,6 +341,7 @@ function loadRow(l) {
     <button class="btn load-row${l.id === ship.selectedId ? ' active' : ''}${l.shipped ? ' shipped' : ''}" type="button" data-load-id="${escapeHtml(l.id)}">
       <span class="load-row-name">Load ${escapeHtml(l.number)} <span class="badge ${l.shipped ? '' : 'badge-open'}">${escapeHtml(status)}</span></span>
       <span class="load-row-meta">${t.pieces} pcs${t.loaded < t.pieces ? ` (${t.pieces - t.loaded} not loaded)` : ''} &middot; ${formatWeight(t.weight)}</span>
+      ${splitNote(l) ? `<span class="load-row-meta">In PowerFab: ${escapeHtml(splitNote(l))}</span>` : ''}
       ${check ? `<span class="load-row-meta check-meta-line">${escapeHtml(check)}</span>` : ''}
     </button>
     ${l.shipped || l.items.length ? '' : `<button class="btn btn-hold load-delete" type="button" data-hold="delete" data-hold-ms="${DELETE_HOLD_MS}" aria-label="Hold 10 seconds to delete load ${escapeHtml(l.number)}">Hold 10 s<br>to delete</button>`}
@@ -500,6 +552,11 @@ async function submitNewLoad(e) {
     error.textContent = 'Enter a load number.';
     return;
   }
+  // "8.1010" is how PowerFab names load 8's sequence 1010 (js/load-groups.js).
+  if (number.includes('.')) {
+    error.textContent = 'A load number can’t have a “.” in it. Loads are split by sequence in PowerFab on their own.';
+    return;
+  }
   if (ship.loads.some((l) => l.number.toUpperCase() === number)) {
     error.textContent = `Load ${number} already exists on ${ship.job}.`;
     return;
@@ -513,9 +570,9 @@ async function submitNewLoad(e) {
       return;
     }
     newLoadOptions ??= await pf.readNewLoadOptions(ship.pcid);
-    const id = await pf.createLoad(ship.pcid, { number, ...newLoadOptions });
+    await pf.createLoad(ship.pcid, { number, ...newLoadOptions });
     dlg.close();
-    ship.selectedId = id;
+    ship.selectedId = groupId(ship.pcid, number);
     toast(`Created load ${number}`);
     await read();
     focusScanner();
@@ -533,22 +590,27 @@ function itemFor(el) {
   return selectedLoad()?.items.find((it) => it.truckId === id) ?? null;
 }
 
+// Runs `fn` on each of the load's PowerFab loads that `when` picks.
+async function eachPart(load, when, fn) {
+  for (const part of load.parts.filter(when)) await fn(part.id);
+}
+
 function onHold(btn) {
   const loadId = btn.closest('[data-load-id]')?.dataset.loadId;
-  const load = findLoad(ship.loads, loadId) ?? selectedLoad();
+  const load = findGroup(ship.loads, loadId) ?? selectedLoad();
   if (!load) return;
   const item = itemFor(btn);
   const actions = {
-    ship: () => change(() => pf.shipLoad(load.id), { remaining: true }).then((ok) => ok && toast(`Load ${load.number} shipped`)),
-    unship: () => change(() => pf.unshipLoad(load.id), { remaining: true }).then((ok) => ok && toast(`Load ${load.number} is open again`)),
+    ship: () => change(() => eachPart(load, (p) => !p.shipped, pf.shipLoad), { remaining: true }).then((ok) => ok && toast(`Load ${load.number} shipped`)),
+    unship: () => change(() => eachPart(load, (p) => p.shipped, pf.unshipLoad), { remaining: true }).then((ok) => ok && toast(`Load ${load.number} is open again`)),
     // Deleting frees the load's pieces, so the remaining list is read again too.
-    delete: () => change(() => pf.deleteLoad(load.id), { remaining: true }).then((ok) => {
+    delete: () => change(() => eachPart(load, () => true, pf.deleteLoad), { remaining: true }).then((ok) => {
       if (!ok) return;
       safely(() => stacks.clear(load));
       toast(`Load ${load.number} deleted`);
     }),
-    return: () => item && change(() => pf.returnMaterial(load.id, item), { remaining: true }).then((ok) => ok && toast(`${item.mark} returned`)),
-    unreturn: () => item && change(() => pf.unreturnMaterial(load.id, item), { remaining: true }).then((ok) => ok && toast(`Return of ${item.mark} undone`)),
+    return: () => item && change(() => pf.returnMaterial(item.loadId, item), { remaining: true }).then((ok) => ok && toast(`${item.mark} returned`)),
+    unreturn: () => item && change(() => pf.unreturnMaterial(item.loadId, item), { remaining: true }).then((ok) => ok && toast(`Return of ${item.mark} undone`)),
   };
   actions[btn.dataset.hold]?.();
 }

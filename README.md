@@ -113,6 +113,27 @@ Scans are sent one at a time in order, and after every change the loads are
 read again, so the screen always shows what PowerFab has. If PowerFab refuses
 a change, its reason is shown and nothing changes on screen.
 
+### One truck, split by sequence in PowerFab
+
+The app shows and truck checks a load as one load, but PowerFab keeps one
+load per sequence the way the project managers want it
+(`js/load-groups.js`):
+
+- a new load is created in PowerFab with the number typed, e.g. `8`;
+- while it only has pieces from one sequence it stays `8`;
+- when a piece from a second sequence goes on, a load `8.<sequence>` is made
+  for it and `8` is renamed `8.<its sequence>` (`8.1010`, `8.1011`, ...);
+- when it is back to one sequence, the emptied `8.<sequence>` loads are
+  deleted and the one left is renamed `8` again.
+
+In the app it is always **Load 8**: one entry in the Loads window (with the
+PowerFab names underneath while it is split), one set of stacks, one truck
+check, and **Hold to ship** ships every PowerFab part. A PowerFab load numbered
+`<n>.<anything>` counts as part of load `<n>`, so load numbers typed in the
+app can't contain a `.`. Shipped PowerFab loads are never renamed or deleted.
+An older `8` that already mixes sequences keeps them; only new sequences
+split off.
+
 ### PowerFab commands used
 
 All through `POST /api/powerfab/<Command>` (`js/pf-loads.js`). The newer
@@ -129,6 +150,7 @@ converted from kg to lbs.
 | `ProductionControlLoad_InputOptions_Get` | Next load number, default capacity |
 | `ProductionControlLoad_IsDuplicateLoadNumber` | Load number check before creating |
 | `ProductionControlLoad_Insert` / `_Delete` | Create (needs `Capacity`; empty `ShippingDestinationGroupID` = jobsite) / delete a load |
+| `ProductionControlLoad_Update` | Rename a load when it is split or merged by sequence (only `LoadNumber` is sent) |
 | `ProductionControlLoadMaterial_Add` / `_Remove` | Assign pieces (item ID + sequence ID) / take them off |
 | `ProductionControlLoadMaterial_Load` / `_Unload` | Put pieces on the truck (by truck item ID) / take them off (by the `Loaded` entry's ID) |
 | `ProductionControlLoad_Ship` / `_Unship` | Ship the load / undo |
@@ -187,10 +209,11 @@ python3 -m http.server 8000
 | `js/server-ui.js` | Server settings dialog, setup QR show/scan, job list |
 | `js/current-job.js` | Current job state, the top bar and job picker every module follows |
 | `js/pf-loads.js` | PowerFab loads: reads, parsers and every shipping write command |
+| `js/load-groups.js` | One app load from PowerFab loads split by sequence (`8.1010`), and the split/merge/rename plan |
 | `js/shipping.js` | Pure helpers: which remaining row a scan takes, totals, sequences |
 | `js/shipping-ui.js` | Shipping screen: loads window, scan handling, write queue, new load |
 | `js/stacks-ui.js` | Stack rows: active stack, rename, move, drag and drop, hold to delete |
-| `js/stack-store.js` | Local-only stack tracking (and truck check scans) keyed by PowerFab load ID |
+| `js/stack-store.js` | Local-only stack tracking (and truck check scans) keyed by the app's load ID |
 | `js/check.js` / `js/check-ui.js` | Truck check: matching scans to stacked pieces, and its screen (`css/check.css`) |
 | `js/lookup.js` / `js/lookup-ui.js` | Piece lookup data and screen (`css/lookup.css`) |
 | `js/export.js` | Text export, share sheet and print ticket |
