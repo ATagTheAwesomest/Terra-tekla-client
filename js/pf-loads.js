@@ -162,10 +162,11 @@ export function addMaterial(loadId, row, qty = 1) {
   });
 }
 
-export function removeMaterial(loadId, item) {
+// Takes `qty` (default all) of a piece off the load.
+export function removeMaterial(loadId, item, qty = item.qty) {
   return powerfab('ProductionControlLoadMaterial_Remove', {
     ProductionControlLoadID: Number(loadId),
-    RemoveItem: [{ ProductionControlItemTruckID: Number(item.truckId), Quantity: item.qty }],
+    RemoveItem: [{ ProductionControlItemTruckID: Number(item.truckId), Quantity: qty }],
   });
 }
 
@@ -177,13 +178,13 @@ export function loadMaterial(loadId, item, qty = 1) {
   });
 }
 
-// Takes the most recent load entry of a piece off the truck.
-export function unloadMaterial(loadId, item) {
+// Takes the most recent load entry of a piece off the truck, or `qty` of it.
+export function unloadMaterial(loadId, item, qty = null) {
   const entry = item.loads.at(-1);
   if (!entry) throw new Error(`PowerFab has no load record for ${item.mark}.`);
   return powerfab('ProductionControlLoadMaterial_Unload', {
     ProductionControlLoadID: Number(loadId),
-    UnloadItem: [{ ProductionControlItemTrucksLoadID: Number(entry.id), Quantity: entry.qty }],
+    UnloadItem: [{ ProductionControlItemTrucksLoadID: Number(entry.id), Quantity: Math.min(qty ?? entry.qty, entry.qty) }],
   });
 }
 

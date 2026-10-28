@@ -1,6 +1,8 @@
 // Local-only stack tracking for live PowerFab loads. Stack data is keyed by
 // load ID and is intentionally never included in API requests.
 
+import { addCheckScan, emptyCheck, removeCheckScan } from './check.js';
+
 const KEY = 'terra.local-stacks.v1';
 
 function newId() {
@@ -27,7 +29,7 @@ function writeAll(all) {
 
 function defaultState(load) {
   const stack = { id: newId(), name: `Stack ${load.number} - 1`, items: [] };
-  return { loadId: load.id, loadNumber: load.number, activeStackId: stack.id, stacks: [stack], manualMarks: {}, manualPending: {} };
+  return { loadId: load.id, loadNumber: load.number, activeStackId: stack.id, stacks: [stack] };
 }
 
 function normalizeState(state, load) {
@@ -39,8 +41,7 @@ function normalizeState(state, load) {
     loadNumber: load.number,
     activeStackId: stacks.some((stack) => stack.id === state.activeStackId) ? state.activeStackId : stacks[stacks.length - 1].id,
     stacks,
-    manualMarks: state.manualMarks && typeof state.manualMarks === 'object' ? state.manualMarks : {},
-    manualPending: state.manualPending && typeof state.manualPending === 'object' ? state.manualPending : {},
+    ...(state.truckCheck && Array.isArray(state.truckCheck.scans) ? { truckCheck: state.truckCheck } : {}),
   };
 }
 
@@ -94,7 +95,7 @@ export function sync(load) {
     }
   }
 
-  const active = state.stacks.find((s) => s.id === state.activeStackId) ?? state.stacks.at(-1);
+  const active = activeStack(state);
   for (const [key, w] of want) {
     for (let missing = w.n - (have.get(key)?.length ?? 0); missing > 0; missing--) {
       const it = w.item;
@@ -117,16 +118,40 @@ export function sync(load) {
 function update(load, updateFn) {
   const all = readAll();
   const state = normalizeState(all[load.id], load);
-  updateFn(state);
+  const result = updateFn(state);
   all[load.id] = state;
   writeAll(all);
-  return state;
+  return result === undefined ? state : result;
 }
 
+// The stack scans go into. Falls back to the last stack.
+export function activeStack(state) {
+  return state.stacks.find((stack) => stack.id === state.activeStackId) ?? state.stacks.at(-1);
+}
+
+// { stack, stackIndex, index, entry } for an entry id, or null.
+export function findEntry(state, entryId) {
+  for (let si = 0; si < state.stacks.length; si++) {
+    const stack = state.stacks[si];
+    const index = stack.items.findIndex((entry) => entry.id === entryId);
+    if (index !== -1) return { stack, stackIndex: si, index, entry: stack.items[index] };
+  }
+  return null;
+}
+
+// Next unused "Stack <load> - N" name, as terra-loads-web names them.
+function nextStackName(state, load) {
+  const taken = new Set(state.stacks.map((stack) => stack.name.toLowerCase()));
+  let n = state.stacks.length + 1;
+  while (taken.has(`stack ${load.number} - ${n}`.toLowerCase())) n++;
+  return `Stack ${load.number} - ${n}`;
+}
+
+// Inserts a new empty stack directly below the active one and makes it active.
 export function addStack(load) {
   return update(load, (state) => {
-    const stack = { id: newId(), name: `Stack ${load.number} - ${state.stacks.length + 1}`, items: [] };
-    state.stacks.push(stack);
+    const stack = { id: newId(), name: nextStackName(state, load), items: [] };
+    state.stacks.splice(state.stacks.indexOf(activeStack(state)) + 1, 0, stack);
     state.activeStackId = stack.id;
   });
 }
@@ -137,6 +162,7 @@ export function setActive(load, stackId) {
   });
 }
 
+// A blank name keeps the current one.
 export function rename(load, stackId, name) {
   const clean = String(name ?? '').trim().replace(/\s+/g, ' ');
   if (!clean) return get(load);
@@ -146,45 +172,75 @@ export function rename(load, stackId, name) {
   });
 }
 
+// Removes a stack. The caller takes its pieces off the load in PowerFab first.
+// A load always keeps one stack, so removing the only one leaves a fresh empty
+// one in its place.
 export function removeStack(load, stackId) {
   return update(load, (state) => {
-    if (state.stacks.length === 1) {
-      state.stacks[0].items = [];
-      return;
-    }
     const index = state.stacks.findIndex((stack) => stack.id === stackId);
     if (index < 0) return;
     state.stacks.splice(index, 1);
+    if (!state.stacks.length) state.stacks.push({ id: newId(), name: `Stack ${load.number} - 1`, items: [] });
     if (!state.stacks.some((stack) => stack.id === state.activeStackId)) {
       state.activeStackId = state.stacks[Math.max(0, index - 1)].id;
     }
   });
 }
 
-export function recordManual(load, mark) {
+// Moves an entry one row up (dir -1) or down (dir +1). At the edge of a stack
+// it crosses into the neighbouring stack: up from the top lands at the bottom
+// of the stack above, down from the bottom lands at the top of the one below.
+// Returns true when it moved.
+export function moveEntry(load, entryId, dir) {
   return update(load, (state) => {
-    state.manualMarks[mark] = (state.manualMarks[mark] ?? 0) + 1;
-    state.manualPending[mark] = (state.manualPending[mark] ?? 0) + 1;
+    const hit = findEntry(state, entryId);
+    if (!hit) return false;
+    const { stack, stackIndex, index, entry } = hit;
+    const target = index + dir;
+    if (target >= 0 && target < stack.items.length) {
+      stack.items.splice(index, 1);
+      stack.items.splice(target, 0, entry);
+      return true;
+    }
+    const neighbour = state.stacks[stackIndex + dir];
+    if (!neighbour) return false;
+    stack.items.splice(index, 1);
+    if (dir < 0) neighbour.items.push(entry);
+    else neighbour.items.unshift(entry);
+    return true;
   });
 }
 
-export function isManual(load, mark) {
-  try { return Boolean(get(load).manualMarks[mark]); } catch (err) {
-    console.warn(err.message);
-    return false;
-  }
+// Moves an entry so it sits at position `index` of the target stack, where
+// index counts rows as they are shown before the move (drop-before semantics).
+export function moveEntryTo(load, entryId, stackId, index) {
+  return update(load, (state) => {
+    const hit = findEntry(state, entryId);
+    const target = state.stacks.find((stack) => stack.id === stackId);
+    if (!hit || !target) return false;
+    let at = Math.max(0, Math.min(index, target.items.length));
+    if (hit.stack === target && hit.index < at) at--;
+    if (hit.stack === target && hit.index === at) return false;
+    hit.stack.items.splice(hit.index, 1);
+    target.items.splice(at, 0, hit.entry);
+    return true;
+  });
 }
 
+// Takes one entry off its stack, after PowerFab has taken the piece off.
+export function removeEntry(load, entryId) {
+  return update(load, (state) => {
+    const hit = findEntry(state, entryId);
+    if (!hit) return null;
+    hit.stack.items.splice(hit.index, 1);
+    return hit.entry;
+  });
+}
+
+// Adds a piece PowerFab just loaded to the bottom of the active stack.
 export function recordLoaded(load, item, mark, { manual = false } = {}) {
   return update(load, (state) => {
-    const stack = state.stacks.find((entry) => entry.id === state.activeStackId) ?? state.stacks.at(-1);
-    const fromPending = (state.manualPending[mark] ?? 0) > 0;
-    if (fromPending) {
-      state.manualPending[mark]--;
-      if (!state.manualPending[mark]) delete state.manualPending[mark];
-    }
-    if (manual) state.manualMarks[mark] = (state.manualMarks[mark] ?? 0) + 1;
-    stack.items.push({
+    const entry = {
       id: newId(),
       mark,
       sequence: item.sequence,
@@ -196,23 +252,33 @@ export function recordLoaded(load, item, mark, { manual = false } = {}) {
       length: item.length,
       description: item.description,
       weight: item.weightEach,
-      manual: manual || fromPending,
+      manual,
       scannedAt: new Date().toISOString(),
-    });
+    };
+    activeStack(state).items.push(entry);
+    return entry;
   });
 }
 
-export function removeLoaded(load, mark) {
+// ---- Truck check (js/check.js), kept with the stacks --------------------------
+
+export function startCheck(load) {
+  return update(load, (state) => { state.truckCheck ??= emptyCheck(); });
+}
+
+export function resetCheck(load) {
+  return update(load, (state) => { state.truckCheck = emptyCheck(); });
+}
+
+export function addCheck(load, rawMark, { manual = false } = {}) {
   return update(load, (state) => {
-    for (let i = state.stacks.length - 1; i >= 0; i--) {
-      const items = state.stacks[i].items;
-      const index = items.findLastIndex((entry) => entry.mark === mark);
-      if (index >= 0) {
-        items.splice(index, 1);
-        return;
-      }
-    }
+    state.truckCheck ??= emptyCheck();
+    return addCheckScan(state.truckCheck, rawMark, { manual });
   });
+}
+
+export function removeCheck(load, scanId) {
+  return update(load, (state) => removeCheckScan(state.truckCheck, scanId));
 }
 
 export function clear(load) {

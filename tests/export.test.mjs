@@ -42,3 +42,14 @@ test('weights and file names', () => {
   assert.equal(plainWeight('abc'), '0');
   assert.equal(fileNameFor({ number: 'A/2' }, 'EPM-001'), 'EPM-001_LOAD_A_2.txt');
 });
+
+test('with stacks the file lists pieces stack by stack, then anything not loaded', () => {
+  const state = {
+    stacks: [
+      { name: 'Stack 101 - 1', items: [{ mark: '1001-C1' }, { mark: '1002-B1' }] },
+      { name: 'Stack 101 - 2', items: [{ mark: '1001-C1' }] },
+    ],
+  };
+  const text = buildLoadText(load, 'EPM-001', new Date(2026, 9, 19, 11, 15), state);
+  assert.match(text, /}\n\{STACK: Stack 101 - 1\}\n1001-C1\n1002-B1\n\{STACK: Stack 101 - 2\}\n1001-C1\n\{NOT LOADED\}\n1003-W2\n$/);
+});
