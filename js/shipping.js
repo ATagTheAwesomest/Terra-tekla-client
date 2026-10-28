@@ -19,14 +19,26 @@ export function loadSequences(load) {
   return [...seqs].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
 }
 
-// The load's first piece of `mark` assigned but not all loaded yet.
-export function toLoad(load, mark) {
-  return (load?.items ?? []).find((it) => it.mark === mark && it.loaded < it.qty) ?? null;
+// The load's first piece of `mark` on it but not all loaded yet, in `sequence`
+// when one is given.
+export function toLoad(load, mark, sequence = null) {
+  return (load?.items ?? []).find((it) => it.mark === mark && it.loaded < it.qty
+    && (sequence === null || it.sequence === sequence)) ?? null;
 }
 
-// The load's last piece of `mark` with something loaded, for undo.
-export function lastLoaded(load, mark) {
-  return [...(load?.items ?? [])].reverse().find((it) => it.mark === mark && it.loaded > 0) ?? null;
+// The load's last piece of `mark` (and `sequence`) that is on the truck and not
+// returned: the one a stack row stands for when it is deleted.
+export function lastLoaded(load, mark, sequence = null) {
+  return [...(load?.items ?? [])].reverse().find((it) => it.mark === mark && it.loaded - it.returned > 0
+    && (sequence === null || it.sequence === sequence)) ?? null;
+}
+
+// Totals of one stack of scanned pieces (js/stack-store.js entries).
+export function stackTotals(stack) {
+  return {
+    pieces: stack.items.length,
+    weight: stack.items.reduce((n, entry) => n + (Number(entry.weight) || 0), 0),
+  };
 }
 
 // The remaining row a scan of `mark` assigns from: the lowest sequence with a
@@ -40,23 +52,6 @@ export function pickRemaining(mark, remaining, loads) {
   const onLoads = loads.filter((l) => l.items.some((it) => it.mark === mark));
   if (!onLoads.length) return { reason: 'not-on-job' };
   return { reason: onLoads.every((l) => l.shipped) ? 'shipped' : 'on-other-loads' };
-}
-
-// Scans in the Load step that aren't assigned to the load are only flagged on
-// screen: [{ mark, count }] in the order first scanned. Nothing goes to
-// PowerFab until the user assigns one.
-export function flagScan(list, mark, { manual = false } = {}) {
-  const hit = list.find((e) => e.mark === mark);
-  return hit
-    ? list.map((e) => (e === hit
-      ? { ...e, count: e.count + 1, ...(e.manual || manual ? { manual: true } : {}) }
-      : e))
-    : [...list, { mark, count: 1, ...(manual ? { manual: true } : {}) }];
-}
-
-// Takes `n` (default all) of a flagged mark off the list.
-export function unflag(list, mark, n = Infinity) {
-  return list.map((e) => (e.mark === mark ? { ...e, count: e.count - n } : e)).filter((e) => e.count > 0);
 }
 
 // After assigning `qty` of a remaining row, what PowerFab now has left. Saves

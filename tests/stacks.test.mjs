@@ -48,3 +48,43 @@ test('a different sequence of the same mark is a different piece', () => {
   assert.deepEqual(marks(state).sort(), ['A1/1', 'A1/2']);
   assert.deepEqual(marks(stacks.sync(load([item('A1', '2', 1)]))), ['A1/2']);
 });
+
+const names = (state) => state.stacks.map((s) => s.name);
+const stackMarks = (state) => state.stacks.map((s) => s.items.map((e) => e.mark).join(','));
+
+test('stacks work like terra-loads-web: new stack below the active one, moves cross stacks, delete keeps one stack', () => {
+  mem.clear();
+  const l = load([]);
+  stacks.recordLoaded(l, item('A1', '1', 1), 'A1');
+  stacks.recordLoaded(l, item('B2', '1', 1), 'B2');
+  let state = stacks.addStack(l);
+  assert.deepEqual(names(state), ['Stack 1 - 1', 'Stack 1 - 2']);
+  stacks.recordLoaded(l, item('C3', '1', 1), 'C3', { manual: true });
+  // Back to the first stack, then a new one goes directly below it.
+  state = stacks.setActive(l, state.stacks[0].id);
+  state = stacks.addStack(l);
+  assert.deepEqual(names(state), ['Stack 1 - 1', 'Stack 1 - 3', 'Stack 1 - 2']);
+  assert.equal(stacks.activeStack(state).name, 'Stack 1 - 3');
+  assert.deepEqual(stackMarks(state), ['A1,B2', '', 'C3']);
+  assert.equal(state.stacks[2].items[0].manual, true);
+
+  // Down from the bottom of a stack lands at the top of the next one.
+  const b2 = state.stacks[0].items[1].id;
+  assert.equal(stacks.moveEntry(l, b2, 1), true);
+  assert.deepEqual(stackMarks(stacks.get(l)), ['A1', 'B2', 'C3']);
+  // Up from the top of the first stack goes nowhere.
+  assert.equal(stacks.moveEntry(l, stacks.get(l).stacks[0].items[0].id, -1), false);
+  // Drag C3 to the top of the first stack.
+  state = stacks.get(l);
+  assert.equal(stacks.moveEntryTo(l, state.stacks[2].items[0].id, state.stacks[0].id, 0), true);
+  assert.deepEqual(stackMarks(stacks.get(l)), ['C3,A1', 'B2', '']);
+
+  // Rename, then delete stacks; the last one is replaced by a fresh empty stack.
+  state = stacks.rename(l, state.stacks[1].id, '  Bundle   B ');
+  assert.equal(state.stacks[1].name, 'Bundle B');
+  assert.equal(stacks.removeEntry(l, state.stacks[1].items[0].id).mark, 'B2');
+  for (const s of stacks.get(l).stacks) stacks.removeStack(l, s.id);
+  state = stacks.get(l);
+  assert.deepEqual(names(state), ['Stack 1 - 1']);
+  assert.equal(stacks.activeStack(state), state.stacks[0]);
+});

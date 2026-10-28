@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TERRA">
   <meta name="format-detection" content="telephone=no">
-  <meta name="terra-version" content="0.8.0">
+  <meta name="terra-version" content="0.9.0">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -39,7 +39,7 @@
       <button class="btn home-tile" type="button" data-module="shipping">
         <span class="home-tile-icon" aria-hidden="true">&#128666;</span>
         <span class="home-tile-name">Shipping</span>
-        <span class="muted">The job's PowerFab loads: add material, load, ship, return</span>
+        <span class="muted">Scan pieces onto the job's PowerFab loads, in stacks</span>
       </button>
       <button class="btn home-tile" type="button" data-module="lookup">
         <span class="home-tile-icon" aria-hidden="true">&#128269;</span>
@@ -68,7 +68,7 @@
     <div class="stats" id="stats">
       <div class="stat stat-load"><span class="stat-label">Load</span><span class="stat-value" id="stat-load">&mdash;</span><span class="stat-sub" id="stat-job"></span><span class="mode-badge ship-badge" id="ship-badge" hidden>Shipped</span></div>
       <div class="stat"><span class="stat-label">Sequences</span><span class="stat-value" id="stat-seq">&mdash;</span></div>
-      <div class="stat"><span class="stat-label">Loaded</span><span class="stat-value" id="stat-pieces">0</span></div>
+      <div class="stat"><span class="stat-label">Pieces</span><span class="stat-value" id="stat-pieces">0</span></div>
       <div class="stat"><span class="stat-label">Weight</span><span class="stat-value" id="stat-weight">0 lbs</span></div>
     </div>
     <button class="btn btn-ghost btn-menu" id="btn-menu" type="button" aria-controls="menu" aria-expanded="false" aria-label="Menu">
@@ -79,18 +79,18 @@
   <section class="scanbar unfocused" id="scanbar" hidden>
     <label class="scan-field" for="scan-input">
       <span class="scan-meta">
-        <span class="stat-label" id="scan-label">Loading onto</span>
+        <span class="stat-label" id="scan-label">Scanning into</span>
         <span class="scan-stack" id="scan-stack">&mdash;</span>
         <span class="scan-hint" id="scan-hint">Tap here to resume scanning</span>
       </span>
       <input id="scan-input" type="text" inputmode="none" enterkeyhint="enter" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" aria-label="Scan or type a mark">
     </label>
     <button class="btn btn-lg" id="btn-keypad" type="button"><span class="icon" aria-hidden="true">&#9783;</span><span>Keypad</span></button>
-    <div class="scan-steps" role="group" aria-label="What a scan does">
-      <button class="btn btn-lg" type="button" data-step="material" aria-pressed="false">&#9638; Add material</button>
-      <button class="btn btn-lg" type="button" data-step="load" aria-pressed="false">&#128666; Load</button>
-    </div>
+    <button class="btn btn-lg btn-primary" id="btn-new-stack" type="button">+ New Stack</button>
   </section>
+  <div class="colhead" id="colhead" hidden aria-hidden="true">
+    <span></span><span>#</span><span>Mark</span><span>Description</span><span class="colhead-num">Weight</span><span></span>
+  </div>
 
   <div class="ship-body" id="ship-body">
     <main class="workspace" id="workspace"></main>

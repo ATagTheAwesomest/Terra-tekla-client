@@ -1,6 +1,7 @@
-/* Shipping on live PowerFab loads (js/shipping-ui.js): the loads side panel,
-   the load's piece list, step buttons on the scan bar and the "not added"
-   dialog. Material (assigned, not on the truck) is blue throughout. */
+/* Shipping on live PowerFab loads (js/shipping-ui.js, js/stacks-ui.js): the
+   Loads window, stacks and their piece rows (the same as terra-loads-web), the
+   PowerFab-only lists and the "not added" dialog. A piece on the load but not
+   on the truck is blue throughout. */
 
 :root {
   --bad: #ff3b3b;
@@ -8,6 +9,9 @@
   --ok-bg: #0f2e1c;
   --material: #4da3ff;
   --material-bg: #0f2238;
+  /* drag | # | mark | description | weight | actions. Shared by the stack rows
+     and the column header under the scan bar so they line up. */
+  --item-cols: var(--tap) 2.4em 7em minmax(0, 1fr) 7.5em calc(3 * var(--tap) + 28px);
 }
 
 /* Red pulse for a scan PowerFab or the checks refused. */
@@ -40,24 +44,115 @@
 .load-row-name { display: flex; align-items: center; gap: 8px; font-weight: 700; }
 .load-row.shipped { opacity: 0.75; }
 .badge-open { background: var(--ok); color: #000; }
-.manual-badge { background: var(--flag); color: #000; margin-left: 4px; }
-.local-stacks { border-color: var(--accent); }
-.local-stacks > .stack-head { flex-wrap: wrap; }
-.local-stacks > .stack-head .stack-name { flex: 1 1 auto; }
-.local-stack { margin: 8px; border: 2px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.local-stack.active { border-color: var(--accent); }
-.local-stack-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; background: var(--surface-2); }
-.local-stack-head .stack-name { flex: 1 1 auto; }
-.local-stack-items { list-style: decimal; margin: 0; padding: 0 10px 0 36px; }
-.local-stack-item { display: grid; grid-template-columns: 6.5em 5.5em minmax(0, 1fr); gap: 0 8px; align-items: center; min-height: 44px; border-bottom: 1px solid var(--border); }
-.local-stack-item:last-child { border-bottom: 0; }
-.local-scan-note { margin: 8px 14px 0; font-size: 0.8rem; }
-/* Scan bar: step buttons and busy state */
-.scan-steps { display: flex; gap: 8px; }
-.scan-steps .btn-lg { padding: 0 20px; }
-.scan-steps [data-step="material"].btn-primary { background: var(--material); border-color: var(--material); color: #000; }
-.scanbar.adding-material .scan-field { border-color: var(--material); }
-.scanbar.adding-material .scan-stack { color: var(--material); }
+/* Stack rows, as in terra-loads-web */
+.item {
+  display: grid;
+  grid-template-columns: var(--item-cols);
+  align-items: stretch;
+  min-height: var(--tap);
+  padding: 0 var(--item-pad);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.item > *, .colhead > * {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 4px 8px;
+}
+.item > * + *, .colhead > * + * { border-left: 1px solid var(--rule); }
+.item > .item-drag { padding: 0; }
+.item > .item-weight, .colhead-num { justify-content: flex-end; }
+.item > .item-detail { grid-column: 1 / -1; border-left: 0; }
+.item.expanded { background: var(--surface-2); }
+.item.flagged { background: var(--flag-bg); box-shadow: inset 6px 0 0 var(--flag); }
+.item.flagged .item-mark { color: var(--flag); }
+.item.flagged.expanded { background: var(--flag-bg); }
+.item:last-child { border-bottom: 0; }
+.item-index { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.item > .item-desc { display: block; line-height: calc(var(--tap) - 8px); }
+
+/* Column headers, pinned under the scan bar. Horizontal padding matches the
+   workspace padding + stack border + row padding so the columns line up. */
+.colhead {
+  display: grid;
+  grid-template-columns: var(--item-cols);
+  padding: 0 calc(16px + 2px + var(--item-pad));
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.colhead > * { padding-top: 3px; padding-bottom: 3px; }
+.colhead[hidden] { display: none; }
+body.at-home .colhead { visibility: hidden; }
+
+/* Expanded piece details */
+.item-detail {
+  margin: 0;
+  padding: 8px 8px 12px !important;
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(11em, 1fr));
+  gap: 6px 16px;
+  border-top: 1px dashed var(--border);
+  cursor: default;
+}
+.item-detail dt { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
+.item-detail dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+/* Active stack, header controls, rename, drag and drop */
+.stack.active { border-color: var(--accent); }
+.stack.active > .stack-head { background: #2e2a1a; }
+.stack-title { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
+.stack-title .stack-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stack-flagged { color: var(--flag); font-weight: 700; }
+.badge-active { background: var(--accent); color: var(--accent-text); padding: 6px 10px; }
+.stack-rename {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 0 12px;
+  border: 2px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+}
+.stack-rename:focus { outline: none; }
+.item-drag {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--tap);
+  font-size: 1.4rem;
+  color: var(--text-muted);
+  cursor: grab;
+  touch-action: none;
+}
+.item.dragging { opacity: 0.35; }
+.drag-ghost {
+  position: fixed;
+  z-index: 30;
+  pointer-events: none;
+  background: var(--surface-3);
+  border: 2px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  list-style: none;
+}
+.drop-before { box-shadow: inset 0 4px 0 var(--accent); }
+.drop-after { box-shadow: inset 0 -4px 0 var(--accent); }
+.drop-into { outline: 3px dashed var(--accent); outline-offset: -6px; }
+
+/* Pieces on the load in PowerFab but not on the truck */
+.stack.waiting { border-color: var(--material); }
+.stack.waiting > .stack-head { background: var(--material-bg); }
+.stack.waiting .stack-name { color: var(--material); }
+
+/* Scan bar busy state */
 .scanbar.busy .scan-hint::after { content: " · sending…"; color: var(--accent); }
 
 /* Load header */
@@ -73,34 +168,21 @@
 body.load-shipped .topbar { border-bottom-color: var(--accent); }
 .ship-diff { color: var(--flag); font-weight: 700; }
 
-/* Piece rows: mark | seq | description | qty | weight | status | actions */
+/* PowerFab piece rows (not loaded / returns): mark | seq | description | qty | weight | status | actions */
 .ship-item {
   display: grid;
-  grid-template-columns: 6.5em 6em 5.5em 4em 8em 5em 6em 2.5em 6em auto auto;
+  grid-template-columns: 7em 5.5em minmax(0, 1fr) 3em 7em auto auto;
   align-items: center;
   gap: 0 8px;
   min-height: 56px;
   padding: 4px var(--item-pad);
-  cursor: pointer;
   border-bottom: 1px solid var(--border);
 }
 .ship-item:last-child { border-bottom: 0; }
-/* Flagged (not assigned) rows keep the short layout: mark | seq | text | qty | weight | pill | actions */
-.ship-item.is-flagged { grid-template-columns: 6.5em 5.5em minmax(8em, 1fr) 2.5em 6em auto auto; }
-.ship-item-desc-narrow { display: none; }
 .ship-item .item-desc { line-height: 1.3; }
-.ship-item-part, .ship-item-shape, .ship-item-dimensions, .ship-item-grade, .ship-item-remark { color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ship-item-seq, .ship-item-qty { color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.piece-details { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 14px; margin-top: 8px; padding: 10px; border-top: 1px solid var(--border); background: var(--surface-2); cursor: default; }
-.piece-details div { min-width: 0; }
-.piece-details dt { color: var(--text-muted); font-size: 0.7rem; text-transform: uppercase; }
-.piece-details dd { margin: 0; overflow-wrap: anywhere; }
-.local-scan-time { grid-column: 1 / -1; color: var(--text-muted); font-size: 0.8rem; }
-.sort-control { display: inline-flex; align-items: center; gap: 4px; min-height: var(--tap); padding: 0 8px; border: 2px solid var(--border); border-radius: var(--radius); color: var(--text-muted); }
-.sort-control select { border: 0; background: transparent; color: var(--text); font: inherit; min-height: 40px; }
 .ship-item.is-material { box-shadow: inset 6px 0 0 var(--material); background: var(--material-bg); }
 .ship-item.is-material .item-mark { color: var(--material); }
-.ship-item.is-loaded { box-shadow: inset 6px 0 0 var(--ok); }
 .ship-pill {
   justify-self: start;
   padding: 2px 10px;
@@ -111,16 +193,7 @@ body.load-shipped .topbar { border-bottom-color: var(--accent); }
   white-space: nowrap;
 }
 .ship-pill.material { border-color: var(--material); color: var(--material); }
-.ship-pill.loaded { border-color: var(--ok); color: var(--ok); }
 .ship-pill.shipped { border-color: var(--accent); color: var(--accent); }
-.ship-pill.flagged { border-color: var(--flag); color: var(--flag); }
-
-/* Scans flagged as not assigned to the load (Load step check) */
-.stack.flagged { border-color: var(--flag); }
-.stack.flagged > .stack-head { background: var(--flag-bg); }
-.stack.flagged .stack-name { color: var(--flag); }
-.ship-item.is-flagged { box-shadow: inset 6px 0 0 var(--flag); background: var(--flag-bg); }
-.ship-item.is-flagged .item-mark { color: var(--flag); }
 
 /* "Not added" */
 .modal.ship-block {
@@ -145,20 +218,14 @@ body.load-shipped .topbar { border-bottom-color: var(--accent); }
 .ship-block .modal-actions .btn { flex: 1 1 200px; }
 
 @media (max-width: 900px) {
+  :root { --item-cols: 40px 2em 6.5em minmax(0, 1fr) 6.5em calc(3 * var(--tap) + 28px); }
+  .colhead { padding: 0 calc(12px + 2px + var(--item-pad)); }
   .ship-item { grid-template-columns: 6em minmax(0, 1fr) auto; grid-template-areas: "mark desc weight" "seq pill actions"; padding: 6px 8px; gap: 4px 8px; }
   .ship-item .item-mark { grid-area: mark; }
-  .ship-item-part, .ship-item-shape, .ship-item-dimensions, .ship-item-grade, .ship-item-remark { display: none; }
-  .ship-item .item-desc, .ship-item-desc-narrow { grid-area: desc; }
-  .ship-item-desc-narrow { display: block; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ship-item.is-flagged { grid-template-columns: 6em minmax(0, 1fr) auto; }
+  .ship-item .item-desc { grid-area: desc; }
   .ship-item .item-weight { grid-area: weight; }
   .ship-item-seq { grid-area: seq; }
   .ship-item .ship-pill { grid-area: pill; }
   .ship-item .item-actions { grid-area: actions; }
   .ship-item-qty { display: none; }
-  .piece-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .scanbar { flex-wrap: wrap; }
-  .scan-field { flex-basis: 100%; }
-  .scan-steps { flex: 1; }
-  .scan-steps .btn-lg { flex: 1; }
 }

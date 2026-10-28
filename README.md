@@ -42,39 +42,50 @@ Which job is picked is the one thing kept on the tablet (`terra.currentJob`).
 ## Shipping
 
 Opening Shipping reads every load (truck) on the current job. The **Loads**
-button in the top bar opens a Loads window listing them, with open or shipped
-and pieces loaded of assigned, so the main screen keeps its room. Tap a load to
+button in the top bar opens a Loads window listing them, with open or shipped,
+pieces and weight, so the main screen keeps its room. Tap a load to
 work on it (the window closes); **+ New** creates one in PowerFab and **&#8635;**
 reads the loads again.
 
-The scan bar has two steps, matching PowerFab's assigned and loaded
-quantities:
-
-- **Add material** assigns the scanned piece to the load (blue rows, "To
-  load"), e.g. as it is laid out on the floor.
-- **Load** is a check against the load's assigned list: a scanned piece that is
-  assigned is loaded (green). One that isn't is flagged in an orange "Scanned,
-  not assigned to this load" list and nothing is sent to PowerFab. From that
-  list **Remove** drops the flag, or **Assign & load** assigns it in PowerFab
-  and loads it (once per piece scanned). The flagged list is only on screen, so
-  it is gone if the page is closed.
+Scanning works the way terra-loads-web does. A scan (or a mark typed on the
+keypad) puts the piece on the open load: it is assigned to the load in
+PowerFab and loaded in the same step, then added to the bottom of the active
+stack. There is no separate assign step. A piece that is already on the load
+but not loaded (put there in PowerFab itself) is simply loaded.
 
 A piece is picked from PowerFab's remaining list
 (`ProductionControlLoadRemaining_Get`): one row per piece and sequence with
 how many are still not on any load, so a scan can never add more of a piece
 than the job has. With several sequences the lowest one with pieces left is
-used, and the row shows which. A mark with none left shows a red "Not added"
-card saying why (not on the job, already shipped, or on which loads it is).
-Each row has **Load** (tap), **Unload** or **Remove** (hold 1.5 s). The load
-has **Hold to ship** (3 s), which PowerFab only allows once every piece is
-loaded, and once shipped **Hold to unship**. Loads going somewhere other than
-the jobsite also get **Return** / **Undo return** per piece; PowerFab refuses
-returns from the jobsite. An empty load can be deleted (hold 7.5 s). New loads
-go to the jobsite: on EPM-001 a load to the galvanizer group refused every
-piece.
+used. A mark with none left shows a red "Not added" card saying why (not on
+the job, already shipped, or on which loads it is) and nothing changes.
 
-Every one of these was run from the app against the test job TESTTEST on
-2026-10-20 (create, assign, load, unload, ship, unship, remove, delete).
+### Stacks
+
+The load's pieces are shown in stacks, exactly as in terra-loads-web:
+
+- every scan is its own row, in scan order, never collapsed;
+- each stack shows its piece count and weight; the active stack is
+  highlighted ("Scanning here"), and **Scan here** makes another one active;
+- **+ New Stack** (scan bar) adds a stack directly below the active one,
+  named `Stack <load> - <n>`; the pencil renames a stack inline;
+- rows move with ▲/▼ (crossing into the next stack at the edges) or by
+  dragging the ⠿ handle; tap a row for its details;
+- the bin on a row (hold 1.5 s) takes that piece off the truck and off the
+  load in PowerFab; the bin on a stack (hold 4 s) deletes the stack and takes
+  all its pieces off the load. A load always keeps one stack.
+- pieces typed on the keypad are orange.
+
+Stacks are only kept on this iPad; moving pieces between stacks or renaming
+one never touches PowerFab. Pieces that are on the load in PowerFab but not
+loaded are listed above the stacks with **Load** (tap) and **Remove** (hold).
+
+The load has **Hold to ship** (3 s), which PowerFab only allows once every
+piece is loaded, and once shipped **Hold to unship**. Shipped loads going
+somewhere other than the jobsite also list their pieces for **Return** /
+**Undo return**; PowerFab refuses returns from the jobsite. An empty load can
+be deleted (hold 10 s). New loads go to the jobsite: on EPM-001 a load to the
+galvanizer group refused every piece.
 
 A scanner types like a keyboard, so keys typed with no text field focused (an
 installed iPad app starts and resumes that way) are collected and sent on Enter
@@ -113,9 +124,10 @@ The older `Load`, `Ship` and `Return` commands (by job and truck number, with
 
 Menu → **Share load file** sends the open load as text through the iPad share
 sheet: a `{}` header block (load, job, totals, shipped date) that Tekla scripts
-ignore, then one mark per line per piece, never collapsed. **Print shipping
-ticket** prints the load's pieces with sequence, quantity, weight and what is
-loaded.
+ignore, then the pieces stack by stack under `{STACK: name}` lines, one mark per
+line per piece, never collapsed, as terra-loads-web writes them. Pieces on the
+load but not loaded follow under `{NOT LOADED}`. **Print shipping ticket**
+prints the load stack by stack with each stack's pieces and weight.
 
 ## Piece lookup
 
@@ -151,14 +163,15 @@ python3 -m http.server 8000
 | --- | --- |
 | `index.html` | App shell: header stats, scan bar, loads panel, workspace, dialogs |
 | `css/app.css` | Dark industrial theme, 48px+ tap targets, print base |
-| `css/shipping.css` | Loads panel, piece rows, step buttons, "Not added" card |
+| `css/shipping.css` | Loads window, stacks and rows, "Not added" card |
 | `js/app.js` | Boot, home screen, menus, status bar, update UI |
 | `js/api.js` | API client: settings, setup codes, jobs and assemblies, value units |
 | `js/server-ui.js` | Server settings dialog, setup QR show/scan, job list |
 | `js/current-job.js` | Current job state, the top bar and job picker every module follows |
 | `js/pf-loads.js` | PowerFab loads: reads, parsers and every shipping write command |
 | `js/shipping.js` | Pure helpers: which remaining row a scan takes, totals, sequences |
-| `js/shipping-ui.js` | Shipping screen: loads panel, scan handling, write queue, new load and local stacks |
+| `js/shipping-ui.js` | Shipping screen: loads window, scan handling, write queue, new load |
+| `js/stacks-ui.js` | Stack rows: active stack, rename, move, drag and drop, hold to delete |
 | `js/stack-store.js` | Local-only stack tracking keyed by PowerFab load ID |
 | `js/lookup.js` / `js/lookup-ui.js` | Piece lookup data and screen (`css/lookup.css`) |
 | `js/export.js` | Text export, share sheet and print ticket |
@@ -175,18 +188,17 @@ python3 -m http.server 8000
 ## What the device keeps
 
 The server address and key (`terra.api`), the current job (`terra.currentJob`),
-the scan step (`terra.step`), the piece view and sort (`terra.load-view`), the phone layout (`terra.layout`), recent
-lookups (`terra.lookup.recent`), stack tracking (`terra.local-stacks.v1`) and
-manual-entry marks in that stack data are kept on this iPad. Stack tracking
-only keeps how loaded pieces are grouped into stacks (names, order, who scanned
-what, **Manual** marks for keypad entries); the pieces themselves are always
-PowerFab's. Every time the loads are read, the stacks are brought in line with
+the phone layout (`terra.layout`), recent lookups (`terra.lookup.recent`) and
+the stacks (`terra.local-stacks.v1`) are kept on this iPad. The stacks only
+keep how loaded pieces are grouped (names, order, scan times, which were typed
+on the keypad); the pieces themselves are always PowerFab's. Every time the loads are read, the stacks are brought in line with
 what PowerFab has loaded on the load: a piece loaded elsewhere is added to the
 active stack ("Loaded in PowerFab"), and one unloaded or returned elsewhere
 comes off the most recently scanned stack. No stack or manual-entry metadata is
 sent to Tekla/PowerFab. The caches older
 versions kept
-(`terra.jobs`, `terra.parts.*`, `terra.pfloads.*`) are removed on launch. The
+(`terra.jobs`, `terra.parts.*`, `terra.pfloads.*`) and the old scan step and
+piece view settings (`terra.step`, `terra.load-view`) are removed on launch. The
 `terra-loads` IndexedDB database is left alone, since GitHub Pages shares it
 with terra-loads-web on the same iPad. Once a server is configured, Server
 settings remain available from the home hamburger menu and the setup tile is

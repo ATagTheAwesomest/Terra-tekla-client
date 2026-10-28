@@ -20,7 +20,7 @@ function syncHomeServerTile() {
 // Caches older versions kept on the device. Job data is read live now, so
 // they are dropped once. (The loads database is left alone: GitHub Pages
 // shares it with terra-loads-web on the same iPad.)
-const OLD_CACHES = [/^terra\.jobs$/, /^terra\.parts\./, /^terra\.pfloads\./];
+const OLD_CACHES = [/^terra\.jobs$/, /^terra\.parts\./, /^terra\.pfloads\./, /^terra\.step$/, /^terra\.load-view$/];
 
 function dropOldCaches() {
   try {

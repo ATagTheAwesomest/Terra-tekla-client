@@ -126,3 +126,11 @@
 @media print {
   .home { display: none !important; }
 }
+
+/* Pieces typed on the keypad, as terra-loads-web marks them. */
+@media print {
+  #print-ticket .pt-unmatched .pt-mark {
+    font-style: italic;
+    text-decoration: underline;
+  }
+}
