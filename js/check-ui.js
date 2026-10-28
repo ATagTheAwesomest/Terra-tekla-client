@@ -16,6 +16,37 @@ const RESET_HOLD_MS = 4000;
 let ctx = null;
 let missingOnly = false;
 
+// ---- Sound when the whole load is checked ------------------------------------
+// Safari only lets a page play sound after a tap or key press, so the audio
+// is unlocked on the first one (a barcode scanner's keys count).
+
+let audio = null;
+
+function unlockAudio() {
+  try {
+    audio ??= new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state === 'suspended') audio.resume();
+  } catch { /* no Web Audio: the check still works, just silently */ }
+}
+
+// Three loud rising beeps, then a long high one.
+export function playComplete() {
+  unlockAudio();
+  if (!audio) return;
+  const t0 = audio.currentTime + 0.05;
+  [[880, 0, 0.18], [1175, 0.22, 0.18], [1568, 0.44, 0.18], [2093, 0.7, 0.6]].forEach(([freq, at, len]) => {
+    const osc = audio.createOscillator();
+    const gain = audio.createGain();
+    osc.type = 'square';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(1, t0 + at);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + at + len);
+    osc.connect(gain).connect(audio.destination);
+    osc.start(t0 + at);
+    osc.stop(t0 + at + len + 0.02);
+  });
+}
+
 function formatTime(iso) {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
@@ -123,6 +154,7 @@ export function renderCheck(state) {
 export function submitCheck(raw, { manual = false } = {}) {
   const load = ctx.load();
   if (!load || !cleanMark(raw)) return null;
+  const wasComplete = checkStatus(stacks.get(load)).complete;
   let scan;
   try { scan = stacks.addCheck(load, raw, { manual }); } catch (err) {
     ctx.toast(err.message, 5000);
@@ -136,6 +168,7 @@ export function submitCheck(raw, { manual = false } = {}) {
     row?.scrollIntoView({ block: 'nearest' });
     flashFeedback('ok', row);
     if (s.complete) ctx.toast(`All ${s.total} pieces checked`, 4000);
+    if (s.complete && !wasComplete) playComplete();
   } else {
     const row = document.querySelector(`[data-scan-id="${CSS.escape(scan.id)}"]`);
     row?.scrollIntoView({ block: 'nearest' });
@@ -150,6 +183,7 @@ export function submitCheck(raw, { manual = false } = {}) {
 function completeHold(btn) {
   const load = ctx.load();
   if (!load) return;
+  const wasComplete = checkStatus(stacks.get(load)).complete;
   try {
     if (btn.dataset.hold === 'check-reset') {
       stacks.resetCheck(load);
@@ -160,6 +194,8 @@ function completeHold(btn) {
       if (scan) ctx.toast(`Removed check of ${scan.mark}`);
     }
   } catch (err) { ctx.toast(err.message, 5000); }
+  // Removing the last extra can finish the check too.
+  if (!wasComplete && checkStatus(stacks.get(load)).complete) playComplete();
   ctx.render();
 }
 
@@ -167,6 +203,8 @@ function completeHold(btn) {
 //        render(), toast(msg, ms), exit() back to loading }
 export function initCheck(context) {
   ctx = context;
+  document.addEventListener('pointerdown', unlockAudio, { capture: true });
+  document.addEventListener('keydown', unlockAudio, { capture: true });
   const ws = document.getElementById('workspace');
   ws.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-action]');

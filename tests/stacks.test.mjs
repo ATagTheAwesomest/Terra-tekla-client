@@ -130,3 +130,17 @@ test('stacks saved under a PowerFab load ID carry over to the grouped load, and 
   stacks.clear(split);
   assert.equal(stacks.get(pfOnly).stacks[0].name, 'Stack 8 - 1');
 });
+
+test('stack rows count each mark across the load, and each stack lists its own sequences', async () => {
+  const { pieceCounts, stackSequences } = await import('../js/shipping.js');
+  mem.clear();
+  const l = load([]);
+  stacks.recordLoaded(l, item('A1', '2', 1), 'A1');
+  stacks.addStack(l);
+  stacks.recordLoaded(l, item('A1', '10', 1), 'A1');
+  stacks.recordLoaded(l, item('B2', '2', 1), 'B2');
+  const state = stacks.get(l);
+  const c = pieceCounts(state);
+  assert.deepEqual(state.stacks.flatMap((s) => s.items.map((e) => `${e.mark} ${c.get(e.id).n}/${c.get(e.id).of}`)), ['A1 1/2', 'A1 2/2', 'B2 1/1']);
+  assert.deepEqual(stackSequences(state.stacks[1]), ['2', '10']);
+});
