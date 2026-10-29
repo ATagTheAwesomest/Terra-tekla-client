@@ -44,6 +44,14 @@ export function photoLabel(text) {
     .replace(/[. ]+$/, '');
 }
 
+// What a saved photo is of, from the name the server gave it:
+// "20261028-143611_1001-C1 (2).jpg" -> "1001-C1"; "..._load.jpg" -> "Whole load".
+export function markOf(name) {
+  const m = /^\d{8}-\d{6}_(.+?)(?: \(\d+\))?\.[a-z]+$/i.exec(name);
+  if (!m) return name;
+  return m[1] === 'load' ? 'Whole load' : m[1];
+}
+
 // A failed send that sending again won't fix (the server refused this photo),
 // as opposed to the device being offline or the server being down.
 export function isRefusal(err) {

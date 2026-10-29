@@ -71,7 +71,7 @@ export class ApiError extends Error {
 
 // `body` is sent as JSON, or as it is when it's FormData (the browser sets
 // the multipart Content-Type itself).
-async function request(path, { method = 'GET', body } = {}) {
+async function request(path, { method = 'GET', body, blob = false } = {}) {
   const config = getConfig();
   if (!config) throw new ApiError('No server set up. Open Server settings in the menu.');
   const form = typeof FormData !== 'undefined' && body instanceof FormData;
@@ -86,6 +86,7 @@ async function request(path, { method = 'GET', body } = {}) {
   } catch {
     throw new ApiError('Can’t reach the server. Check the address, or that this device is online.');
   }
+  if (blob && res.ok) return res.blob();
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     const why = res.status === 401 ? 'The API key was refused.' : data?.detail || data?.title || `Server error ${res.status}.`;
@@ -126,6 +127,17 @@ export function uploadFiles(job, load, files, { mark = '' } = {}) {
   for (const f of files) form.append('file', f.blob ?? f, f.name ?? 'photo.jpg');
   if (mark) form.append('mark', mark);
   return request(filesPath(job, load), { method: 'POST', body: form });
+}
+
+// One saved file as a Blob, by its name from listFiles. (It needs the API key,
+// so it can't be a plain <img src>.)
+export function fetchFile(job, load, name) {
+  return request(`${filesPath(job, load)}/${encodeURIComponent(name)}`, { blob: true });
+}
+
+// Deletes one saved file. The server moves it to the load's .deleted folder.
+export function deleteFile(job, load, name) {
+  return request(`${filesPath(job, load)}/${encodeURIComponent(name)}`, { method: 'DELETE' });
 }
 
 // Every object stored under `name` anywhere in a reply, as one flat array.

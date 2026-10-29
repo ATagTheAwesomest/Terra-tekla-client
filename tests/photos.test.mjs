@@ -10,7 +10,7 @@ globalThis.localStorage = {
 };
 
 const api = await import('../js/api.js');
-const { isRefusal, photoLabel, photosEnabled, setPhotosEnabled } = await import('../js/photos.js');
+const { isRefusal, markOf, photoLabel, photosEnabled, setPhotosEnabled } = await import('../js/photos.js');
 
 test('photo labels follow the server’s folder name rules', () => {
   assert.equal(photoLabel('1001-C1'), '1001-C1');
@@ -65,4 +65,32 @@ test('uploads go to /api/files/<job>/<load> as multipart with the key', async ()
 
   globalThis.fetch = async () => new Response(JSON.stringify({ detail: 'too big' }), { status: 413 });
   await assert.rejects(api.uploadFiles('J', '1', [blob]), (err) => err.status === 413 && err.message === 'too big');
+});
+
+test('a saved photo’s name says what it is of', () => {
+  assert.equal(markOf('20261028-143611_1001-C1.jpg'), '1001-C1');
+  assert.equal(markOf('20261028-143611_Stack 8 - 1 (2).jpg'), 'Stack 8 - 1');
+  assert.equal(markOf('20261028-143611_load.png'), 'Whole load');
+  assert.equal(markOf('scan.pdf'), 'scan.pdf');
+});
+
+test('view fetches the file as a blob; delete sends DELETE, both with the key', async () => {
+  store.clear();
+  api.setConfig({ url: 'https://api.example.com', key: 'secret' });
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, init });
+    return init.method === 'DELETE'
+      ? new Response(JSON.stringify({ deleted: 'a b.jpg' }), { status: 200 })
+      : new Response(new Uint8Array([0xff, 0xd8, 0xff]), { status: 200, headers: { 'Content-Type': 'image/jpeg' } });
+  };
+  const blob = await api.fetchFile('J1', '8', 'a b.jpg');
+  assert.equal(blob.size, 3);
+  assert.equal(calls[0].url, 'https://api.example.com/api/files/J1/8/a%20b.jpg');
+  assert.equal(calls[0].init.headers.Authorization, 'Bearer secret');
+  assert.equal((await api.deleteFile('J1', '8', 'a b.jpg')).deleted, 'a b.jpg');
+  assert.equal(calls[1].init.method, 'DELETE');
+
+  globalThis.fetch = async () => new Response(JSON.stringify({ detail: 'There is no file' }), { status: 404 });
+  await assert.rejects(api.fetchFile('J1', '8', 'x.jpg'), (err) => err.status === 404 && /no file/.test(err.message));
 });
