@@ -9,12 +9,15 @@ import { bindHold } from './hold.js';
 import * as photos from './photos.js';
 
 const $ = (sel) => document.querySelector(sel);
+const DELETE_HOLD_MS = 1500;
 const dialog = () => $('#dlg-photos');
 
 let ctx = null;     // { render() } from shipping-ui
 let open = null;    // { job, load, choices: [{ label, value }], mark }
 let thumbs = [];    // object URLs to revoke on the next draw
 let onServer = { files: null, error: '' };
+const serverThumbs = new Map(); // file name -> object URL of the photo, for the open load
+let viewing = null;             // file name shown in the viewer
 
 // ---- Buttons in the shipping screen -----------------------------------------------
 
@@ -44,6 +47,7 @@ export function openPhotos({ job, load, choices = [], mark = '' }) {
   const clean = choices.map((c) => ({ ...c, value: photos.photoLabel(c.value) })).filter((c) => c.value);
   open = { job, load, choices: clean, mark: photos.photoLabel(mark) };
   onServer = { files: null, error: '' };
+  dropServerThumbs();
   draw();
   if (!dialog().open) dialog().showModal();
   readServer();
@@ -55,10 +59,141 @@ async function readServer() {
   try {
     const reply = await api.listFiles(job, load);
     if (open?.job === job && open?.load === load) onServer = { files: reply?.files ?? [], error: '' };
+    loadServerThumbs(job, load);
   } catch (err) {
     onServer = { files: null, error: err.status === 403 ? 'The server has files turned off (FILES_ENABLED).' : err.status === 404 ? 'The server doesn’t take photos yet (it needs updating).' : err.message };
   }
   draw();
+}
+
+// ---- Library: the server's photos for the load --------------------------------
+
+function dropServerThumbs() {
+  serverThumbs.forEach((u) => u && URL.revokeObjectURL(u));
+  serverThumbs.clear();
+}
+
+// Fetches the photos the window doesn't have yet, newest first, three at a time.
+async function loadServerThumbs(job, load) {
+  const todo = (onServer.files ?? []).slice().reverse().map((f) => f.name).filter((n) => !serverThumbs.has(n));
+  todo.forEach((n) => serverThumbs.set(n, ''));
+  const worker = async () => {
+    for (let name = todo.shift(); name; name = todo.shift()) {
+      try {
+        const blob = await api.fetchFile(job, load, name);
+        if (open?.job !== job || open?.load !== load) return;
+        serverThumbs.set(name, URL.createObjectURL(blob));
+      } catch {
+        if (open?.job !== job || open?.load !== load) return;
+        serverThumbs.set(name, 'error');
+      }
+      drawTile(name);
+      if (viewing === name) drawViewer();
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+}
+
+function isImage(name) {
+  return /\.(jpe?g|png|webp|heic)$/i.test(name);
+}
+
+function picture(name) {
+  const url = serverThumbs.get(name);
+  return url === 'error' ? '<span class="photo-missing">Couldn’t load</span>'
+    : !url ? '<span class="photo-missing">Loading…</span>'
+    : isImage(name) ? `<img src="${url}" alt="">` : '<span class="photo-missing">PDF</span>';
+}
+
+// A photo arrived: only its picture changes, so a hold on another tile isn't cut short.
+function drawTile(name) {
+  const tile = [...document.querySelectorAll('#photos-server [data-file-name]')].find((el) => el.dataset.fileName === name);
+  const pic = tile?.querySelector('.photo-open');
+  if (pic) pic.innerHTML = picture(name);
+}
+
+function serverTile(f) {
+  return `<li class="photo-tile on-server" data-file-name="${escapeHtml(f.name)}">
+    <button class="photo-open" type="button" data-photo-view aria-label="View ${escapeHtml(f.name)}">${picture(f.name)}</button>
+    <span class="photo-of">${escapeHtml(photos.markOf(f.name))}</span>
+    <span class="photo-meta">${escapeHtml(shortTime(f.modified))} · ${kb(f.bytes)}</span>
+    <span class="photo-actions"><button class="btn btn-hold" type="button" data-hold="delete-photo" data-hold-ms="${DELETE_HOLD_MS}">Hold to delete</button></span>
+  </li>`;
+}
+
+function drawServer() {
+  if (!open) return;
+  const files = onServer.files;
+  $('#photos-server').innerHTML = onServer.error ? `<li class="muted">${escapeHtml(onServer.error)}</li>`
+    : !files ? '<li class="muted">Reading…</li>'
+    : !files.length ? '<li class="muted">None yet.</li>'
+    : files.slice().reverse().map(serverTile).join('');
+  $('#photos-server-head').textContent = `On the server${files?.length ? ` (${files.length})` : ''}`;
+}
+
+// ---- Viewer -------------------------------------------------------------------------
+
+function viewOrder() {
+  return (onServer.files ?? []).slice().reverse().map((f) => f.name);
+}
+
+function openViewer(name) {
+  viewing = name;
+  drawViewer();
+  const dlg = $('#dlg-photo-view');
+  if (!dlg.open) dlg.showModal();
+}
+
+function drawViewer() {
+  const file = (onServer.files ?? []).find((f) => f.name === viewing);
+  if (!file) {
+    $('#dlg-photo-view').close();
+    return;
+  }
+  const order = viewOrder();
+  const i = order.indexOf(viewing);
+  const url = serverThumbs.get(viewing);
+  $('#photo-view-title').textContent = photos.markOf(file.name);
+  $('#photo-view-meta').textContent = `${file.name} · ${shortTime(file.modified)} · ${kb(file.bytes)} · ${i + 1} of ${order.length}`;
+  $('#photo-view-body').innerHTML = url && url !== 'error'
+    ? (isImage(file.name) ? `<img src="${url}" alt="${escapeHtml(file.name)}">` : `<a class="btn btn-lg" href="${url}" target="_blank" rel="noopener">Open ${escapeHtml(file.name)}</a>`)
+    : `<p class="muted">${url === 'error' ? 'Couldn’t load this file.' : 'Loading…'}</p>`;
+  $('#btn-photo-prev').disabled = i <= 0;
+  $('#btn-photo-next').disabled = i < 0 || i >= order.length - 1;
+}
+
+function step(by) {
+  const order = viewOrder();
+  const next = order[order.indexOf(viewing) + by];
+  if (next) {
+    viewing = next;
+    drawViewer();
+  }
+}
+
+async function deleteOnServer(name) {
+  if (!open || !name) return;
+  const { job, load } = open;
+  try {
+    await api.deleteFile(job, load, name);
+    if (open?.job !== job || open?.load !== load) return;
+    // The next photo takes the viewer's place, or it closes.
+    if (viewing === name) {
+      const order = viewOrder();
+      const i = order.indexOf(name);
+      viewing = order[i + 1] ?? order[i - 1] ?? null;
+    }
+    onServer.files = (onServer.files ?? []).filter((f) => f.name !== name);
+    const url = serverThumbs.get(name);
+    if (url && url !== 'error') URL.revokeObjectURL(url);
+    serverThumbs.delete(name);
+    drawServer();
+    if ($('#dlg-photo-view').open) drawViewer();
+    toast(`Deleted ${name}`);
+  } catch (err) {
+    toast(`Not deleted: ${err.message}`, 6000);
+    readServer();
+  }
 }
 
 function shortTime(iso) {
@@ -105,12 +240,7 @@ async function draw() {
     </li>`;
   }).join('');
 
-  const files = onServer.files;
-  $('#photos-server').innerHTML = onServer.error ? `<li class="muted">${escapeHtml(onServer.error)}</li>`
-    : !files ? '<li class="muted">Reading…</li>'
-    : !files.length ? '<li class="muted">None yet.</li>'
-    : files.slice().reverse().map((f) => `<li><span class="photo-name">${escapeHtml(f.name)}</span><span class="muted">${kb(f.bytes)}</span></li>`).join('');
-  $('#photos-server-head').textContent = `On the server${files?.length ? ` (${files.length})` : ''}`;
+  drawServer();
 
   $('#photos-status').textContent = !navigator.onLine ? 'Offline. Photos stay on this iPad and are sent when it’s back online.'
     : lastError ? `Not sent yet: ${lastError}`
@@ -179,6 +309,9 @@ export function initPhotos(context) {
   $('#btn-photos-close').addEventListener('click', () => dialog().close());
   dialog().addEventListener('close', () => {
     open = null;
+    viewing = null;
+    if ($('#dlg-photo-view').open) $('#dlg-photo-view').close();
+    dropServerThumbs();
     thumbs.forEach((u) => URL.revokeObjectURL(u));
     thumbs = [];
     ctx.closed?.();
@@ -194,6 +327,22 @@ export function initPhotos(context) {
     },
     onTap: (btn, secs) => toast(`Hold for ${secs} seconds to throw this photo away without sending it`),
   });
+
+  // Library: tap a photo to view it; deleting is a hold, on the tile or in the viewer.
+  $('#photos-server').addEventListener('click', (e) => {
+    const name = e.target.closest('[data-photo-view]') && e.target.closest('[data-file-name]')?.dataset.fileName;
+    if (name) openViewer(name);
+  });
+  const deleteHold = {
+    onComplete: (btn) => deleteOnServer(btn.closest('[data-file-name]')?.dataset.fileName ?? viewing),
+    onTap: (btn, secs) => toast(`Hold for ${secs} seconds to delete this photo from the server`),
+  };
+  bindHold($('#photos-server'), deleteHold);
+  bindHold($('#dlg-photo-view'), deleteHold);
+  $('#btn-photo-prev').addEventListener('click', () => step(-1));
+  $('#btn-photo-next').addEventListener('click', () => step(1));
+  $('#btn-photo-view-close').addEventListener('click', () => $('#dlg-photo-view').close());
+  $('#dlg-photo-view').addEventListener('close', () => { viewing = null; });
 
   $('#btn-photos-toggle').addEventListener('click', () => {
     photos.setPhotosEnabled(!photos.photosEnabled());

@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TERRA">
   <meta name="format-detection" content="telephone=no">
-  <meta name="terra-version" content="0.11.2">
+  <meta name="terra-version" content="0.12.1">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -229,7 +229,23 @@
       <h3 id="photos-server-head">On the server</h3>
       <button class="btn" type="button" id="btn-photos-refresh" aria-label="Send and read again">&#8635;</button>
     </div>
-    <ul class="photo-list" id="photos-server"></ul>
+    <ul class="photo-grid" id="photos-server"></ul>
+  </dialog>
+
+  <dialog class="modal photo-view" id="dlg-photo-view">
+    <div class="server-head">
+      <div>
+        <h2 id="photo-view-title">Photo</h2>
+        <p class="muted photos-job" id="photo-view-meta"></p>
+      </div>
+      <button class="btn btn-ghost" type="button" id="btn-photo-view-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="photo-view-body" id="photo-view-body"></div>
+    <div class="modal-actions photo-view-actions">
+      <button class="btn btn-lg" type="button" id="btn-photo-prev" aria-label="Newer photo">&#9664;</button>
+      <button class="btn btn-lg btn-hold" type="button" data-hold="delete-photo" data-hold-ms="1500">Hold to delete</button>
+      <button class="btn btn-lg" type="button" id="btn-photo-next" aria-label="Older photo">&#9654;</button>
+    </div>
   </dialog>
 
   <dialog class="modal ship-block" id="dlg-ship-block">
