@@ -164,3 +164,26 @@ test('a shipped load is view and truck check only', () => {
   stacks.startCheck(shipped);
   assert.ok(stacks.addCheck(shipped, 'A1'));
 });
+
+test('pieces loaded in PowerFab that no stack holds go into one new stack at the bottom, once', () => {
+  mem.clear();
+  const l = load([]);
+  stacks.recordLoaded(l, item('A1', '1', 1), 'A1');
+  stacks.addStack(l);
+  stacks.recordLoaded(l, item('B2', '1', 1), 'B2');
+  stacks.setActive(l, stacks.get(l).stacks[0].id);
+  const pf = load([item('A1', '1', 1), item('B2', '1', 1), item('C3', '2', 2), item('D4', '2', 1)]);
+  let state = stacks.sync(pf);
+  assert.deepEqual(state.stacks.map((s) => `${s.name}: ${s.items.map((e) => e.mark).join(',')}`),
+    ['Stack 1 - 1: A1', 'Stack 1 - 2: B2', 'Stack 1 - 3: C3,C3,D4']);
+  // The stack being scanned into stays active.
+  assert.equal(stacks.activeStack(state).name, 'Stack 1 - 1');
+  // Syncing again changes nothing: no second stack.
+  state = stacks.sync(pf);
+  assert.equal(state.stacks.length, 3);
+  // An empty last stack is used rather than adding another.
+  stacks.setActive(l, state.stacks[2].id);
+  stacks.addStack(l);
+  state = stacks.sync(load([...pf.items, item('E5', '3', 1)]));
+  assert.deepEqual(state.stacks.map((s) => s.items.map((e) => e.mark).join(',')), ['A1', 'B2', 'C3,C3,D4', 'E5']);
+});

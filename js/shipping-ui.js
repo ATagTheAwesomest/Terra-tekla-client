@@ -99,6 +99,51 @@ async function read({ remaining = false } = {}) {
     if (seq === readSeq) ship.reading = false;
     render();
   }
+  if (seq === readSeq && !ship.error) loadUnstacked();
+}
+
+// Pieces on the open load in PowerFab that aren't on the truck (assigned in
+// PowerFab itself, or by an older version of this app) aren't in any stack.
+// On this app being on a load means loaded, so they are loaded in PowerFab
+// and the next read puts them in a stack of their own (js/stack-store.js
+// sync). Each piece is tried once per session: one PowerFab refuses gets the
+// usual warning and is counted in a note, and scanning it tries again.
+const autoTried = new Set(); // "loadId:truckId:loaded"
+const autoRefused = new Map(); // loadId -> Set(truckId)
+
+function loadUnstacked() {
+  const load = selectedLoad();
+  if (!load || load.shipped || ship.busy) return;
+  const todo = load.items.filter((it) => it.loaded < it.qty && !autoTried.has(`${load.id}:${it.truckId}:${it.loaded}`));
+  if (!todo.length) return;
+  for (const it of todo) autoTried.add(`${load.id}:${it.truckId}:${it.loaded}`);
+  const jobThen = ship.job;
+  change(async () => {
+    const current = openLoadFor(jobThen);
+    if (current.id !== load.id) return;
+    const refused = autoRefused.get(load.id) ?? new Set();
+    autoRefused.set(load.id, refused);
+    let n = 0;
+    let firstErr = null;
+    for (const it of todo) {
+      try {
+        await pf.loadMaterial(load.id, it, it.qty - it.loaded);
+        refused.delete(it.truckId);
+        n += it.qty - it.loaded;
+      } catch (err) {
+        refused.add(it.truckId);
+        firstErr ??= Object.assign(err, { mark: it.mark });
+      }
+    }
+    if (n) toast(`${n} piece${n === 1 ? '' : 's'} on load ${load.number} in PowerFab loaded into a new stack`, 4000);
+    if (firstErr) {
+      const more = todo.filter((it) => refused.has(it.truckId)).length - 1;
+      throw Object.assign(firstErr, {
+        title: 'PowerFab wouldn’t load a piece on this load',
+        message: `${firstErr.message}${more > 0 ? ` (and ${more} more piece${more === 1 ? '' : 's'})` : ''}`,
+      });
+    }
+  });
 }
 
 // Opens Shipping on a job: clears the old job's data and reads the new one.
@@ -361,13 +406,12 @@ function itemRow(it) {
   </li>`;
 }
 
-// Pieces on the load in PowerFab that aren't on the truck (put there in
-// PowerFab itself, or by an older version of this app) aren't in any stack.
-// There is nothing to press: scanning one loads it into the active stack.
-function waitingNote(load) {
+// Pieces PowerFab refused to load automatically (see loadUnstacked).
+function refusedNote(load) {
   if (load.shipped) return '';
-  const n = load.items.reduce((sum, it) => sum + Math.max(0, it.qty - it.loaded), 0);
-  return n ? `<p class="ship-diff">${n} piece${n === 1 ? ' is' : 's are'} on this load in PowerFab but not loaded. Scan ${n === 1 ? 'it' : 'them'} to load into a stack.</p>` : '';
+  const refused = autoRefused.get(load.id);
+  const n = load.items.filter((it) => refused?.has(it.truckId)).reduce((sum, it) => sum + Math.max(0, it.qty - it.loaded), 0);
+  return n ? `<p class="ship-diff">PowerFab wouldn’t load ${n} piece${n === 1 ? '' : 's'} on this load, so ${n === 1 ? 'it isn’t' : 'they aren’t'} in a stack. Scan ${n === 1 ? 'it' : 'them'} to try again.</p>` : '';
 }
 
 function returnsSection(load) {
@@ -415,7 +459,7 @@ function renderLoad(load) {
   const locked = load.shipped
     ? '<p class="ship-locked">Shipped: view and truck check only. Pieces and stacks can’t be scanned on, moved, renamed or taken off. Hold to unship to change this load.</p>'
     : '';
-  return head + locked + waitingNote(load) + renderStacks(state, { locked: load.shipped }) + returnsSection(load);
+  return head + locked + refusedNote(load) + renderStacks(state, { locked: load.shipped }) + returnsSection(load);
 }
 
 function renderWorkspace() {

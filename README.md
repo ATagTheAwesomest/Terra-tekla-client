@@ -83,8 +83,9 @@ Stacks are only kept on this iPad; moving pieces between stacks or renaming
 one never touches PowerFab. There are no separate assign, load or unload
 buttons. If PowerFab refuses to load a scanned piece, the assign is undone and
 a warning says why; a mark whose pieces are all on other loads gets a warning
-naming those loads. Pieces put on the load in PowerFab itself but not loaded
-are counted in a note above the stacks; scanning one loads it.
+naming those loads. Pieces put on the load in PowerFab itself are
+loaded when the load is opened and put in a new stack at the bottom, so every
+piece on the load is always in a stack.
 
 ### Truck check
 
@@ -235,9 +236,13 @@ the stacks (`terra.local-stacks.v1`) are kept on this iPad, as are the photos
 switch (`terra.photos`) and photos not sent yet (IndexedDB `terra-photos`). The stacks only
 keep how loaded pieces are grouped (names, order, scan times, which were typed
 on the keypad); the pieces themselves are always PowerFab's. Every time the loads are read, the stacks are brought in line with
-what PowerFab has loaded on the load: a piece loaded elsewhere is added to the
-active stack ("Loaded in PowerFab"), and one unloaded or returned elsewhere
-comes off the most recently scanned stack. No stack or manual-entry metadata is
+what PowerFab has loaded on the load: pieces loaded elsewhere go into a stack
+of their own at the bottom (the last stack if it is empty, else a new
+`Stack <load> - <n>`), and one unloaded or returned elsewhere comes off the
+most recently scanned stack. Pieces assigned to an open load in PowerFab but
+not loaded are loaded automatically when the load is opened, so they land in
+that stack too; one PowerFab refuses gets a warning and a note, and scanning
+it tries again. No stack or manual-entry metadata is
 sent to Tekla/PowerFab. The caches older
 versions kept
 (`terra.jobs`, `terra.parts.*`, `terra.pfloads.*`) and the old scan step and

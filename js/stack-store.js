@@ -103,11 +103,25 @@ export function sync(load) {
     }
   }
 
-  const active = activeStack(state);
+  // Pieces PowerFab has loaded that no stack holds (loaded in PowerFab itself,
+  // or before this iPad tracked the load) go into a stack of their own at the
+  // bottom: the last stack if it is still empty, else a new one. The stack
+  // being scanned into stays the active one.
+  let target = null;
+  const intoStack = () => {
+    if (target) return target;
+    const last = state.stacks.at(-1);
+    if (!last.items.length) target = last;
+    else {
+      target = { id: newId(), name: nextStackName(state, load), items: [] };
+      state.stacks.push(target);
+    }
+    return target;
+  };
   for (const [key, w] of want) {
     for (let missing = w.n - (have.get(key)?.length ?? 0); missing > 0; missing--) {
       const it = w.item;
-      active.items.push({
+      intoStack().items.push({
         id: newId(), mark: it.mark, sequence: it.sequence, partNumber: it.partNumber, remark: it.remark,
         shape: it.shape, dimensions: it.dimensions, grade: it.grade, length: it.length,
         description: it.description, weight: it.weightEach, manual: false, scannedAt: null, synced: true,
