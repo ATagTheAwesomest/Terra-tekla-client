@@ -153,8 +153,11 @@ Off until **Server settings → Send photos to the server** is turned on (per
 device, `terra.photos`). Then each load gets a **📷 Photos** button, each stack
 header a 📷 button, and each piece's details a **Photo of this piece** button.
 The Photos window takes a photo with the camera or picks some from the
-library, for the whole load, a stack or a piece ("Photo of"), and lists what
-the server already has for the load.
+library, for the whole load, a stack or a piece ("Photo of"), and shows the
+photos the server already has for the load as a library: tap one to view it
+full size (◀ ▶ step through them), and **hold Delete for 1.5 s** (on the tile
+or in the viewer) to delete it. The server moves a deleted photo to the load's
+`.deleted` folder rather than erasing it.
 
 Photos go to the server's files routes (`POST /api/files/<job>/<load>`, with
 the stack name or piece mark as `mark`), which save them in a folder for the
