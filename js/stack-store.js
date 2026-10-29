@@ -1,6 +1,5 @@
 // Local-only stack tracking for live PowerFab loads. Stack data is keyed by
-// the app's load ID (js/load-groups.js groupId, which stays the same while
-// PowerFab splits the load by sequence) and is never included in API requests.
+// load ID and is intentionally never included in API requests.
 
 import { addCheckScan, emptyCheck, removeCheckScan } from './check.js';
 
@@ -33,11 +32,11 @@ function defaultState(load) {
   return { loadId: load.id, loadNumber: load.number, activeStackId: stack.id, stacks: [stack] };
 }
 
-// The load's saved state. Stacks saved before loads were grouped are kept
-// under the PowerFab load's own ID; they are picked up from there once.
+// The load's saved state. v0.10 kept stacks under its own load key
+// (load.oldIds, set by js/shipping-ui.js); they are picked up from there once.
 function stored(all, load) {
   if (all[load.id]) return all[load.id];
-  const old = (load.parts ?? []).map((p) => all[p.id]).find(Boolean);
+  const old = (load.oldIds ?? []).map((id) => all[id]).find(Boolean);
   return old ? { ...old, loadId: load.id } : undefined;
 }
 
@@ -305,6 +304,6 @@ export function removeCheck(load, scanId) {
 export function clear(load) {
   const all = readAll();
   delete all[load.id];
-  for (const p of load.parts ?? []) delete all[p.id];
+  for (const id of load.oldIds ?? []) delete all[id];
   writeAll(all);
 }
