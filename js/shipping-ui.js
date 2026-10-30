@@ -38,7 +38,9 @@ import { flashFeedback, focusScanner, openKeypad } from './scanner.js';
 import * as stacks from './stack-store.js';
 import { pieceDetails } from './stack-ops.js';
 import { initStacks, renderStacks } from './stacks-ui.js';
-import { initPhotos, openPhotos, photoButton, photoOfButton } from './photos-ui.js';
+import { initPhotos, openPhotos, photoButton, photoOfButton, photosOn } from './photos-ui.js';
+import { openCamera } from './camera.js';
+import { queuePhotos } from './photos.js';
 import { claimsText, cleanMark, findLoad, formatWeight, lastLoaded, loadSequences, loadTotals, pickRemaining, takeRemaining, toLoad } from './shipping.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -231,7 +233,45 @@ async function assignOne(load, mark) {
 // What a scan of `raw` does on the open load: the piece is assigned to the
 // load if it isn't already, loaded, and added to the bottom of the active
 // stack. A mark PowerFab has none left of is refused with the reason.
+// A manual entry (typed, not scanned) needs a photo first while photos are on.
 export function scan(raw, { manual = false } = {}) {
+  if (manual && photosOn()) return manualWithPhoto(raw);
+  return scanNow(raw, { manual });
+}
+
+// The camera opens for the typed mark and the entry only goes ahead with at
+// least one photo. The photos are kept (and sent) once the entry is made; if
+// PowerFab refuses it they are dropped, since the piece isn't on the load.
+async function manualWithPhoto(raw) {
+  const mark = cleanMark(raw);
+  const open = selectedLoad();
+  // No load, or a shipped one (outside truck check): refused straight away, no photo needed.
+  if (!mark || !open || (open.shipped && !checking)) return scanNow(raw, { manual: true });
+  const shots = await openCamera({
+    title: `Photo of ${mark}`,
+    note: 'Typed in by hand, so it needs a photo of the piece (its mark or tag). Take one or more, then Done.',
+    required: true,
+  });
+  focusScanner();
+  if (!shots?.length) {
+    toast(`${mark} not added: a manual entry needs a photo`, 5000);
+    return null;
+  }
+  const job = ship.job;
+  const result = await scanNow(raw, { manual: true });
+  if (!result) {
+    toast(`${mark} wasn’t added, so its photo${shots.length === 1 ? ' wasn’t' : 's weren’t'} kept`, 5000);
+    return result;
+  }
+  try {
+    await queuePhotos({ job, load: open.number, mark, files: shots });
+  } catch (err) {
+    toast(`${mark} added, but its photo couldn’t be kept: ${err.message}`, 6000);
+  }
+  return result;
+}
+
+function scanNow(raw, { manual = false } = {}) {
   if (checking) return submitCheck(raw, { manual });
   const mark = cleanMark(raw);
   if (!mark) return null;

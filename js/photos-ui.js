@@ -5,6 +5,7 @@
 
 import { escapeHtml, toast } from './app.js';
 import * as api from './api.js';
+import { initCamera, openCamera } from './camera.js';
 import { bindHold } from './hold.js';
 import * as live from './live.js';
 import * as photos from './photos.js';
@@ -259,9 +260,21 @@ async function draw() {
 async function addFiles(input) {
   const files = [...(input.files ?? [])];
   input.value = '';
-  if (!files.length || !open) return;
+  queue(files);
+}
+
+// The rapid-fire camera: as many as wanted, then Done.
+async function takePhotos() {
+  if (!open) return;
   const { job, load } = open;
   const mark = $('#photos-of').value;
+  const shots = await openCamera({ title: `Photos of ${mark || `load ${load}`}` });
+  if (open?.job === job && open?.load === load) queue(shots ?? [], mark);
+}
+
+async function queue(files, mark = $('#photos-of').value) {
+  if (!files.length || !open) return;
+  const { job, load } = open;
   try {
     const n = await photos.queuePhotos({ job, load, mark, files });
     toast(`${n} photo${n === 1 ? '' : 's'} of ${mark || `load ${load}`} saved, sending to the server`);
@@ -286,7 +299,7 @@ async function drawSetting({ test = false } = {}) {
     return;
   }
   if (!test || !api.getConfig()) {
-    note.textContent = `On: Shipping has a Photos button on each load and a camera on each stack and piece.${left}`;
+    note.textContent = `On: Shipping has a Photos button on each load and a camera on each stack and piece, and a mark typed in by hand needs a photo.${left}`;
     return;
   }
   note.textContent = 'Checking the server…';
@@ -304,13 +317,14 @@ async function drawSetting({ test = false } = {}) {
 
 export function initPhotos(context) {
   ctx = context;
+  initCamera();
   photos.initPhotoQueue();
   photos.onPhotosChange(() => {
     ctx.render();
     if (dialog().open) draw();
   });
 
-  $('#photos-camera').addEventListener('change', (e) => addFiles(e.target));
+  $('#btn-photos-camera').addEventListener('click', takePhotos);
   $('#photos-library').addEventListener('change', (e) => addFiles(e.target));
   $('#photos-of').addEventListener('change', (e) => { if (open) open.mark = e.target.value; });
   $('#btn-photos-refresh').addEventListener('click', () => { photos.sendQueued(); readServer(); });
