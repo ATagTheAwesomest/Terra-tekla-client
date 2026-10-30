@@ -167,7 +167,9 @@ export function openKeypad({ mode = 'mark', title, note = '', initial = '', okLa
 
 async function manualEntry() {
   const value = await openKeypad({ mode: 'mark', note: 'Does the same as scanning the mark.' });
-  if (value) ctx.scan(value, { manual: true });
+  // Shipping asks for a photo of a typed piece first (while photos are on).
+  if (value && ctx.manualScan) ctx.manualScan(value);
+  else if (value) ctx.scan(value, { manual: true });
   focusScanner();
 }
 

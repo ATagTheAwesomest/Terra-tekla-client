@@ -9,7 +9,7 @@ import * as live from './live.js';
 import { initLayout } from './mobile.js';
 import { focusScanner, initScanner } from './scanner.js';
 import { initServer, openServerSettings, refreshJobs, serverStatus } from './server-ui.js';
-import { canScan, enterShipping, initShipping, render as renderShipping, scan, selectedLoad, ship } from './shipping-ui.js';
+import { canScan, enterShipping, initShipping, manualScan, render as renderShipping, scan, selectedLoad, ship } from './shipping-ui.js';
 import { initStackStore, onChange as onStacksChange, syncStatus } from './stack-store.js';
 import { APP_VERSION, checkForUpdate, forceUpdate, recoverStalePage, registerServiceWorker } from './updater.js';
 
@@ -164,7 +164,7 @@ function bindEvents() {
   });
   syncHomeServerTile();
   initLayout(renderShipping);
-  initScanner({ scan, canScan });
+  initScanner({ scan, manualScan, canScan });
   initStackStore();
   initShipping();
   live.on('status', renderStatus);

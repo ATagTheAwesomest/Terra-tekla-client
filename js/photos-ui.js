@@ -5,6 +5,7 @@
 
 import { escapeHtml, toast } from './app.js';
 import * as api from './api.js';
+import { initCamera, openCamera } from './camera.js';
 import { bindHold } from './hold.js';
 import * as live from './live.js';
 import * as photos from './photos.js';
@@ -272,6 +273,31 @@ async function addFiles(input) {
   }
 }
 
+// Live camera for the "Photo of" picked: each photo is saved on this iPad as
+// it is taken, so a run of them needs no more than a tap each.
+async function takePhotos() {
+  if (!open) return;
+  const { job, load } = open;
+  const mark = $('#photos-of').value;
+  const n = await openCamera({
+    title: mark || `Load ${load}`,
+    note: 'Tap the shutter for each photo. Each one is saved as it is taken.',
+    keep: (blob) => photos.queuePhotos({ job, load, mark, files: [blob], shrink: false }),
+  });
+  if (n) toast(`${n} photo${n === 1 ? '' : 's'} of ${mark || `load ${load}`} saved, sending to the server`);
+  if (open?.job === job && open?.load === load) photos.sendQueued().then(readServer);
+}
+
+// Photos of a typed piece, taken before it was added: kept only once it is.
+export async function keepPiecePhotos({ job, load, mark, blobs }) {
+  try {
+    const n = await photos.queuePhotos({ job, load, mark, files: blobs, shrink: false });
+    toast(`${n} photo${n === 1 ? '' : 's'} of ${photos.photoLabel(mark)} saved, sending to the server`);
+  } catch (err) {
+    toast(`Couldn’t keep the photo of ${mark}: ${err.message}`, 6000);
+  }
+}
+
 // ---- Server settings switch ------------------------------------------------------
 
 async function drawSetting({ test = false } = {}) {
@@ -282,11 +308,11 @@ async function drawSetting({ test = false } = {}) {
   const waitingCount = photos.waitingTotal();
   const left = waitingCount ? ` ${waitingCount} photo${waitingCount === 1 ? ' is' : 's are'} still on this iPad.` : '';
   if (!on) {
-    note.textContent = `Off: no camera buttons in Shipping.${left}`;
+    note.textContent = `Off: no camera buttons in Shipping, and typed marks need no photo.${left}`;
     return;
   }
   if (!test || !api.getConfig()) {
-    note.textContent = `On: Shipping has a Photos button on each load and a camera on each stack and piece.${left}`;
+    note.textContent = `On: Shipping has a Photos button on each load and a camera on each stack and piece, and a mark typed on the keypad needs a photo.${left}`;
     return;
   }
   note.textContent = 'Checking the server…';
@@ -304,13 +330,14 @@ async function drawSetting({ test = false } = {}) {
 
 export function initPhotos(context) {
   ctx = context;
+  initCamera();
   photos.initPhotoQueue();
   photos.onPhotosChange(() => {
     ctx.render();
     if (dialog().open) draw();
   });
 
-  $('#photos-camera').addEventListener('change', (e) => addFiles(e.target));
+  $('#btn-photos-camera').addEventListener('click', takePhotos);
   $('#photos-library').addEventListener('change', (e) => addFiles(e.target));
   $('#photos-of').addEventListener('change', (e) => { if (open) open.mark = e.target.value; });
   $('#btn-photos-refresh').addEventListener('click', () => { photos.sendQueued(); readServer(); });

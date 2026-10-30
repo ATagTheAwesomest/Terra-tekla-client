@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TERRA">
   <meta name="format-detection" content="telephone=no">
-  <meta name="terra-version" content="0.13.0">
+  <meta name="terra-version" content="0.15.0">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -22,6 +22,7 @@
   <link rel="stylesheet" href="css/mobile.css">
   <link rel="stylesheet" href="css/lookup.css">
   <link rel="stylesheet" href="css/photos.css">
+  <link rel="stylesheet" href="css/camera.css">
   <link rel="stylesheet" href="css/print.css">
   <script src="js/error-banner.js"></script>
   <script src="version.js"></script>
@@ -230,9 +231,7 @@
     <label for="photos-of">Photo of</label>
     <select id="photos-of" class="photos-of"></select>
     <div class="photos-take">
-      <label class="btn btn-lg btn-primary photos-pick">&#128247; Take photo
-        <input id="photos-camera" type="file" accept="image/*" capture="environment" class="photos-input">
-      </label>
+      <button class="btn btn-lg btn-primary photos-pick" type="button" id="btn-photos-camera">&#128247; Take photos</button>
       <label class="btn btn-lg photos-pick">&#128444; From library
         <input id="photos-library" type="file" accept="image/*" multiple class="photos-input">
       </label>
@@ -245,6 +244,31 @@
       <button class="btn" type="button" id="btn-photos-refresh" aria-label="Send and read again">&#8635;</button>
     </div>
     <ul class="photo-grid" id="photos-server"></ul>
+  </dialog>
+
+  <dialog class="modal camera" id="dlg-camera">
+    <div class="camera-head">
+      <div>
+        <h2 id="camera-title">Camera</h2>
+        <p class="muted camera-note" id="camera-note"></p>
+      </div>
+      <span class="camera-count" id="camera-count" aria-live="polite">0 photos</span>
+    </div>
+    <div class="camera-view" id="camera-view">
+      <video id="camera-video" playsinline muted autoplay></video>
+      <p class="camera-msg" id="camera-msg" role="status" hidden></p>
+      <label class="btn btn-lg btn-primary camera-fallback" id="camera-fallback" hidden>&#128247; Take photo
+        <input id="camera-file" type="file" accept="image/*" capture="environment" class="photos-input">
+      </label>
+    </div>
+    <ul class="camera-strip" id="camera-strip"></ul>
+    <p class="camera-need" id="camera-need"></p>
+    <div class="camera-actions">
+      <button class="btn btn-lg" type="button" id="camera-cancel">Cancel</button>
+      <button class="btn btn-lg" type="button" id="camera-undo">Undo last</button>
+      <button class="camera-shutter" type="button" id="camera-shutter" aria-label="Take photo"></button>
+      <button class="btn btn-lg btn-primary" type="button" id="camera-done">Done</button>
+    </div>
   </dialog>
 
   <dialog class="modal photo-view" id="dlg-photo-view">

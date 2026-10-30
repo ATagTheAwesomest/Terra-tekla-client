@@ -38,7 +38,8 @@ import { flashFeedback, focusScanner, openKeypad } from './scanner.js';
 import * as stacks from './stack-store.js';
 import { pieceDetails } from './stack-ops.js';
 import { initStacks, renderStacks } from './stacks-ui.js';
-import { initPhotos, openPhotos, photoButton, photoOfButton } from './photos-ui.js';
+import { openCamera } from './camera.js';
+import { initPhotos, keepPiecePhotos, openPhotos, photoButton, photoOfButton, photosOn } from './photos-ui.js';
 import { claimsText, cleanMark, findLoad, formatWeight, lastLoaded, loadSequences, loadTotals, pickRemaining, takeRemaining, toLoad } from './shipping.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -275,6 +276,32 @@ export function scan(raw, { manual = false } = {}) {
       throw err;
     }
   }, { remaining: true });
+}
+
+// A mark typed on the keypad (while photos are on) needs a photo of the
+// piece: the camera opens first and the piece is only added once at least one
+// is taken. The photos are kept if the piece goes on (or is checked off);
+// cancelling the camera adds nothing.
+export async function manualScan(raw) {
+  const mark = cleanMark(raw);
+  const open = selectedLoad();
+  // Nothing to photograph for: let scan() give its usual refusal.
+  if (!mark || !photosOn() || !open || (open.shipped && !checking)) return scan(raw, { manual: true });
+  const blobs = await openCamera({
+    title: `Photo of ${mark}`,
+    note: 'A typed mark needs a photo of the piece. Take one or more, then Add piece.',
+    need: 1,
+    doneLabel: 'Add piece',
+  });
+  if (!blobs) {
+    toast(`${mark} not added: typed marks need a photo`);
+    return null;
+  }
+  const job = ship.job;
+  const added = await scan(raw, { manual: true });
+  if (added) keepPiecePhotos({ job, load: open.number, mark, blobs });
+  else toast(`${mark} wasn’t added, so its photo${blobs.length === 1 ? ' was' : 's were'} not kept`, 4000);
+  return added;
 }
 
 // Takes the piece a stack row stands for off the truck and off the load, then

@@ -212,6 +212,20 @@ full size (◀ ▶ step through them), and **hold Delete for 1.5 s** (on the til
 or in the viewer) to delete it. The server moves a deleted photo to the load's
 `.deleted` folder rather than erasing it.
 
+**Take photos** opens a live camera that stays open: tap the round shutter
+once per photo (the count and the last few show at the bottom), then **Done**.
+Each photo is saved on the iPad as it is taken. It is a frame of Safari's live
+camera, as a web app can't drive the system camera app in a loop, so there is
+no flash or HDR. Where there is no live camera (the app opened over plain
+http, camera access refused) the same window offers the system camera, one
+photo per tap.
+
+While photos are on, **a mark typed on the keypad needs a photo of the
+piece**: after **Add** the camera opens, and the piece is only added once at
+least one photo is taken and **Add piece** is tapped (Cancel adds nothing). The
+photos are kept, as photos of that mark, only if the piece goes on (or, in
+truck check, is checked). With photos off, typed marks are added as before.
+
 Photos go to terra-tekla-server (`POST /api/photos/<job>/<load>`, with the
 stack name or piece mark as `mark`), which saves them in a folder for the job,
 then one per load, named with the date, the piece and this iPad's name: see
@@ -225,7 +239,8 @@ Each photo is shrunk to a JPEG of at most 2048 px and kept on the iPad
 nothing: the button shows "n to send", and they are sent when the iPad is back
 online (and every two minutes while any wait). One the server refuses (too
 big, bad name) stays with the reason, to send again or hold to discard.
-Code: `js/photos.js` (queue, sending), `js/photos-ui.js` (window, switch).
+Code: `js/photos.js` (queue, sending), `js/photos-ui.js` (window, switch),
+`js/camera.js` (live camera, `css/camera.css`).
 
 ## Piece lookup
 
