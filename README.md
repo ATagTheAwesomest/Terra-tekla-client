@@ -229,6 +229,19 @@ full size (◀ ▶ step through them), and **hold Delete for 1.5 s** (on the til
 or in the viewer) to delete it. The server moves a deleted photo to the load's
 `.deleted` folder rather than erasing it.
 
+**Take photos** opens the app's own camera: a live view with a big shutter.
+Each tap is a photo (or **hold** the shutter for one every half second); they
+line up along the bottom (✕ takes one back out) until **Done** queues them all.
+It needs the camera permission and the `https://` address (or localhost);
+without them it says why and offers the iPad's own camera, one photo per tap,
+into the same list.
+
+**Manual entries need a photo.** While photos are on, a mark typed on the
+keypad (in Shipping or in the truck check) opens that camera first, titled with
+the mark; Done stays off until there is at least one photo, and Cancel drops
+the entry. The photos are queued with the mark once the entry is made; if
+PowerFab refuses it they are dropped. Scanned marks never ask.
+
 Photos go to terra-tekla-server (`POST /api/photos/<job>/<load>`, with the
 stack name or piece mark as `mark`), which saves them in a folder for the job,
 then one per load, named with the date, the piece and this iPad's name: see
@@ -242,7 +255,8 @@ Each photo is shrunk to a JPEG of at most 2048 px and kept on the iPad
 nothing: the button shows "n to send", and they are sent when the iPad is back
 online (and every two minutes while any wait). One the server refuses (too
 big, bad name) stays with the reason, to send again or hold to discard.
-Code: `js/photos.js` (queue, sending), `js/photos-ui.js` (window, switch).
+Code: `js/photos.js` (queue, sending), `js/photos-ui.js` (window, switch),
+`js/camera.js` (the rapid-fire camera).
 
 ## Piece lookup
 
