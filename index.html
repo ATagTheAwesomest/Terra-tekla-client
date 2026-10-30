@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TERRA">
   <meta name="format-detection" content="telephone=no">
-  <meta name="terra-version" content="0.12.1">
+  <meta name="terra-version" content="0.13.0">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -51,7 +51,7 @@
       <button class="btn home-tile" type="button" id="home-server-tile" data-module="server">
         <span class="home-tile-icon" aria-hidden="true">&#128273;</span>
         <span class="home-tile-name">Server settings</span>
-        <span class="muted">API address and key, setup QR</span>
+        <span class="muted">Access key, this iPad’s name and colour, sounds</span>
       </button>
       <div class="home-tile home-tile-soon">
         <span class="home-tile-icon" aria-hidden="true">&#43;</span>
@@ -111,6 +111,7 @@
   </dialog>
 
   <footer class="statusbar">
+    <button class="status-device" id="status-device" type="button" title="This iPad: tap to rename it or change its colour"><span class="who-dot" aria-hidden="true"></span><span id="status-device-name">This iPad</span></button>
     <span id="status-offline">Starting&hellip;</span>
     <span id="status-parts"></span>
     <span id="status-version"></span>
@@ -179,10 +180,24 @@
         <h2>Server settings</h2>
         <button class="btn btn-ghost" type="button" id="btn-server-close" aria-label="Close">&times;</button>
       </div>
-      <p class="muted">Saved on this device only. Nothing about the server is built into the app.</p>
-      <label for="server-url">API address</label>
-      <input id="server-url" type="text" inputmode="url" placeholder="https://api.example.com" autocapitalize="off" autocorrect="off" spellcheck="false">
-      <label for="server-key">API key</label>
+      <p class="muted">Saved on this device only. The app talks to the TERRA server it was opened from; it holds the stacks every iPad shares and reaches PowerFab.</p>
+      <fieldset class="device-settings" id="device-settings">
+        <legend>This iPad</legend>
+        <label for="device-name">Name, shown on every iPad next to what this one scans and on its photos</label>
+        <div class="server-key-row">
+          <input id="device-name" type="text" maxlength="40" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="e.g. Yard iPad, Mike">
+          <button class="btn" type="button" id="btn-device-save">Save name</button>
+        </div>
+        <div class="device-colors" id="device-colors" role="group" aria-label="Colour"></div>
+        <p class="muted" id="device-result" role="status"></p>
+      </fieldset>
+      <button class="btn btn-block menu-toggle sounds-toggle" id="btn-sounds-toggle" type="button" aria-pressed="true">
+        <span class="icon" aria-hidden="true">&#128264;</span><span>Sounds when a scan is added or refused</span><span class="toggle-state" id="sounds-toggle-state">On</span>
+      </button>
+      <button class="btn" type="button" id="btn-sounds-test">Test sounds</button>
+      <label for="server-url">Server address</label>
+      <input id="server-url" type="text" inputmode="url" placeholder="Blank: the server this app was opened from" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <label for="server-key">Access key</label>
       <div class="server-key-row">
         <input id="server-key" type="password" autocapitalize="off" autocorrect="off" spellcheck="false">
         <button class="btn" type="button" id="btn-server-key-show">Show</button>

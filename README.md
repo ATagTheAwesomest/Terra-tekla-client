@@ -1,20 +1,33 @@
 # terra-tekla-client
 
-Shop-floor web app (installable iPad PWA) for TERRA, built on the TERRA
-PowerFab API ([tekla-conversion-layer](https://github.com/ATagTheAwesomest/tekla-conversion-layer)),
-in the spirit of PowerFab Go. It opens on a home screen with one tile per
-module. Everything it shows is read live from Tekla PowerFab and every change
-is written straight back through the API: no loads, pieces or job data are
-kept on the device. It still installs as a PWA, with only the app shell
-cached, so it opens fast. Plain HTML, CSS and JavaScript with no build step.
+Shop-floor web app (installable iPad PWA) for TERRA, in the spirit of
+PowerFab Go. It opens on a home screen with one tile per module. Plain HTML,
+CSS and JavaScript with no build step.
 
-## Server setup (address and key)
+It is served by, and talks to,
+[terra-tekla-server](https://github.com/ATagTheAwesomest/terra-tekla-server):
 
-Nothing about the server is in this repo or the built app. Each device stores
-the API address and key in its own localStorage, entered under **Server
+- PowerFab data is read live and every change is written straight back,
+  through the server to
+  [tekla-conversion-layer](https://github.com/ATagTheAwesomest/tekla-conversion-layer);
+  no loads, pieces or job data are kept on the device.
+- What PowerFab doesn't track (stacks, who scanned what, the shared truck
+  check, device names and colours, history, photos) is kept on the server, so
+  every iPad shows the same stacks, live.
+
+It still installs as a PWA, with only the app shell cached, so it opens fast.
+
+## Server setup (address, key, name)
+
+Open the app from the server's own address (for example
+`https://terra.example.com/`): the app is served by terra-tekla-server, so
+there is nothing else to host. Nothing about the server is in this repo. Each
+device stores the access key (and, only if the app is loaded from somewhere
+else, the server address) in its own localStorage, entered under **Server
 settings** (home screen or menu) in one of three ways:
 
-- type the address and key, then **Save & test**;
+- type the key (leave **Server address** blank for "the server this page
+  came from"), then **Save & test**;
 - scan a setup QR code with the camera (**Scan QR with camera**);
 - scan the same code with the Bluetooth barcode scanner into the setup field.
 
@@ -24,9 +37,40 @@ writes `setup-qr.svg` (also git-ignored) and prints the code text. A device
 that's already set up can show the same code with **Show setup QR**. The code
 holds the API key, so treat a printout like a key.
 
-The API must allow the app's origin in its `CORS_ORIGINS` (for GitHub Pages,
-`https://atagtheawesomest.github.io`) and must have `POWERFAB_ALLOW_WRITES`
-on for Shipping's changes to go through.
+The same dialog sets this iPad's **name** and **colour**. They tag every
+piece it scans, every truck-check tick and every photo it takes, and show in
+the server's history and admin page. A new iPad starts as "iPad N". It also
+has the **Sounds** switch and **Test sounds**.
+
+The conversion layer must have `POWERFAB_ALLOW_WRITES` on for Shipping's
+changes to go through. Its key lives only on terra-tekla-server
+(`CONVERSION_KEY`), never on an iPad. The app can still be loaded from another
+origin (a local dev server) if terra-tekla-server lists it in `CORS_ORIGINS`.
+
+## Live sync between iPads
+
+Every change to the stacks (scan, move, rename, new or deleted stack, truck
+check tick) shows on screen at once and is sent to the server
+(`POST /api/loads/<loadId>/ops`), which sends it to every other iPad over a
+WebSocket (`/ws`). A scan shows on the other iPads straight away as "waiting
+on PowerFab", then as a normal row once PowerFab loads it (or disappears if
+PowerFab refuses). Rows have a stripe in the colour of the iPad that scanned
+them, and their details say who. The status bar shows this iPad's name and
+"Live with N other iPads".
+
+If the server can't be reached, stack changes wait in order on the iPad
+(`terra.stack-queue.v2`, "n changes waiting to send") and go when it's back.
+Scanning itself needs the server, because PowerFab is reached through it.
+Code: `js/stack-ops.js` (the operations, the same as the server's),
+`js/stack-store.js` (send, queue, cache), `js/live.js` (the live connection).
+
+## Sounds
+
+A scan that goes on the load plays a short high double beep; one that is
+refused (too many of that piece, not on the job, shipped load, PowerFab said
+no) plays a low buzz, with the red "Not added" card as always. A finished
+truck check plays a fanfare. Sounds need the iPad's volume up and silent mode
+off; **Server settings → Sounds** turns them off. Code: `js/sounds.js`.
 
 ## Current job
 
@@ -79,8 +123,10 @@ The load's pieces are shown in stacks, exactly as in terra-loads-web:
   in blue, how many of the mark the job has; each stack's header lists its own
   sequences.
 
-Stacks are only kept on this iPad; moving pieces between stacks or renaming
-one never touches PowerFab. There are no separate assign, load or unload
+Stacks are kept on terra-tekla-server and shared live by every iPad;
+moving pieces between stacks or renaming one never touches PowerFab. Which
+stack is "Scanning here" is per iPad, so two people can load into different
+stacks of the same truck. There are no separate assign, load or unload
 buttons. If PowerFab refuses to load a scanned piece, the assign is undone and
 a warning says why; a mark whose pieces are all on other loads gets a warning
 naming those loads. Pieces put on the load in PowerFab itself are
@@ -95,9 +141,15 @@ scan not on the load, or one more than the load has, is listed red as an
 extra. **Show missing only**, hold to undo a check (1.5 s) or **Start over**
 (4 s), and **Done checking** goes back to loading. When every piece is
 checked with no extras, the iPad plays a loud beep (sound needs the iPad's
-volume up and silent mode off). The check is kept with the
-stacks on this iPad and never changes PowerFab; the Loads window shows how far
-each load's check got.
+volume up and silent mode off); every check plays the good or bad scan sound.
+The check never changes PowerFab; the Loads window shows how far each load's
+check got.
+
+**Shared / Solo** (Truck check screen) picks where the check is kept. Shared,
+the default, keeps it on the server: every iPad on the load works the same
+check and each tick shows who made it. Solo keeps a private check on this iPad
+only (`terra.solo-check`), which also works offline. Switching doesn't erase
+either.
 
 The load has **Hold to ship** (3 s), which PowerFab only allows once every
 piece is loaded, and once shipped **Hold to unship**. Shipped loads going
@@ -160,12 +212,13 @@ full size (◀ ▶ step through them), and **hold Delete for 1.5 s** (on the til
 or in the viewer) to delete it. The server moves a deleted photo to the load's
 `.deleted` folder rather than erasing it.
 
-Photos go to the server's files routes (`POST /api/files/<job>/<load>`, with
-the stack name or piece mark as `mark`), which save them in a folder for the
-job, then one per load: see tekla-conversion-layer `docs/FILES.md` (also
-served at `GET /api/files/help`) for the server side, its `FILES_*` settings
-and the regex rules that pick a job's folder. The server has to have
-`FILES_ENABLED` on too; the switch's note says whether it does.
+Photos go to terra-tekla-server (`POST /api/photos/<job>/<load>`, with the
+stack name or piece mark as `mark`), which saves them in a folder for the job,
+then one per load, named with the date, the piece and this iPad's name: see
+its `docs/PHOTOS.md` (also on its admin page) for the `PHOTOS_*` settings and
+the regex rules that pick a job's folder. The server has to have
+`PHOTOS_ENABLED` on too; the switch's note says whether it does. Each photo in
+the library shows who took it.
 
 Each photo is shrunk to a JPEG of at most 2048 px and kept on the iPad
 (IndexedDB `terra-photos`) until the server has it, so going offline loses
@@ -186,21 +239,17 @@ screen opens; **Refresh** reads again. It never changes anything.
 
 ## Run locally
 
-Any static file server works, served over `http://localhost` or HTTPS
-(service workers need a secure origin):
-
-```sh
-python3 -m http.server 8000
-# open http://localhost:8000
-```
+Run terra-tekla-server with `CLIENT_ROOT` pointing at this folder and its fake
+PowerFab (`tools/fake-powerfab.mjs` there; see its README), then open
+`http://127.0.0.1:8095/`. Two browser windows, one of them private, act as two
+iPads.
 
 ## Install on iPad
 
-1. Host the repo on HTTPS. GitHub Pages works: Settings → Pages → Deploy from
-   branch `main`, folder `/ (root)`. All paths are relative, so it runs from
-   `https://<user>.github.io/terra-tekla-client/`.
-2. Open the URL in Safari, then Share → **Add to Home Screen**. Launch from the
-   home screen icon.
+1. terra-tekla-server serves this repo from a git clone (`CLIENT_ROOT`) over
+   HTTPS (see its `docs/SETUP.md`). GitHub Pages is no longer needed.
+2. Open the server's address in Safari, enter the access key, name the iPad,
+   then Share → **Add to Home Screen**. Launch from the home screen icon.
 
 ## Layout
 
@@ -210,14 +259,17 @@ python3 -m http.server 8000
 | `css/app.css` | Dark industrial theme, 48px+ tap targets, print base |
 | `css/shipping.css` | Loads window, stacks and rows, "Not added" card |
 | `js/app.js` | Boot, home screen, menus, status bar, update UI |
-| `js/api.js` | API client: settings, setup codes, jobs and assemblies, value units |
-| `js/server-ui.js` | Server settings dialog, setup QR show/scan, job list |
+| `js/api.js` | API client: settings, device id, setup codes, jobs and assemblies, value units |
+| `js/server-ui.js` | Server settings dialog (key, device name and colour, sounds), setup QR, job list |
 | `js/current-job.js` | Current job state, the top bar and job picker every module follows |
 | `js/pf-loads.js` | PowerFab loads: reads, parsers and every shipping write command |
 | `js/shipping.js` | Pure helpers: which remaining row a scan takes, totals, sequences |
 | `js/shipping-ui.js` | Shipping screen: loads window, scan handling, write queue, new load |
 | `js/stacks-ui.js` | Stack rows: active stack, rename, move, drag and drop, hold to delete |
-| `js/stack-store.js` | Local-only stack tracking (and truck check scans) keyed by PowerFab load ID |
+| `js/stack-ops.js` | Stack operations (same as the server's): scan, move, rename, sync with PowerFab, truck check |
+| `js/stack-store.js` | Server-backed stacks: applies ops at once, sends them in order, queues offline, takes live updates |
+| `js/live.js` | Live connection to the server: other iPads' changes, devices, photos |
+| `js/sounds.js` | Good / bad / complete sounds |
 | `js/check.js` / `js/check-ui.js` | Truck check: matching scans to stacked pieces, and its screen (`css/check.css`) |
 | `js/lookup.js` / `js/lookup-ui.js` | Piece lookup data and screen (`css/lookup.css`) |
 | `js/export.js` | Text export, share sheet and print ticket |
@@ -233,12 +285,18 @@ python3 -m http.server 8000
 
 ## What the device keeps
 
-The server address and key (`terra.api`), the current job (`terra.currentJob`),
-the phone layout (`terra.layout`), recent lookups (`terra.lookup.recent`) and
-the stacks (`terra.local-stacks.v1`) are kept on this iPad, as are the photos
-switch (`terra.photos`) and photos not sent yet (IndexedDB `terra-photos`). The stacks only
-keep how loaded pieces are grouped (names, order, scan times, which were typed
-on the keypad); the pieces themselves are always PowerFab's. Every time the loads are read, the stacks are brought in line with
+The server address and key (`terra.api`), this iPad's id (`terra.device-id`;
+its name and colour are on the server), the current job (`terra.currentJob`),
+the phone layout (`terra.layout`), recent lookups (`terra.lookup.recent`), the
+photos switch (`terra.photos`), the sounds switch (`terra.sounds`), which stack
+is active per load (`terra.active-stack`), the truck check mode and solo check
+(`terra.check-mode`, `terra.solo-check`), a copy of the server's stacks for a
+quick start (`terra.stack-cache.v2`), stack changes not sent yet
+(`terra.stack-queue.v2`) and photos not sent yet (IndexedDB `terra-photos`)
+are kept on this iPad. The stacks themselves are the server's. They only
+keep how loaded pieces are grouped (names, order, who scanned them and when,
+which were typed on the keypad); the pieces themselves are always PowerFab's.
+Every time the loads are read, the stacks are brought in line with
 what PowerFab has loaded on the load: pieces loaded elsewhere go into a stack
 of their own at the bottom (the last stack if it is empty, else a new
 `Stack <load> - <n>`), and one unloaded or returned elsewhere comes off the
@@ -248,10 +306,10 @@ that stack too; one PowerFab refuses gets a warning and a note, and scanning
 it tries again. No stack or manual-entry metadata is
 sent to Tekla/PowerFab. The caches older
 versions kept
-(`terra.jobs`, `terra.parts.*`, `terra.pfloads.*`) and the old scan step and
-piece view settings (`terra.step`, `terra.load-view`) are removed on launch. The
-`terra-loads` IndexedDB database is left alone, since GitHub Pages shares it
-with terra-loads-web on the same iPad. Once a server is configured, Server
+(`terra.jobs`, `terra.parts.*`, `terra.pfloads.*`), the old scan step and
+piece view settings (`terra.step`, `terra.load-view`) and the old iPad-only
+stacks (`terra.local-stacks.v1`) are removed on launch. The
+`terra-loads` IndexedDB database is left alone (terra-loads-web's). Once a server is configured, Server
 settings remain available from the home hamburger menu and the setup tile is
 hidden.
 
@@ -259,7 +317,8 @@ hidden.
 
 1. Bump `self.TERRA_VERSION` in `version.js`.
 2. If you added a file, add it to `PRECACHE` in `sw.js`.
-3. Push to `main`.
+3. Push to `main`, then `git pull` the clone on the server (or run
+   terra-tekla-server's `windows\deploy.ps1`, which pulls it too).
 
 On launch the app checks `version.js` on the server and shows a **New** badge
 on **Update** when a newer version exists. **Force Update** unregisters the

@@ -3,13 +3,15 @@
 // new scans, stacks rename inline, pieces move up/down or drag between stacks,
 // rows tap open for details, and deleting a piece or a stack is a hold.
 //
-// Stacks are only kept on this iPad (js/stack-store.js). Moving pieces between
-// stacks or renaming one never touches PowerFab. Deleting a piece or a stack
-// takes the pieces off the load in PowerFab, through ctx.deleteEntry and
-// ctx.deleteStack (js/shipping-ui.js).
+// Stacks are kept on terra-tekla-server (js/stack-store.js), so every iPad
+// shows the same ones, and each row shows in its device's colour who scanned
+// it. Moving pieces between stacks or renaming one never touches PowerFab.
+// Deleting a piece or a stack takes the pieces off the load in PowerFab,
+// through ctx.deleteEntry and ctx.deleteStack (js/shipping-ui.js).
 
 import { escapeHtml } from './app.js';
 import { bindHold } from './hold.js';
+import { deviceInfo } from './live.js';
 import { focusScanner } from './scanner.js';
 import { formatWeight, pieceCounts, stackSequences, stackTotals } from './shipping.js';
 import * as stacks from './stack-store.js';
@@ -22,6 +24,18 @@ let ctx = null;
 const expanded = new Set();
 
 // ---- Rendering -----------------------------------------------------------
+
+// A device's name in its colour (who scanned or checked something), or '' when
+// PowerFab itself put the piece there.
+export function whoBadge(id) {
+  if (!id) return '';
+  const d = deviceInfo(id);
+  return `<span class="who" style="--who:${escapeHtml(d?.color ?? '#777')}">${escapeHtml(d?.name ?? 'Another iPad')}</span>`;
+}
+
+function whoColor(entry) {
+  return entry.scannedBy ? deviceInfo(entry.scannedBy)?.color ?? '#777' : '';
+}
 
 function formatScanTime(iso) {
   const d = new Date(iso);
@@ -37,7 +51,8 @@ function formatLength(mm) {
 
 function renderDetail(entry) {
   const rows = [
-    ['Scanned', entry.scannedAt ? formatScanTime(entry.scannedAt) : 'Loaded in PowerFab, not scanned here'],
+    ['Scanned', entry.scannedAt ? formatScanTime(entry.scannedAt) : 'Loaded in PowerFab, not scanned in the app'],
+    ['Scanned by', entry.scannedBy ? deviceInfo(entry.scannedBy)?.name ?? 'Another iPad' : ''],
     ['Piece weight', formatWeight(entry.weight)],
     ['Sequence', entry.sequence],
     ['Part number', entry.partNumber],
@@ -61,16 +76,21 @@ function countBadge(entry, count) {
 }
 
 function renderItem(entry, i, locked, count) {
-  const desc = [entry.sequence ? `Seq ${entry.sequence}` : '', entry.description].filter(Boolean).join(' · ');
+  const desc = entry.pending ? 'Sending to PowerFab…'
+    : entry.removing ? 'Taking off the load…'
+    : [entry.sequence ? `Seq ${entry.sequence}` : '', entry.description].filter(Boolean).join(' · ');
+  const color = whoColor(entry);
+  // A row still waiting on PowerFab can't be moved or deleted yet.
+  const busy = entry.pending || entry.removing;
   return `
-    <li class="item${entry.manual ? ' flagged' : ''}${expanded.has(entry.id) ? ' expanded' : ''}" data-item-id="${escapeHtml(entry.id)}">
-      ${locked ? '<span class="item-drag"></span>' : '<span class="item-drag" data-drag aria-label="Drag to move" title="Drag to move">&#10303;</span>'}
+    <li class="item${entry.manual ? ' flagged' : ''}${expanded.has(entry.id) ? ' expanded' : ''}${entry.pending ? ' pending' : ''}${entry.removing ? ' removing' : ''}${color ? ' by-device' : ''}" data-item-id="${escapeHtml(entry.id)}"${color ? ` style="--who:${escapeHtml(color)}"` : ''}>
+      ${locked || busy ? '<span class="item-drag"></span>' : '<span class="item-drag" data-drag aria-label="Drag to move" title="Drag to move">&#10303;</span>'}
       <span class="item-index">${i + 1}</span>
       <span class="item-mark">${escapeHtml(entry.mark)}</span>
-      <span class="item-desc">${countBadge(entry, count)}${escapeHtml(desc)}</span>
+      <span class="item-desc">${busy ? '' : countBadge(entry, count)}${escapeHtml(desc)} ${whoBadge(entry.scannedBy)}</span>
       <span class="item-weight">${formatWeight(entry.weight)}</span>
       <span class="item-actions">
-        ${locked ? '' : `<button class="btn btn-icon" type="button" data-action="up" aria-label="Move up">&#9650;</button>
+        ${locked || busy ? '' : `<button class="btn btn-icon" type="button" data-action="up" aria-label="Move up">&#9650;</button>
         <button class="btn btn-icon" type="button" data-action="down" aria-label="Move down">&#9660;</button>
         <button class="btn btn-icon btn-hold" type="button" data-hold="item" data-hold-ms="${ITEM_HOLD_MS}" aria-label="Hold to take off the load" title="Hold to take off the load">&#128465;</button>`}
       </span>
@@ -144,7 +164,7 @@ function startRename(stackEl) {
   input.addEventListener('blur', () => finish(true));
 }
 
-// Stack data lives in localStorage, which can be full or blocked.
+// A change the store refuses (a shipped load) shows as a message.
 function safely(fn) {
   try { return fn(); } catch (err) {
     ctx.toast(err.message, 5000);

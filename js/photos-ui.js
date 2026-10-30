@@ -6,6 +6,7 @@
 import { escapeHtml, toast } from './app.js';
 import * as api from './api.js';
 import { bindHold } from './hold.js';
+import * as live from './live.js';
 import * as photos from './photos.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -61,7 +62,7 @@ async function readServer() {
     if (open?.job === job && open?.load === load) onServer = { files: reply?.files ?? [], error: '' };
     loadServerThumbs(job, load);
   } catch (err) {
-    onServer = { files: null, error: err.status === 403 ? 'The server has files turned off (FILES_ENABLED).' : err.status === 404 ? 'The server doesn’t take photos yet (it needs updating).' : err.message };
+    onServer = { files: null, error: err.status === 403 ? 'The server has photos turned off (PHOTOS_ENABLED).' : err.status === 404 ? 'The server doesn’t take photos yet (it needs updating).' : err.message };
   }
   draw();
 }
@@ -94,6 +95,12 @@ async function loadServerThumbs(job, load) {
   await Promise.all([worker(), worker(), worker()]);
 }
 
+// What a photo on the server is of: the server says (with who took it) for
+// photos sent through it; older ones are read from the file name.
+function photoOf(f) {
+  return f.byId ? f.mark || 'Whole load' : photos.markOf(f.name);
+}
+
 function isImage(name) {
   return /\.(jpe?g|png|webp|heic)$/i.test(name);
 }
@@ -115,7 +122,8 @@ function drawTile(name) {
 function serverTile(f) {
   return `<li class="photo-tile on-server" data-file-name="${escapeHtml(f.name)}">
     <button class="photo-open" type="button" data-photo-view aria-label="View ${escapeHtml(f.name)}">${picture(f.name)}</button>
-    <span class="photo-of">${escapeHtml(photos.markOf(f.name))}</span>
+    <span class="photo-of">${escapeHtml(photoOf(f))}</span>
+    ${f.by ? `<span class="photo-by who" style="--who:${escapeHtml(live.deviceInfo(f.byId)?.color ?? f.color ?? '#777')}">${escapeHtml(live.deviceInfo(f.byId)?.name ?? f.by)}</span>` : ''}
     <span class="photo-meta">${escapeHtml(shortTime(f.modified))} · ${kb(f.bytes)}</span>
     <span class="photo-actions"><button class="btn btn-hold" type="button" data-hold="delete-photo" data-hold-ms="${DELETE_HOLD_MS}">Hold to delete</button></span>
   </li>`;
@@ -153,8 +161,8 @@ function drawViewer() {
   const order = viewOrder();
   const i = order.indexOf(viewing);
   const url = serverThumbs.get(viewing);
-  $('#photo-view-title').textContent = photos.markOf(file.name);
-  $('#photo-view-meta').textContent = `${file.name} · ${shortTime(file.modified)} · ${kb(file.bytes)} · ${i + 1} of ${order.length}`;
+  $('#photo-view-title').textContent = photoOf(file);
+  $('#photo-view-meta').textContent = `${file.by ? `${live.deviceInfo(file.byId)?.name ?? file.by} · ` : ''}${file.name} · ${shortTime(file.modified)} · ${kb(file.bytes)} · ${i + 1} of ${order.length}`;
   $('#photo-view-body').innerHTML = url && url !== 'error'
     ? (isImage(file.name) ? `<img src="${url}" alt="${escapeHtml(file.name)}">` : `<a class="btn btn-lg" href="${url}" target="_blank" rel="noopener">Open ${escapeHtml(file.name)}</a>`)
     : `<p class="muted">${url === 'error' ? 'Couldn’t load this file.' : 'Loading…'}</p>`;
@@ -286,7 +294,7 @@ async function drawSetting({ test = false } = {}) {
     const s = await api.filesStatus();
     note.textContent = s?.enabled
       ? `On. The server takes ${s.types.join(', ')} up to ${Math.round(s.maxBytes / 1048576)} MB each.${left}`
-      : `On here, but the server has files turned off (FILES_ENABLED). Photos wait on this iPad until it is on.${left}`;
+      : `On here, but the server has photos turned off (PHOTOS_ENABLED). Photos wait on this iPad until it is on.${left}`;
   } catch (err) {
     note.textContent = err.status === 404 ? 'On here, but this server doesn’t take photos yet (it needs updating).' : `On. Couldn’t check the server: ${err.message}`;
   }
@@ -343,6 +351,9 @@ export function initPhotos(context) {
   $('#btn-photo-next').addEventListener('click', () => step(1));
   $('#btn-photo-view-close').addEventListener('click', () => $('#dlg-photo-view').close());
   $('#dlg-photo-view').addEventListener('close', () => { viewing = null; });
+
+  // Another iPad added or deleted a photo of the load open here.
+  live.on('photos', (job, load) => { if (open?.job === job && open?.load === load) readServer(); });
 
   $('#btn-photos-toggle').addEventListener('click', () => {
     photos.setPhotosEnabled(!photos.photosEnabled());

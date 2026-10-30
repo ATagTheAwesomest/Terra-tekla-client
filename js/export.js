@@ -10,7 +10,7 @@ import * as stackStore from './stack-store.js';
 // The load's stacks, or null if they can't be read (export then lists
 // PowerFab's pieces without stacks).
 function stacksFor(load) {
-  try { return stackStore.sync(load); } catch { return null; }
+  try { return stackStore.get(load); } catch { return null; }
 }
 
 // Pieces on the load in PowerFab but not on the truck: [{ item, n }].

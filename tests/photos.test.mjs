@@ -43,7 +43,7 @@ test('sending photos is off until turned on', () => {
   assert.equal(photosEnabled(), false);
 });
 
-test('uploads go to /api/files/<job>/<load> as multipart with the key', async () => {
+test('uploads go to the server’s /api/photos/<job>/<load> as multipart with the key and device', async () => {
   store.clear();
   api.setConfig({ url: 'https://api.example.com/', key: 'secret' });
   const calls = [];
@@ -55,9 +55,10 @@ test('uploads go to /api/files/<job>/<load> as multipart with the key', async ()
   const reply = await api.uploadFiles('EPM 001', '8/A', [{ blob, name: 'photo.jpg' }], { mark: '1001-C1' });
   assert.equal(reply.saved[0].name, 'x.jpg');
   const { url, init } = calls[0];
-  assert.equal(url, 'https://api.example.com/api/files/EPM%20001/8%2FA');
+  assert.equal(url, 'https://api.example.com/api/photos/EPM%20001/8%2FA');
   assert.equal(init.method, 'POST');
   assert.equal(init.headers.Authorization, 'Bearer secret');
+  assert.equal(init.headers['X-Terra-Device'], api.deviceId());
   assert.equal(init.headers['Content-Type'], undefined);
   assert.ok(init.body instanceof FormData);
   assert.equal(init.body.get('mark'), '1001-C1');
@@ -86,7 +87,7 @@ test('view fetches the file as a blob; delete sends DELETE, both with the key', 
   };
   const blob = await api.fetchFile('J1', '8', 'a b.jpg');
   assert.equal(blob.size, 3);
-  assert.equal(calls[0].url, 'https://api.example.com/api/files/J1/8/a%20b.jpg');
+  assert.equal(calls[0].url, 'https://api.example.com/api/photos/J1/8/a%20b.jpg');
   assert.equal(calls[0].init.headers.Authorization, 'Bearer secret');
   assert.equal((await api.deleteFile('J1', '8', 'a b.jpg')).deleted, 'a b.jpg');
   assert.equal(calls[1].init.method, 'DELETE');

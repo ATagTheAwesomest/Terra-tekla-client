@@ -6,6 +6,8 @@
 // dialog, which never focuses a text field either. What a scan does is up to
 // ctx.scan (js/shipping-ui.js).
 
+import { playBad, playGood, primeSound } from './sounds.js';
+
 const $ = (sel) => document.querySelector(sel);
 
 let ctx = null;
@@ -44,8 +46,11 @@ function flash(el, kind) {
   el.classList.add(FLASH[kind]);
 }
 
-// Green, orange or red pulse on a row, the scan bar and the whole screen.
-export function flashFeedback(kind, row) {
+// Green, orange or red pulse on a row, the scan bar and the whole screen, with
+// the good or bad sound (js/sounds.js) unless `sound` is false.
+export function flashFeedback(kind, row, { sound = true } = {}) {
+  if (sound && kind === 'ok') playGood();
+  else if (sound && kind === 'bad') playBad();
   flash(row, kind);
   flash($('#scanbar'), kind);
   flash($('#screen-flash'), kind);
@@ -54,6 +59,8 @@ export function flashFeedback(kind, row) {
 function onScanKey(e) {
   if (e.key !== 'Enter') return;
   e.preventDefault();
+  // The scan's own key press lets the page play its sound when PowerFab answers.
+  primeSound();
   const input = $('#scan-input');
   const value = input.value;
   input.value = '';
@@ -80,6 +87,7 @@ function onLooseKey(e) {
   if (e.key === 'Enter') {
     if (!typed) return;
     e.preventDefault(); // also stops Enter pressing a focused button
+    primeSound();
     const value = typed;
     typed = '';
     input.value = '';
@@ -167,6 +175,7 @@ function onKeypadKeydown(e) {
   if (!pad) return;
   if (e.key === 'Enter') {
     e.preventDefault();
+    primeSound();
     if (!$('#keypad-ok').disabled) closeKeypad(pad.value);
   } else if (e.key === 'Backspace') {
     e.preventDefault();
@@ -216,5 +225,8 @@ export function initScanner(context) {
   dlg.addEventListener('keydown', onKeypadKeydown);
   dlg.addEventListener('cancel', (e) => { e.preventDefault(); closeKeypad(null); });
   $('#keypad-cancel').addEventListener('click', () => closeKeypad(null));
-  $('#keypad-ok').addEventListener('click', () => closeKeypad(pad?.value ?? null));
+  $('#keypad-ok').addEventListener('click', () => {
+    primeSound();
+    closeKeypad(pad?.value ?? null);
+  });
 }

@@ -239,3 +239,12 @@ body.load-shipped .topbar { border-bottom-color: var(--accent); }
 .ship-locked { margin: 0 0 12px; padding: 10px 14px; border: 2px solid var(--accent); border-radius: var(--radius); color: var(--accent); font-weight: 700; }
 .scanbar.view-only .scan-field { border-color: var(--accent); border-style: solid; }
 .scanbar.view-only .scan-stack { color: var(--text-muted); }
+
+/* Who scanned a row: a stripe in their device's colour (typed rows keep the orange one). */
+.item.by-device:not(.flagged) { box-shadow: inset 6px 0 0 var(--who); }
+.item .who { margin-left: 6px; }
+/* A scan PowerFab hasn't answered yet, or a row being taken off: shown on every iPad. */
+.item.pending, .item.removing { opacity: 0.7; }
+.item.pending .item-desc, .item.removing .item-desc { font-style: italic; color: var(--text-muted); }
+.item.pending .item-mark::after { content: " …"; color: var(--accent); }
+.item.removing .item-mark { text-decoration: line-through; }
