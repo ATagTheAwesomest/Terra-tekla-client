@@ -105,7 +105,7 @@ export class ApiError extends Error {
 
 // `body` is sent as JSON, or as it is when it's FormData (the browser sets
 // the multipart Content-Type itself).
-async function request(path, { method = 'GET', body, blob = false } = {}) {
+async function request(path, { method = 'GET', body, blob = false, admin = false } = {}) {
   const config = getConfig();
   if (!config) throw new ApiError('No server set up. Open Server settings in the menu.');
   const form = typeof FormData !== 'undefined' && body instanceof FormData;
@@ -117,6 +117,7 @@ async function request(path, { method = 'GET', body, blob = false } = {}) {
         Authorization: `Bearer ${config.key}`,
         'X-Terra-Device': deviceId(),
         'X-Terra-Version': globalThis.TERRA_VERSION ?? '',
+        ...(admin && adminToken() ? { 'X-Terra-Admin': adminToken() } : {}),
         ...(body && !form ? { 'Content-Type': 'application/json' } : {}),
       },
       body: form ? body : body ? JSON.stringify(body) : undefined,
@@ -151,6 +152,70 @@ export function me() {
 
 export function updateMe(changes) {
   return request('/api/me', { method: 'PUT', body: changes });
+}
+
+// ---- Admin code (terra-tekla-server checks it) -----------------------------------
+// Entering the code gives a token good for 30 minutes from this device's IP address. It is kept in
+// localStorage as { token, until }; the server's admin page (same server) reads the same entry,
+// so entering the code in the app also opens the admin board on this iPad.
+
+const UNLOCK_KEY = 'terra.admin.unlock';
+
+function unlockEntry() {
+  try {
+    const e = JSON.parse(localStorage.getItem(UNLOCK_KEY) ?? 'null');
+    return e?.token && new Date(e.until).getTime() > Date.now() ? e : null;
+  } catch {
+    return null;
+  }
+}
+
+function adminToken() {
+  return unlockEntry()?.token ?? '';
+}
+
+// When this device's unlock runs out (a Date), or null while locked.
+export function adminUntil() {
+  const e = unlockEntry();
+  return e ? new Date(e.until) : null;
+}
+
+function keepUnlock(reply) {
+  try { localStorage.setItem(UNLOCK_KEY, JSON.stringify({ token: reply.token, until: reply.until })); } catch { /* blocked */ }
+  return reply;
+}
+
+export async function adminLock() {
+  await request('/api/admin/lock', { method: 'POST', admin: true }).catch(() => null);
+  try { localStorage.removeItem(UNLOCK_KEY); } catch { /* blocked */ }
+}
+
+// { pinSet, unlocked, until, retryAfter }
+export function adminState() {
+  return request('/api/admin/lock', { admin: true });
+}
+
+export async function adminSetup(pin) {
+  return keepUnlock(await request('/api/admin/setup', { method: 'POST', body: { pin } }));
+}
+
+export async function adminUnlock(pin) {
+  return keepUnlock(await request('/api/admin/unlock', { method: 'POST', body: { pin } }));
+}
+
+// The iPad app's copy on the server: { clientVersion, client: { running, exitCode, output... }, ... }
+export function updateStatus() {
+  return request('/api/admin/update', { admin: true });
+}
+
+// Gets the latest terra-tekla-client onto the server (update-client.ps1).
+export function updateServerCopy() {
+  return request('/api/admin/update/client', { method: 'POST', admin: true });
+}
+
+// Updates the server itself (deploy.ps1); it restarts.
+export function updateServer() {
+  return request('/api/admin/update/server', { method: 'POST', admin: true });
 }
 
 // ---- Stacks (kept by terra-tekla-server, see js/stack-store.js) -----------------

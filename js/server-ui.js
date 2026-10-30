@@ -1,11 +1,15 @@
-// Server settings dialog (address, access key, setup QR show/scan, this iPad's
-// name and colour, sounds) and the open job list, read live from the API.
+// Server settings / Admin: one dialog with this iPad's name and colour, sounds and photos (free to
+// change), and the admin part behind the server's admin code (entered on the 9-pin keypad): open
+// the admin board, change the server connection (address, key, setup QR; free until it is first
+// set), get the newest app onto the server (update-client.ps1) or update the server (deploy.ps1).
+// Also the open job list, read live from the API.
 
 import { escapeHtml, toast } from './app.js';
 import * as api from './api.js';
 import { JOB_NUMBERS, setJobNumbers } from './current-job.js';
 import * as live from './live.js';
 import { drawPhotoSetting } from './photos-ui.js';
+import { openKeypad } from './scanner.js';
 import { playBad, playGood, primeSound, setSoundsOn, soundsOn } from './sounds.js';
 
 // The same colours the server hands out, each easy to tell apart on the dark screen.
@@ -52,6 +56,8 @@ export function serverStatus() {
 
 function fillForm() {
   const config = api.getConfig();
+  // Before the first setup there is nothing to protect yet, so the connection is open.
+  $('#server-connection').hidden = Boolean(config);
   $('#server-url').value = config && !config.sameOrigin ? config.url : '';
   $('#server-key').value = config?.key ?? '';
   $('#server-setup').value = '';
@@ -66,6 +72,141 @@ export function openServerSettings() {
   drawPhotoSetting();
   drawDevice();
   drawSounds();
+  drawAdmin();
+  $('#admin-result').textContent = '';
+  $('#admin-output').hidden = true;
+}
+
+// ---- Admin (behind the server's admin code) -----------------------------------------
+
+function drawAdmin() {
+  const until = api.adminUntil();
+  const left = until ? Math.max(1, Math.ceil((until.getTime() - Date.now()) / 60000)) : 0;
+  $('#admin-lock-state').innerHTML = until ? `&#128275; Unlocked, ${left} min left` : '&#128274; Locked';
+  $('#admin-lock-state').classList.toggle('on', Boolean(until));
+  $('#btn-admin-lock').hidden = !until;
+  const off = !api.getConfig();
+  for (const id of ['#btn-admin-board', '#btn-admin-connection', '#btn-admin-update-app', '#btn-admin-update-server']) $(id).disabled = off && id !== '#btn-admin-connection';
+}
+
+// Makes sure this iPad is unlocked, asking for the code on the keypad (or, the first time, for a
+// new code twice). Resolves true when unlocked, false when cancelled, or 'unreachable' when the
+// server can't be asked (offline, or the access key is refused).
+export async function requireAdmin() {
+  let state;
+  try {
+    state = await api.adminState();
+  } catch (err) {
+    return err.status === 0 || err.status === 401 ? 'unreachable' : false;
+  }
+  if (state.unlocked) return true;
+  if (!state.pinSet) {
+    let error = '';
+    for (;;) {
+      const first = await openKeypad({ mode: 'pin', title: 'Set an admin code', note: 'No admin code is set yet. Pick 4 to 8 digits: it will be needed for the admin board and server settings on every iPad.', error, okLabel: 'Next' });
+      if (first === null) return false;
+      const again = await openKeypad({ mode: 'pin', title: 'Enter it again', note: 'The same code, to be sure.', okLabel: 'Set code' });
+      if (again === null) return false;
+      if (first !== again) { error = 'The two codes didn’t match. Start again.'; continue; }
+      try {
+        await api.adminSetup(first);
+        drawAdmin();
+        return true;
+      } catch (err) {
+        if (err.status === 409) return requireAdmin();
+        error = err.message;
+      }
+    }
+  }
+  let error = state.retryAfter ? `Too many wrong codes. Try again in ${state.retryAfter} s.` : '';
+  for (;;) {
+    const pin = await openKeypad({ mode: 'pin', title: 'Admin code', note: 'The admin code from the server. This iPad then stays unlocked for 30 minutes.', error });
+    if (pin === null) return false;
+    try {
+      await api.adminUnlock(pin);
+      drawAdmin();
+      return true;
+    } catch (err) {
+      if (err.status === 0) return 'unreachable';
+      error = err.message;
+    }
+  }
+}
+
+async function openConnection() {
+  const result = $('#admin-result');
+  const ok = await requireAdmin();
+  if (ok === false) return;
+  // A server that can't be reached can't check the code; the connection must stay fixable then.
+  result.textContent = ok === 'unreachable' ? 'Couldn’t reach the server to check the admin code, so the connection is open to fix.' : '';
+  $('#server-connection').hidden = false;
+  $('#server-connection').scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+async function openAdminBoard() {
+  if ((await requireAdmin()) !== true) {
+    $('#admin-result').textContent = 'The admin board needs the server and the admin code.';
+    return;
+  }
+  const config = api.getConfig();
+  const url = new URL('admin/', config.sameOrigin ? location.href : `${config.url}/`).toString();
+  // The same server: open it here, sharing this app's key and unlock. Another server: a new tab.
+  if (config.sameOrigin) location.href = url;
+  else window.open(url, '_blank', 'noopener');
+}
+
+// Gets the newest app from GitHub onto the server and waits for it. Resolves with the server's
+// app version afterwards, or null when it failed (the output says why).
+export async function updateServerCopy(out, log) {
+  const ok = await requireAdmin();
+  if (ok !== true) {
+    out.textContent = ok === 'unreachable' ? 'Can’t reach the server.' : 'Needs the admin code.';
+    return null;
+  }
+  out.textContent = 'The server is getting the newest app from GitHub…';
+  let status;
+  try {
+    status = await api.updateServerCopy();
+    while (status.client?.running) {
+      log.hidden = false;
+      log.textContent = status.client.output.slice(-12).join('\n');
+      await new Promise((r) => setTimeout(r, 1500));
+      status = await api.updateStatus();
+    }
+  } catch (err) {
+    out.textContent = err.message;
+    return null;
+  }
+  const c = status.client;
+  log.hidden = false;
+  log.textContent = (c?.output ?? []).slice(-12).join('\n');
+  if (c?.exitCode !== 0) {
+    out.textContent = 'The server couldn’t get the newest app. Its output is below.';
+    return null;
+  }
+  out.textContent = c.versionBefore === c.versionAfter
+    ? `The server already had the newest app, v${c.versionAfter}.`
+    : `The server now has app v${c.versionAfter} (was v${c.versionBefore}).`;
+  return c.versionAfter ?? null;
+}
+
+async function updateAppOnServer() {
+  const version = await updateServerCopy($('#admin-result'), $('#admin-output'));
+  if (version && version !== self.TERRA_VERSION) {
+    $('#admin-result').textContent += ' Press Update in the menu to load it on this iPad.';
+  }
+}
+
+async function updateTheServer() {
+  const out = $('#admin-result');
+  if ((await requireAdmin()) !== true) { out.textContent = 'Needs the server and the admin code.'; return; }
+  if (!confirm('Update the server now? It gets the newest server and app from GitHub, builds and restarts. Every iPad loses the server for about a minute, then reconnects by itself.')) return;
+  try {
+    await api.updateServer();
+    out.textContent = 'The server is updating and will restart. The app reconnects by itself; the admin board (Settings › Updates) shows how it went.';
+  } catch (err) {
+    out.textContent = err.message;
+  }
 }
 
 // ---- This iPad: name and colour ---------------------------------------------------
@@ -219,6 +360,15 @@ function bindDialog() {
     input.type = input.type === 'password' ? 'text' : 'password';
   });
   $('#btn-server-close').addEventListener('click', () => dialog().close());
+  $('#btn-admin-board').addEventListener('click', openAdminBoard);
+  $('#btn-admin-connection').addEventListener('click', openConnection);
+  $('#btn-admin-update-app').addEventListener('click', updateAppOnServer);
+  $('#btn-admin-update-server').addEventListener('click', updateTheServer);
+  $('#btn-admin-lock').addEventListener('click', async () => {
+    await api.adminLock();
+    $('#server-connection').hidden = Boolean(api.getConfig());
+    drawAdmin();
+  });
   $('#btn-device-save').addEventListener('click', () => saveDevice({ name: $('#device-name').value }));
   $('#device-name').addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;

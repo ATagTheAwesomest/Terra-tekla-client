@@ -107,26 +107,36 @@ function onLooseKey(e) {
 const DIGITS = ['7', '8', '9', '4', '5', '6', '1', '2', '3'];
 const QWERTY = ['QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'];
 
-let pad = null; // { mode: 'mark' | 'weight', value, resolve }
+let pad = null; // { mode: 'mark' | 'weight' | 'pin', value, resolve }
 
 function keyButton(key, label = key, cls = '') {
   return `<button class="btn key ${cls}" type="button" data-key="${key}">${label}</button>`;
 }
 
+// Weight and the admin code use the 9-pin digits only; a mark gets the letters too.
 function renderKeypad() {
-  const weight = pad.mode === 'weight';
-  const bottom = weight ? ['.', '0', 'back'] : ['-', '0', 'back'];
-  const digits = [...DIGITS, ...bottom].map((k) => (k === 'back' ? keyButton('back', '&#9003;', 'key-fn') : keyButton(k))).join('');
+  const digitsOnly = pad.mode !== 'mark';
+  const bottom = pad.mode === 'weight' ? ['.', '0', 'back'] : pad.mode === 'pin' ? ['clear', '0', 'back'] : ['-', '0', 'back'];
+  const digits = [...DIGITS, ...bottom].map((k) => (k === 'back' ? keyButton('back', '&#9003;', 'key-fn')
+    : k === 'clear' ? keyButton('clear', 'Clear', 'key-fn') : keyButton(k))).join('');
   $('#keypad-digits').innerHTML = digits;
-  $('#keypad-letters').innerHTML = weight ? '' : QWERTY.map((row, r) => `<div class="key-row">${
+  $('#keypad-letters').innerHTML = digitsOnly ? '' : QWERTY.map((row, r) => `<div class="key-row">${
     [...row].map((k) => keyButton(k)).join('')}${r === 2 ? keyButton('clear', 'Clear', 'key-fn key-wide') : ''}</div>`).join('');
-  $('#keypad-letters').hidden = weight;
-  $('#dlg-keypad').classList.toggle('keypad-weight', weight);
+  $('#keypad-letters').hidden = digitsOnly;
+  $('#dlg-keypad').classList.toggle('keypad-weight', digitsOnly);
+  $('#dlg-keypad').classList.toggle('keypad-pin', pad.mode === 'pin');
   renderKeypadValue();
 }
 
 function renderKeypadValue() {
   const display = $('#keypad-display');
+  if (pad.mode === 'pin') {
+    // The code itself never shows: one dot per digit.
+    display.textContent = pad.value ? '\u25CF'.repeat(pad.value.length) : '4 to 8 digits';
+    display.classList.toggle('placeholder', !pad.value);
+    $('#keypad-ok').disabled = pad.value.length < 4;
+    return;
+  }
   const suffix = pad.mode === 'weight' ? ' lbs' : '';
   display.textContent = pad.value ? pad.value + suffix : (pad.mode === 'weight' ? '0 lbs' : 'Type a mark');
   display.classList.toggle('placeholder', !pad.value);
@@ -137,7 +147,9 @@ function pressKey(key) {
   if (!pad) return;
   if (key === 'back') pad.value = pad.value.slice(0, -1);
   else if (key === 'clear') pad.value = '';
-  else if (pad.mode === 'weight') {
+  else if (pad.mode === 'pin') {
+    if (/^\d$/.test(key) && pad.value.length < 8) pad.value += key;
+  } else if (pad.mode === 'weight') {
     if (key === '.' && pad.value.includes('.')) return;
     if (/^[\d.]$/.test(key) && pad.value.length < 9) pad.value += key;
   } else if (pad.value.length < 40) pad.value += key;
@@ -152,13 +164,15 @@ function closeKeypad(result) {
 }
 
 // Opens the keypad. Resolves with the entered string, or null on cancel.
-export function openKeypad({ mode = 'mark', title, note = '', initial = '', okLabel } = {}) {
+// mode 'pin' is the admin code: digits only, shown as dots, 4 to 8 long. `error` shows in red.
+export function openKeypad({ mode = 'mark', title, note = '', error = '', initial = '', okLabel } = {}) {
   if (pad) closeKeypad(null);
   return new Promise((resolve) => {
     pad = { mode, value: String(initial), resolve };
-    $('#keypad-title').textContent = title ?? (mode === 'weight' ? 'Set weight' : 'Manual entry');
-    $('#keypad-note').textContent = note;
-    $('#keypad-ok').textContent = okLabel ?? (mode === 'weight' ? 'Save' : 'Add');
+    $('#keypad-title').textContent = title ?? (mode === 'weight' ? 'Set weight' : mode === 'pin' ? 'Admin code' : 'Manual entry');
+    $('#keypad-note').textContent = error || note;
+    $('#keypad-note').classList.toggle('keypad-error', Boolean(error));
+    $('#keypad-ok').textContent = okLabel ?? (mode === 'weight' ? 'Save' : mode === 'pin' ? 'Unlock' : 'Add');
     renderKeypad();
     $('#dlg-keypad').showModal();
     $('#keypad-ok').focus({ preventScroll: true });

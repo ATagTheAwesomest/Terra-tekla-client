@@ -17,14 +17,15 @@ It is served by, and talks to,
 
 It still installs as a PWA, with only the app shell cached, so it opens fast.
 
-## Server setup (address, key, name)
+## Server settings / Admin (address, key, name, admin)
 
 Open the app from the server's own address (for example
 `https://terra.example.com/`): the app is served by terra-tekla-server, so
 there is nothing else to host. Nothing about the server is in this repo. Each
 device stores the access key (and, only if the app is loaded from somewhere
 else, the server address) in its own localStorage, entered under **Server
-settings** (home screen or menu) in one of three ways:
+settings / Admin** (the one menu entry for it; also a home screen tile until
+the first setup) in one of three ways:
 
 - type the key (leave **Server address** blank for "the server this page
   came from"), then **Save & test**;
@@ -41,6 +42,22 @@ The same dialog sets this iPad's **name** and **colour**. They tag every
 piece it scans, every truck-check tick and every photo it takes, and show in
 the server's history and admin page. A new iPad starts as "iPad N". It also
 has the **Sounds** switch and **Test sounds**.
+
+The **Admin** part of the dialog needs the server's admin code, typed on the
+9-pin keypad (no soft keyboard). The first time, it asks to set one (twice).
+Once entered, this iPad stays unlocked for 30 minutes, the server's admin board
+included (they share the unlock in localStorage, `terra.admin.unlock`). In it:
+
+- **Open admin board**: the server's `/admin/`, using this app's key.
+- **Change server settings**: address, key and setup QR. Open without the code
+  until the first save; after that the code is needed, unless the server can't
+  be reached at all (then it opens, so a wrong address can be fixed).
+- **Update the app on the server**: the server runs its `update-client.ps1`
+  to get the newest version of this repo; then **Update** here loads it. The
+  Update dialog's **Get newest from GitHub first** does both.
+- **Update the server**: the server runs its `deploy.ps1` and restarts.
+
+The server checks the code itself; see terra-tekla-server's SETUP.md.
 
 The conversion layer must have `POWERFAB_ALLOW_WRITES` on for Shipping's
 changes to go through. Its key lives only on terra-tekla-server
@@ -275,7 +292,7 @@ iPads.
 | `css/shipping.css` | Loads window, stacks and rows, "Not added" card |
 | `js/app.js` | Boot, home screen, menus, status bar, update UI |
 | `js/api.js` | API client: settings, device id, setup codes, jobs and assemblies, value units |
-| `js/server-ui.js` | Server settings dialog (key, device name and colour, sounds), setup QR, job list |
+| `js/server-ui.js` | Server settings / Admin dialog (device name and colour, sounds, admin code, server connection, updates), setup QR, job list |
 | `js/current-job.js` | Current job state, the top bar and job picker every module follows |
 | `js/pf-loads.js` | PowerFab loads: reads, parsers and every shipping write command |
 | `js/shipping.js` | Pure helpers: which remaining row a scan takes, totals, sequences |
@@ -332,8 +349,9 @@ hidden.
 
 1. Bump `self.TERRA_VERSION` in `version.js`.
 2. If you added a file, add it to `PRECACHE` in `sw.js`.
-3. Push to `main`, then `git pull` the clone on the server (or run
-   terra-tekla-server's `windows\deploy.ps1`, which pulls it too).
+3. Push to `main`, then on any iPad: **Server settings / Admin > Update the
+   app on the server** (or the server's `update-client.ps1`, or its
+   `windows\deploy.ps1`, which runs it too).
 
 On launch the app checks `version.js` on the server and shows a **New** badge
 on **Update** when a newer version exists. **Force Update** unregisters the
