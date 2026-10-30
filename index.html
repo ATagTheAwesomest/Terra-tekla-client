@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TERRA">
   <meta name="format-detection" content="telephone=no">
-  <meta name="terra-version" content="0.13.0">
+  <meta name="terra-version" content="0.14.0">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -50,8 +50,8 @@
       </button>
       <button class="btn home-tile" type="button" id="home-server-tile" data-module="server">
         <span class="home-tile-icon" aria-hidden="true">&#128273;</span>
-        <span class="home-tile-name">Server settings</span>
-        <span class="muted">Access key, this iPad’s name and colour, sounds</span>
+        <span class="home-tile-name">Server settings / Admin</span>
+        <span class="muted">Connect to the server, this iPad’s name and colour, sounds</span>
       </button>
       <div class="home-tile home-tile-soon">
         <span class="home-tile-icon" aria-hidden="true">&#43;</span>
@@ -133,7 +133,7 @@
       <span class="icon" aria-hidden="true">&#9113;</span><span>Print shipping ticket</span>
     </button>
     <button class="btn btn-block menu-item" id="btn-server" type="button">
-      <span class="icon" aria-hidden="true">&#128273;</span><span>Server settings</span>
+      <span class="icon" aria-hidden="true">&#128273;</span><span>Server settings / Admin</span>
     </button>
     <button class="btn btn-block menu-item" id="btn-update" type="button">
       <span class="icon" aria-hidden="true">&#8635;</span><span>Update app</span><span class="badge" id="update-badge" hidden>New</span>
@@ -148,7 +148,7 @@
       <button class="btn btn-ghost" id="btn-home-menu-close" type="button" aria-label="Close">&times;</button>
     </div>
     <button class="btn btn-block menu-item" id="btn-home-server" type="button">
-      <span class="icon" aria-hidden="true">&#128273;</span><span>Server settings</span>
+      <span class="icon" aria-hidden="true">&#128273;</span><span>Server settings / Admin</span>
     </button>
     <button class="btn btn-block menu-item" id="btn-home-update" type="button">
       <span class="icon" aria-hidden="true">&#8635;</span><span>Update app</span><span class="badge" id="home-update-badge" hidden>New</span>
@@ -177,10 +177,9 @@
   <dialog class="modal server" id="dlg-server">
     <form id="form-server" autocomplete="off">
       <div class="server-head">
-        <h2>Server settings</h2>
+        <h2>Server settings / Admin</h2>
         <button class="btn btn-ghost" type="button" id="btn-server-close" aria-label="Close">&times;</button>
       </div>
-      <p class="muted">Saved on this device only. The app talks to the TERRA server it was opened from; it holds the stacks every iPad shares and reaches PowerFab.</p>
       <fieldset class="device-settings" id="device-settings">
         <legend>This iPad</legend>
         <label for="device-name">Name, shown on every iPad next to what this one scans and on its photos</label>
@@ -195,27 +194,46 @@
         <span class="icon" aria-hidden="true">&#128264;</span><span>Sounds when a scan is added or refused</span><span class="toggle-state" id="sounds-toggle-state">On</span>
       </button>
       <button class="btn" type="button" id="btn-sounds-test">Test sounds</button>
-      <label for="server-url">Server address</label>
-      <input id="server-url" type="text" inputmode="url" placeholder="Blank: the server this app was opened from" autocapitalize="off" autocorrect="off" spellcheck="false">
-      <label for="server-key">Access key</label>
-      <div class="server-key-row">
-        <input id="server-key" type="password" autocapitalize="off" autocorrect="off" spellcheck="false">
-        <button class="btn" type="button" id="btn-server-key-show">Show</button>
-      </div>
-      <label for="server-setup">Or scan a setup code with the barcode scanner</label>
-      <input id="server-setup" type="text" placeholder="TERRACFG:…" autocapitalize="off" autocorrect="off" spellcheck="false">
-      <video id="server-video" playsinline muted hidden></video>
-      <div id="server-qr" class="server-qr" hidden></div>
-      <p class="server-result" id="server-result" role="status"></p>
       <button class="btn btn-block menu-toggle photos-toggle" id="btn-photos-toggle" type="button" aria-pressed="false">
         <span class="icon" aria-hidden="true">&#128247;</span><span>Send photos to the server</span><span class="toggle-state" id="photos-toggle-state">Off</span>
       </button>
       <p class="muted photos-setting-note" id="photos-setting-note"></p>
-      <div class="modal-actions server-actions">
-        <button class="btn" type="button" id="btn-server-camera">Scan QR with camera</button>
-        <button class="btn" type="button" id="btn-server-qr">Show setup QR</button>
-        <button class="btn btn-primary" type="submit">Save &amp; test</button>
-      </div>
+
+      <fieldset class="device-settings admin-box" id="admin-box">
+        <legend>Admin <span class="admin-lock" id="admin-lock-state">&#128274; Locked</span></legend>
+        <p class="muted" id="admin-note">These need the admin code, on the keypad. Once it is entered, this iPad stays unlocked for 30 minutes (the admin board too).</p>
+        <div class="admin-actions">
+          <button class="btn btn-lg" type="button" id="btn-admin-board">&#128202; Open admin board</button>
+          <button class="btn btn-lg" type="button" id="btn-admin-connection">&#128273; Change server settings</button>
+          <button class="btn btn-lg" type="button" id="btn-admin-update-app">&#11015; Update the app on the server</button>
+          <button class="btn btn-lg" type="button" id="btn-admin-update-server">&#8635; Update the server</button>
+          <button class="btn" type="button" id="btn-admin-lock" hidden>Lock now</button>
+        </div>
+        <p class="server-result" id="admin-result" role="status"></p>
+        <pre class="admin-output" id="admin-output" hidden></pre>
+      </fieldset>
+
+      <fieldset class="device-settings" id="server-connection" hidden>
+        <legend>Server connection</legend>
+        <p class="muted">Saved on this device only. The app talks to the TERRA server it was opened from; it holds the stacks every iPad shares and reaches PowerFab.</p>
+        <label for="server-url">Server address</label>
+        <input id="server-url" type="text" inputmode="url" placeholder="Blank: the server this app was opened from" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <label for="server-key">Access key</label>
+        <div class="server-key-row">
+          <input id="server-key" type="password" autocapitalize="off" autocorrect="off" spellcheck="false">
+          <button class="btn" type="button" id="btn-server-key-show">Show</button>
+        </div>
+        <label for="server-setup">Or scan a setup code with the barcode scanner</label>
+        <input id="server-setup" type="text" placeholder="TERRACFG:…" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <video id="server-video" playsinline muted hidden></video>
+        <div id="server-qr" class="server-qr" hidden></div>
+        <p class="server-result" id="server-result" role="status"></p>
+        <div class="modal-actions server-actions">
+          <button class="btn" type="button" id="btn-server-camera">Scan QR with camera</button>
+          <button class="btn" type="button" id="btn-server-qr">Show setup QR</button>
+          <button class="btn btn-primary" type="submit">Save &amp; test</button>
+        </div>
+      </fieldset>
     </form>
   </dialog>
 
@@ -279,8 +297,11 @@
     <h2>Update</h2>
     <p id="update-text">Checking&hellip;</p>
     <p class="muted">Server settings stay on this iPad. Only the app files are refreshed.</p>
+    <p class="muted" id="update-server-copy-result"></p>
+    <pre class="admin-output" id="update-server-copy-output" hidden></pre>
     <div class="modal-actions">
       <button class="btn" type="button" id="btn-update-cancel">Close</button>
+      <button class="btn" type="button" id="btn-update-server-copy" title="Needs the admin code">Get newest from GitHub first</button>
       <button class="btn btn-primary" type="button" id="btn-update-go">Force Update</button>
     </div>
   </dialog>

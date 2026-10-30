@@ -532,3 +532,17 @@ body.at-home .topbar, body.at-home .scanbar, body.at-home .ship-body { visibilit
 .device-color:disabled { opacity: 0.4; }
 .sounds-toggle { margin-top: 6px; }
 #btn-sounds-test { margin: 8px 0 4px; }
+
+/* Server settings / Admin */
+.admin-box legend { display: flex; gap: 10px; align-items: center; }
+.admin-lock { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); }
+.admin-lock.on { color: var(--accent); }
+.admin-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--gap); margin: 8px 0; }
+.admin-actions .btn { justify-content: flex-start; text-align: left; }
+.admin-output {
+  max-height: 180px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 8px 10px; font-family: var(--mono); font-size: 0.8rem; color: var(--text-muted);
+}
+.keypad-note.keypad-error { color: #ff6b6b; }
+.modal.keypad.keypad-pin .keypad-display:not(.placeholder) { letter-spacing: 0.3em; text-align: center; }
