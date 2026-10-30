@@ -95,3 +95,10 @@ test('view fetches the file as a blob; delete sends DELETE, both with the key', 
   globalThis.fetch = async () => new Response(JSON.stringify({ detail: 'There is no file' }), { status: 404 });
   await assert.rejects(api.fetchFile('J1', '8', 'x.jpg'), (err) => err.status === 404 && /no file/.test(err.message));
 });
+
+test('the live camera shrinks a frame to the same longest side as other photos', async () => {
+  const { fitSize } = await import('../js/camera.js');
+  assert.deepEqual(fitSize(4032, 3024), { width: 2048, height: 1536 });
+  assert.deepEqual(fitSize(1920, 1440), { width: 1920, height: 1440 });
+  assert.deepEqual(fitSize(3024, 4032), { width: 1536, height: 2048 });
+});

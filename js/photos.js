@@ -11,8 +11,8 @@ import * as api from './api.js';
 const SETTING_KEY = 'terra.photos';
 const DB_NAME = 'terra-photos';
 const STORE = 'queue';
-const MAX_SIDE = 2048;    // px, longest side after shrinking
-const JPEG_QUALITY = 0.85;
+export const MAX_SIDE = 2048;    // px, longest side after shrinking
+export const JPEG_QUALITY = 0.85;
 
 // ---- Setting ------------------------------------------------------------------
 
@@ -148,12 +148,13 @@ export function sendState() {
   return { sending: Boolean(sending), lastError };
 }
 
-// Keeps photos on the device and starts sending them.
-export async function queuePhotos({ job, load, mark = '', files }) {
+// Keeps photos on the device and starts sending them. `shrink: false` for
+// photos already shrunk (the live camera's).
+export async function queuePhotos({ job, load, mark = '', files, shrink = true }) {
   const label = photoLabel(mark);
   const takenAt = new Date().toISOString();
   const blobs = [];
-  for (const f of files) blobs.push(await shrinkImage(f));
+  for (const f of files) blobs.push(shrink ? await shrinkImage(f) : f);
   await tx('readwrite', (s) => {
     for (const blob of blobs) s.add({ job, load, mark: label, blob, takenAt, error: '' });
     return s;
