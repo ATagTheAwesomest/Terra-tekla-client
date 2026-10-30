@@ -8,7 +8,7 @@ import { readJob } from './pf-loads.js';
 import * as live from './live.js';
 import { initLayout } from './mobile.js';
 import { focusScanner, initScanner } from './scanner.js';
-import { initServer, openServerSettings, refreshJobs, serverStatus } from './server-ui.js';
+import { initServer, openServerSettings, refreshJobs, serverStatus, updateServerCopy } from './server-ui.js';
 import { canScan, enterShipping, initShipping, render as renderShipping, scan, selectedLoad, ship } from './shipping-ui.js';
 import { initStackStore, onChange as onStacksChange, syncStatus } from './stack-store.js';
 import { APP_VERSION, checkForUpdate, forceUpdate, recoverStalePage, registerServiceWorker } from './updater.js';
@@ -101,6 +101,9 @@ async function refreshUpdateBadge() {
 
 async function showUpdateDialog() {
   const text = $('#update-text');
+  $('#update-server-copy-result').textContent = '';
+  $('#update-server-copy-output').hidden = true;
+  $('#btn-update-server-copy').hidden = !getConfig();
   text.textContent = `Running version ${APP_VERSION}. Checking for a newer version…`;
   $('#dlg-update').showModal();
   const check = await refreshUpdateBadge();
@@ -189,6 +192,19 @@ function bindEvents() {
   $('#btn-update').addEventListener('click', showUpdateDialog);
   $('#btn-update-cancel').addEventListener('click', () => $('#dlg-update').close());
   $('#btn-update-go').addEventListener('click', runForceUpdate);
+  // The server's copy first (admin code), then this iPad, in one go.
+  $('#btn-update-server-copy').addEventListener('click', async () => {
+    const btn = $('#btn-update-server-copy');
+    btn.disabled = true;
+    const version = await updateServerCopy($('#update-server-copy-result'), $('#update-server-copy-output'));
+    btn.disabled = false;
+    if (version && version !== APP_VERSION) runForceUpdate();
+    else refreshUpdateBadge();
+  });
+  live.on('client-updated', (version) => {
+    if (version && version !== APP_VERSION) toast(`App v${version} is on the server. Menu › Update to load it.`, 6000);
+    refreshUpdateBadge();
+  });
   $('#btn-share').addEventListener('click', async () => {
     const load = loadWithPieces();
     if (load && (await shareLoadFile(load, ship.job)) === 'downloaded') toast('Load file downloaded');

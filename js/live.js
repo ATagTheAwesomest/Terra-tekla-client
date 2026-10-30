@@ -17,7 +17,7 @@ let retry = 1000;
 let retryTimer = null;
 let pingTimer = null;
 let everLive = false;
-const handlers = { load: [], devices: [], status: [], photos: [], reconnect: [] };
+const handlers = { load: [], devices: [], status: [], photos: [], reconnect: [], 'client-updated': [] };
 
 export function on(type, fn) {
   handlers[type].push(fn);
@@ -116,6 +116,9 @@ export function connect() {
       emit('load', msg.state, { by: msg.by, op: msg.op, mine: msg.by === deviceId() });
     } else if (msg.type === 'photos') {
       emit('photos', msg.job, msg.load);
+    } else if (msg.type === 'client-updated') {
+      // The server just got a newer app (Update the app on the server, on any iPad).
+      emit('client-updated', msg.version);
     }
   };
   ws.onclose = (e) => {
