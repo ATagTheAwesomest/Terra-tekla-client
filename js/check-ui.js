@@ -1,53 +1,28 @@
 // Truck check screen, as in terra-loads-web's js/check-ui.js: the open load's
 // stacks as a checklist. Scans check pieces off (see js/check.js); anything
 // not in the stacks, or one too many, is shown red as an extra. Nothing here
-// is sent to PowerFab; the checks are kept with the stacks on this iPad.
+// is sent to PowerFab.
+//
+// A load's check is shared by default: kept on terra-tekla-server, so every
+// iPad checking the load ticks off the same list and each tick shows who made
+// it. Switched to Solo, this iPad keeps a check of its own (js/stack-store.js).
 
 import { escapeHtml } from './app.js';
 import { checkStatus, extraReason } from './check.js';
 import { bindHold } from './hold.js';
 import { flashFeedback } from './scanner.js';
 import { cleanMark, formatWeight } from './shipping.js';
+import { playComplete, primeSound } from './sounds.js';
 import * as stacks from './stack-store.js';
+import { whoBadge } from './stacks-ui.js';
+
+export { primeSound };
 
 const UNDO_HOLD_MS = 1500;
 const RESET_HOLD_MS = 4000;
 
 let ctx = null;
 let missingOnly = false;
-
-// ---- Sound when the whole load is checked ------------------------------------
-// Safari only lets a page play sound after a tap or key press, so the audio
-// is unlocked by the tap on Truck check (primeSound). It is not done on every
-// tap and key: starting or resuming audio during a tap on the installed iPad
-// app can stop the tapped text field from taking focus or typing.
-
-let audio = null;
-
-export function primeSound() {
-  try {
-    audio ??= new (window.AudioContext || window.webkitAudioContext)();
-    if (audio.state === 'suspended') audio.resume();
-  } catch { /* no Web Audio: the check still works, just silently */ }
-}
-
-// Three loud rising beeps, then a long high one.
-export function playComplete() {
-  primeSound();
-  if (!audio) return;
-  const t0 = audio.currentTime + 0.05;
-  [[880, 0, 0.18], [1175, 0.22, 0.18], [1568, 0.44, 0.18], [2093, 0.7, 0.6]].forEach(([freq, at, len]) => {
-    const osc = audio.createOscillator();
-    const gain = audio.createGain();
-    osc.type = 'square';
-    osc.frequency.value = freq;
-    gain.gain.setValueAtTime(1, t0 + at);
-    gain.gain.exponentialRampToValueAtTime(0.001, t0 + at + len);
-    osc.connect(gain).connect(audio.destination);
-    osc.start(t0 + at);
-    osc.stop(t0 + at + len + 0.02);
-  });
-}
 
 function formatTime(iso) {
   const d = new Date(iso);
@@ -56,7 +31,8 @@ function formatTime(iso) {
 
 // ---- Rendering -----------------------------------------------------------
 
-function renderSummary(s) {
+function renderSummary(s, load) {
+  const solo = stacks.checkMode(load) === 'solo';
   const pct = s.total ? Math.round((s.checked / s.total) * 100) : 0;
   const banner = s.complete
     ? `<p class="check-banner ok">All ${s.total} pieces checked. Nothing missing.</p>`
@@ -75,6 +51,7 @@ function renderSummary(s) {
       </div>
       <div class="check-bar" role="progressbar" aria-valuemin="0" aria-valuemax="${s.total}" aria-valuenow="${s.checked}"><span style="width:${pct}%"></span></div>
       <div class="check-actions">
+        <button class="btn check-mode${solo ? ' solo' : ''}" type="button" data-action="check-mode" title="${solo ? 'Only this iPad’s checks. Tap to check together with the other iPads.' : 'Every iPad checking this load ticks off the same list. Tap to check on this iPad alone.'}">${solo ? '&#128100; Solo: this iPad only' : '&#128101; Shared with every iPad'}</button>
         <button class="btn${missingOnly ? ' btn-primary' : ''}" type="button" data-action="check-filter">${missingOnly ? 'Showing missing only' : 'Show missing only'}</button>
         <button class="btn btn-hold" type="button" data-hold="check-reset" data-hold-ms="${RESET_HOLD_MS}" title="Hold 4 seconds to clear every check">&#8634; Start over</button>
         <button class="btn" type="button" data-action="check-exit">Back to loading</button>
@@ -89,7 +66,7 @@ function renderExtras(s) {
     <li class="check-row extra" data-scan-id="${escapeHtml(x.scan.id)}">
       <span class="check-tick" aria-hidden="true">!</span>
       <span class="check-mark">${escapeHtml(x.scan.mark)}</span>
-      <span class="check-desc">${escapeHtml(extraReason(x))}${x.scan.manual ? ' &middot; typed' : ''}</span>
+      <span class="check-desc">${escapeHtml(extraReason(x))}${x.scan.manual ? ' &middot; typed' : ''} ${whoBadge(x.scan.scannedBy)}</span>
       <span class="check-time">${formatTime(x.scan.scannedAt)}</span>
       <button class="btn btn-icon btn-hold" type="button" data-hold="check-undo" data-hold-ms="${UNDO_HOLD_MS}" aria-label="Hold to remove this scan" title="Hold to remove this scan">&#10005;</button>
     </li>`).join('');
@@ -107,7 +84,7 @@ function renderRow({ entry, scan }) {
     <li class="check-row${done ? ' done' : ''}${entry.manual ? ' flagged' : ''}" data-check-item="${escapeHtml(entry.id)}"${scan ? ` data-scan-id="${escapeHtml(scan.id)}"` : ''}>
       <span class="check-tick" aria-label="${done ? 'Checked' : 'Not checked'}">${done ? '&#10003;' : ''}</span>
       <span class="check-mark">${escapeHtml(entry.mark)}</span>
-      <span class="check-desc">${escapeHtml(desc)}</span>
+      <span class="check-desc">${escapeHtml(desc)}${done ? ` ${whoBadge(scan.scannedBy)}` : ''}</span>
       <span class="check-time">${done ? formatTime(scan.scannedAt) : formatWeight(entry.weight)}</span>
       ${done
         ? `<button class="btn btn-icon btn-hold" type="button" data-hold="check-undo" data-hold-ms="${UNDO_HOLD_MS}" aria-label="Hold to uncheck" title="Hold to uncheck">&#8630;</button>`
@@ -137,17 +114,17 @@ function renderStacks(state, s) {
   }).join('');
 }
 
-export function renderCheck(state) {
+export function renderCheck(state, load) {
   const s = checkStatus(state);
   if (!s.total) {
-    return `${renderSummary(s)}
+    return `${renderSummary(s, load)}
       <div class="empty check-empty"><h1>Nothing to check</h1><p class="muted">This load has no pieces yet. Go back to loading and scan some in.</p></div>
       ${renderExtras(s)}`;
   }
   const body = missingOnly && !s.missing
     ? '<p class="check-banner ok">No missing pieces.</p>'
     : renderStacks(state, s);
-  return renderSummary(s) + renderExtras(s) + body;
+  return renderSummary(s, load) + renderExtras(s) + body;
 }
 
 // ---- Scanning ------------------------------------------------------------
@@ -159,18 +136,24 @@ export function submitCheck(raw, { manual = false } = {}) {
   const wasComplete = checkStatus(stacks.get(load)).complete;
   let scan;
   try { scan = stacks.addCheck(load, raw, { manual }); } catch (err) {
+    flashFeedback('bad');
     ctx.toast(err.message, 5000);
     return null;
   }
+  if (!scan) return null;
   ctx.render();
   const s = checkStatus(stacks.get(load));
   const entry = s.byScan.get(scan.id);
   if (entry) {
     const row = document.querySelector(`[data-check-item="${CSS.escape(entry.id)}"]`);
     row?.scrollIntoView({ block: 'nearest' });
-    flashFeedback('ok', row);
+    const finished = s.complete && !wasComplete;
+    flashFeedback('ok', row, { sound: !finished });
     if (s.complete) ctx.toast(`All ${s.total} pieces checked`, 4000);
-    if (s.complete && !wasComplete) playComplete();
+    if (finished) {
+      playComplete();
+      stacks.logEvent(load, 'check-complete', `Truck check complete: all ${s.total} pieces on load ${load.number} checked`);
+    }
   } else {
     const row = document.querySelector(`[data-scan-id="${CSS.escape(scan.id)}"]`);
     row?.scrollIntoView({ block: 'nearest' });
@@ -214,6 +197,13 @@ export function initCheck(context) {
       ctx.render();
     } else if (btn.dataset.action === 'check-exit') {
       ctx.exit();
+    } else if (btn.dataset.action === 'check-mode') {
+      const load = ctx.load();
+      if (!load) return;
+      const solo = stacks.checkMode(load) !== 'solo';
+      stacks.setCheckMode(load, solo ? 'solo' : 'shared');
+      ctx.toast(solo ? 'Solo check: only this iPad’s scans count, and the other iPads don’t see them' : 'Shared check: every iPad on this load ticks off the same list', 4000);
+      ctx.render();
     }
   });
   bindHold(ws, {

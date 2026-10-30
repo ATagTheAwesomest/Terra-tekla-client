@@ -99,3 +99,20 @@ test('weights in kg are converted to lbs; lb kept; an unknown unit is kept and f
   assert.deepEqual([unknown.weight, unknown.lineWeight, unknown.weightUnit, unknown.weightUnitUnknown], [1.5, 3, 't', true]);
   assert.deepEqual(unknown.fields.find(([k]) => k === 'Weight unit'), ['Weight unit', 't not recognised, weight not converted']);
 });
+
+test('a blank address means the server the app was opened from; the setup code can carry just the key', async () => {
+  const mem = new Map();
+  globalThis.localStorage = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) };
+  globalThis.location = { origin: 'https://terra.example.com' };
+  const { getConfig, setConfig, deviceId } = await import('../js/api.js');
+  assert.equal(getConfig(), null);
+  assert.deepEqual(setConfig({ url: '', key: 'k1' }), { url: 'https://terra.example.com', key: 'k1', sameOrigin: true });
+  // The page's own address typed in is the same as blank.
+  assert.equal(setConfig({ url: 'https://terra.example.com/', key: 'k1' }).sameOrigin, true);
+  assert.deepEqual(setConfig({ url: 'other.example.com', key: 'k2' }), { url: 'https://other.example.com', key: 'k2', sameOrigin: false });
+  assert.deepEqual(decodeSetup(encodeSetup({ url: '', key: 'k3' })), { url: '', key: 'k3' });
+  // The device id is made once and kept.
+  assert.equal(deviceId(), deviceId());
+  assert.match(deviceId(), /^[0-9a-z-]{8,64}$/);
+  delete globalThis.location;
+});

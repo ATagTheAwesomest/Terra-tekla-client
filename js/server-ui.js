@@ -1,10 +1,15 @@
-// Server settings dialog (address, key, setup QR show/scan) and the open job
-// list, read live from the API. Nothing from the server is kept on the device.
+// Server settings dialog (address, access key, setup QR show/scan, this iPad's
+// name and colour, sounds) and the open job list, read live from the API.
 
 import { escapeHtml, toast } from './app.js';
 import * as api from './api.js';
 import { JOB_NUMBERS, setJobNumbers } from './current-job.js';
+import * as live from './live.js';
 import { drawPhotoSetting } from './photos-ui.js';
+import { playBad, playGood, primeSound, setSoundsOn, soundsOn } from './sounds.js';
+
+// The same colours the server hands out, each easy to tell apart on the dark screen.
+export const DEVICE_COLORS = ['#ffb000', '#2f9bff', '#2bd96b', '#ff5c8a', '#b57cff', '#00d1c1', '#ff7a2f', '#e6e14a'];
 
 const $ = (sel) => document.querySelector(sel);
 const dialog = () => $('#dlg-server');
@@ -47,7 +52,7 @@ export function serverStatus() {
 
 function fillForm() {
   const config = api.getConfig();
-  $('#server-url').value = config?.url ?? '';
+  $('#server-url').value = config && !config.sameOrigin ? config.url : '';
   $('#server-key').value = config?.key ?? '';
   $('#server-setup').value = '';
   $('#server-result').textContent = serverStatus();
@@ -59,6 +64,40 @@ export function openServerSettings() {
   fillForm();
   dialog().showModal();
   drawPhotoSetting();
+  drawDevice();
+  drawSounds();
+}
+
+// ---- This iPad: name and colour ---------------------------------------------------
+
+function drawDevice() {
+  const me = live.getMe();
+  const input = $('#device-name');
+  if (document.activeElement !== input) input.value = me?.name ?? '';
+  input.disabled = !me;
+  $('#btn-device-save').disabled = !me;
+  $('#device-colors').innerHTML = DEVICE_COLORS.concat(me?.color && !DEVICE_COLORS.includes(me.color) ? [me.color] : [])
+    .map((c) => `<button class="device-color${me?.color === c ? ' on' : ''}" type="button" data-color="${c}" style="--c:${c}" aria-label="Colour ${c}"${me ? '' : ' disabled'}></button>`).join('');
+  if (!me) $('#device-result').textContent = api.getConfig() ? 'Connecting to the server…' : 'Save the server first.';
+}
+
+async function saveDevice(changes) {
+  const result = $('#device-result');
+  result.textContent = 'Saving…';
+  try {
+    const me = await api.updateMe(changes);
+    live.setMe(me);
+    result.textContent = `Saved. Every iPad now shows this one as ${me.name}.`;
+  } catch (err) {
+    result.textContent = err.message;
+  }
+  drawDevice();
+}
+
+function drawSounds() {
+  const on = soundsOn();
+  $('#btn-sounds-toggle').setAttribute('aria-pressed', String(on));
+  $('#sounds-toggle-state').textContent = on ? 'On' : 'Off';
 }
 
 async function saveAndTest(config) {
@@ -71,12 +110,13 @@ async function saveAndTest(config) {
     return;
   }
   result.textContent = 'Testing the connection…';
+  live.reconnect();
   try {
     const h = await api.health();
     const ok = await refreshJobs({ quiet: true });
     result.textContent = ok
-      ? `Connected (${h?.mode ?? 'unknown'} mode). ${JOB_NUMBERS.length} jobs loaded.`
-      : 'The server answered, but the job list couldn’t be read. Check the API key.';
+      ? `Connected to the TERRA server${h?.version ? ` v${h.version}` : ''}. ${JOB_NUMBERS.length} jobs loaded.`
+      : 'The server answered, but the job list couldn’t be read. Check the access key.';
   } catch (err) {
     result.textContent = err.message;
   }
@@ -104,7 +144,7 @@ function showQr() {
   qr.addData(api.encodeSetup(config));
   qr.make();
   box.innerHTML = `${qr.createSvgTag({ cellSize: 6, margin: 4, scalable: true })}
-    <p class="muted">Scan this on another device to set it up. It contains the API key, so don’t share a photo of it.</p>`;
+    <p class="muted">Scan this on another device to set it up. It contains the access key, so don’t share a photo of it.</p>`;
   box.hidden = false;
 }
 
@@ -179,5 +219,30 @@ function bindDialog() {
     input.type = input.type === 'password' ? 'text' : 'password';
   });
   $('#btn-server-close').addEventListener('click', () => dialog().close());
+  $('#btn-device-save').addEventListener('click', () => saveDevice({ name: $('#device-name').value }));
+  $('#device-name').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    saveDevice({ name: e.target.value });
+  });
+  $('#device-colors').addEventListener('click', (e) => {
+    const color = e.target.closest('[data-color]')?.dataset.color;
+    if (color) saveDevice({ color });
+  });
+  $('#btn-sounds-toggle').addEventListener('click', () => {
+    setSoundsOn(!soundsOn());
+    drawSounds();
+    if (soundsOn()) {
+      primeSound();
+      playGood();
+    }
+  });
+  // A tap here also lets the page play sound (Safari needs one), then plays both.
+  $('#btn-sounds-test').addEventListener('click', () => {
+    primeSound();
+    playGood();
+    setTimeout(playBad, 600);
+  });
+  live.on('devices', () => { if (dialog().open) drawDevice(); });
   dialog().addEventListener('close', stopCamera);
 }

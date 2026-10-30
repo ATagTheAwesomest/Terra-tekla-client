@@ -4,7 +4,7 @@ importScripts('version.js');
 const CACHE = `terra-client-${self.TERRA_VERSION}`;
 
 // The app shell, so the installed app opens fast and without the network.
-// Job data is never cached: it is read live from the API. Add new files here.
+// Job data is never cached: it is read live from the server. Add new files here.
 const PRECACHE = [
   './',
   './index.html',
@@ -27,6 +27,7 @@ const PRECACHE = [
   './js/export.js',
   './js/hold.js',
   './js/lookup.js',
+  './js/live.js',
   './js/lookup-ui.js',
   './js/mobile.js',
   './js/parts.js',
@@ -35,6 +36,8 @@ const PRECACHE = [
   './js/pf-loads.js',
   './js/scanner.js',
   './js/server-ui.js',
+  './js/sounds.js',
+  './js/stack-ops.js',
   './js/stack-store.js',
   './js/stacks-ui.js',
   './js/shipping.js',
@@ -74,8 +77,10 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  // The version check must always hit the network so updates are seen.
+  // The version check must always hit the network so updates are seen, and so
+  // must the server's own routes (stacks, photos, PowerFab) and its admin page.
   if (url.searchParams.has('versioncheck')) return;
+  if (/\/(api|ws|admin|health)(\/|$)/.test(url.pathname)) return;
 
   // The page itself comes from the network when it can, so it always matches
   // the scripts of the version that is running. Offline it comes from the cache.

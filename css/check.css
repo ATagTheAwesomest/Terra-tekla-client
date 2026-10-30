@@ -99,3 +99,7 @@ body.mode-check .topbar { border-bottom-color: var(--ok); }
 @media print {
   .check-summary, .check-stack, .mode-badge { display: none !important; }
 }
+
+/* Shared (every iPad) or solo (this iPad) truck check */
+.check-mode.solo { border-color: var(--flag); color: var(--flag); }
+.check-row .who { margin-left: 6px; }

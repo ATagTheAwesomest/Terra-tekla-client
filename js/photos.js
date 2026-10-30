@@ -1,5 +1,6 @@
-// Photos of a load, a stack or a piece, sent to the server (tekla-conversion-
-// layer "files", which keeps them in a folder per job, then per load).
+// Photos of a load, a stack or a piece, sent to terra-tekla-server, which keeps
+// them in a folder per job, then per load (its docs/PHOTOS.md), tagged with
+// this iPad's name.
 //
 // Off until turned on in Server settings on each device. A photo is kept on
 // this iPad (IndexedDB) until the server has it, so a dropped connection loses
@@ -34,7 +35,7 @@ export function setPhotosEnabled(on) {
 // ---- Names ------------------------------------------------------------------
 
 // What a photo is of, made safe for the server's folder and file name rules
-// (docs/FILES.md): no < > : " / \ | ? * or control characters, no leading or
+// (terra-tekla-server docs/PHOTOS.md): no < > : " / \ | ? * or control characters, no leading or
 // trailing space or trailing dot, at most 64 characters. '' = the whole load.
 export function photoLabel(text) {
   return String(text ?? '')

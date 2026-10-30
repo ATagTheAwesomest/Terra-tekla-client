@@ -5,10 +5,12 @@ import { getCurrentJob, initCurrentJob, jobsChanged, requireCurrentJob } from '.
 import { getConfig } from './api.js';
 import { shareLoadFile, printLoad } from './export.js';
 import { readJob } from './pf-loads.js';
+import * as live from './live.js';
 import { initLayout } from './mobile.js';
 import { focusScanner, initScanner } from './scanner.js';
 import { initServer, openServerSettings, refreshJobs, serverStatus } from './server-ui.js';
 import { canScan, enterShipping, initShipping, render as renderShipping, scan, selectedLoad, ship } from './shipping-ui.js';
+import { initStackStore, onChange as onStacksChange, syncStatus } from './stack-store.js';
 import { APP_VERSION, checkForUpdate, forceUpdate, recoverStalePage, registerServiceWorker } from './updater.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -121,11 +123,34 @@ async function runForceUpdate() {
 
 // ---- Status bar ----------------------------------------------------------
 
+// This iPad's name in its colour, whether the live line to the server is up
+// (and how many other iPads are on it), and changes still waiting to be sent.
 function renderStatus() {
-  const offline = $('#status-offline');
-  const online = navigator.onLine;
-  offline.textContent = online ? 'Online' : 'Offline: PowerFab can’t be reached';
-  offline.className = online ? 'ok' : 'warn';
+  const me = live.getMe();
+  const device = $('#status-device');
+  device.style.setProperty('--who', me?.color ?? '#555');
+  $('#status-device-name').textContent = me?.name ?? 'This iPad';
+  const line = $('#status-offline');
+  const state = live.liveState();
+  const sync = syncStatus();
+  const others = Math.max(0, live.onlineCount() - (me ? 1 : 0));
+  const waiting = sync.waiting ? ` · ${sync.waiting} change${sync.waiting === 1 ? '' : 's'} waiting to send` : '';
+  if (!navigator.onLine) {
+    line.textContent = `Offline: PowerFab and the other iPads can’t be reached${waiting}`;
+    line.className = 'warn';
+  } else if (state === 'live') {
+    line.textContent = `Live${others ? ` with ${others} other iPad${others === 1 ? '' : 's'}` : ''}${waiting}`;
+    line.className = sync.waiting ? 'warn' : 'ok';
+  } else if (state === 'refused') {
+    line.textContent = 'The server refused the access key';
+    line.className = 'warn';
+  } else if (state === 'off') {
+    line.textContent = 'Server not set up';
+    line.className = 'warn';
+  } else {
+    line.textContent = `Connecting to the server…${waiting}`;
+    line.className = 'warn';
+  }
   $('#status-parts').textContent = serverStatus();
   $('#status-version').textContent = `v${APP_VERSION}`;
 }
@@ -135,12 +160,17 @@ function renderStatus() {
 function bindEvents() {
   initServer({
     jobsChanged: () => { jobsChanged(); renderStatus(); },
-    configChanged: syncHomeServerTile,
+    configChanged: () => { syncHomeServerTile(); live.reconnect(); },
   });
   syncHomeServerTile();
   initLayout(renderShipping);
   initScanner({ scan, canScan });
+  initStackStore();
   initShipping();
+  live.on('status', renderStatus);
+  live.on('devices', renderStatus);
+  onStacksChange(renderStatus);
+  $('#status-device').addEventListener('click', openServerSettings);
   $('#scrim').addEventListener('click', () => { setMenu(false); setHomeMenu(false); });
   $('#btn-menu').addEventListener('click', () => setMenu(true));
   $('#btn-menu-close').addEventListener('click', () => setMenu(false));
@@ -178,6 +208,7 @@ async function boot() {
   bindEvents();
   initCurrentJob({ refresh: () => refreshJobs(), check: async (number) => (await readJob(number)).number });
   renderShipping();
+  live.initLive();
   renderStatus();
   if (getCurrentJob() && !document.body.classList.contains('at-home')) enterShipping();
   await registerServiceWorker();

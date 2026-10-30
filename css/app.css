@@ -483,3 +483,52 @@ body.at-home .topbar, body.at-home .scanbar, body.at-home .ship-body { visibilit
 .server-qr svg { width: min(320px, 80vw); height: auto; background: #fff; border-radius: var(--radius); }
 .modal.server input { text-transform: none; }
 .modal.server { max-height: 92vh; overflow-y: auto; }
+
+/* Who did it: a device's name in its colour (js/stacks-ui.js whoBadge). */
+.who {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px 1px 5px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+  vertical-align: middle;
+  color: var(--text);
+  background: color-mix(in srgb, var(--who, #777) 22%, transparent);
+}
+.who::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--who, #777); }
+
+/* This iPad in the status bar: tap for its name and colour. */
+.status-device {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+}
+.status-device .who-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--who, #555); }
+
+/* Server settings: this iPad's name, colour and sounds */
+.device-settings { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px 6px; margin: 10px 0; }
+.device-settings legend { padding: 0 6px; font-weight: 700; }
+.device-colors { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.device-color {
+  width: var(--tap);
+  height: var(--tap);
+  border-radius: 12px;
+  border: 3px solid transparent;
+  background: var(--c);
+  cursor: pointer;
+}
+.device-color.on { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg) inset; }
+.device-color:disabled { opacity: 0.4; }
+.sounds-toggle { margin-top: 6px; }
+#btn-sounds-test { margin: 8px 0 4px; }

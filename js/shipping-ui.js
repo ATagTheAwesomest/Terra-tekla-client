@@ -13,10 +13,16 @@
 // terra-loads-web; while it is on, scans only check pieces off.
 // Every change is a PowerFab write through the API (js/pf-loads.js), followed
 // by a fresh read of the loads. The stacks themselves (names, order, which
-// piece is in which stack) are only kept on this iPad (js/stack-store.js) and
-// are never sent to PowerFab.
+// piece is in which stack, who scanned it) are kept on terra-tekla-server
+// (js/stack-store.js), so every iPad on the load sees them change at once, and
+// are never sent to PowerFab. When another iPad changes the open load, its
+// stacks show the change straight away and PowerFab is read again for the
+// numbers.
 //
-// Scans run one at a time in order, so a fast scanner can't race two writes.
+// A scan shows as a "sending" row on every iPad as soon as it is made, then
+// becomes the piece once PowerFab has loaded it, or goes with a warning and
+// the bad sound if PowerFab refuses. Scans run one at a time in order, so a
+// fast scanner can't race two writes.
 
 import { escapeHtml, toast } from './app.js';
 import { getConfig } from './api.js';
@@ -24,11 +30,13 @@ import { getCurrentJob, onCurrentJobChange, openJobPicker } from './current-job.
 import { checkSummary } from './check.js';
 import { initCheck, primeSound, renderCheck, submitCheck } from './check-ui.js';
 import { bindHold } from './hold.js';
+import * as live from './live.js';
 import { isMobile } from './mobile.js';
 import { jobKey } from './parts.js';
 import * as pf from './pf-loads.js';
 import { flashFeedback, focusScanner, openKeypad } from './scanner.js';
 import * as stacks from './stack-store.js';
+import { pieceDetails } from './stack-ops.js';
 import { initStacks, renderStacks } from './stacks-ui.js';
 import { initPhotos, openPhotos, photoButton, photoOfButton } from './photos-ui.js';
 import { claimsText, cleanMark, findLoad, formatWeight, lastLoaded, loadSequences, loadTotals, pickRemaining, takeRemaining, toLoad } from './shipping.js';
@@ -47,6 +55,7 @@ export const ship = {
   remaining: [],      // pf.parseRemaining()
   selectedId: null,   // ProductionControlLoadID in the workspace
   readAt: null,
+  revs: new Map(),    // loadId -> the server's stack revision when that read started
   reading: false,
   error: '',
   busy: 0,            // writes in flight
@@ -61,8 +70,8 @@ export function selectedLoad() {
   return findLoad(ship.loads, ship.selectedId);
 }
 
-// Stack data lives in localStorage, which can be full or blocked. The PowerFab
-// change has gone through either way, so a failure here is only a warning.
+// A stack change the store refuses (a shipped load) is only a warning: any
+// PowerFab change has gone through either way.
 function safely(fn) {
   try { return fn(); } catch (err) {
     toast(err.message, 5000);
@@ -79,15 +88,20 @@ async function read({ remaining = false } = {}) {
   if (!job) return;
   ship.reading = true;
   render();
+  // What the server's stacks were before PowerFab is read: a stack change made
+  // after this isn't undone by what this read finds (js/stack-store.js sync).
+  const revs = new Map([...ship.loads.map((l) => [l.id, stacks.serverRev(l.id)])]);
+  const revOf = (id) => revs.get(id) ?? stacks.serverRev(id);
   try {
     if (!ship.pcid) ship.pcid = (await pf.readJob(job)).pcid;
     const [loads, rest] = await Promise.all([
       pf.readLoads(ship.pcid),
       remaining || !ship.readAt ? pf.readRemaining(ship.pcid) : null,
+      stacks.fetchJob(job),
     ]);
     if (seq !== readSeq || ship.job !== job) return;
-    // v0.10 kept stacks under "load:<pcid>:<number>" (js/stack-store.js).
-    for (const l of loads) l.oldIds = [`load:${ship.pcid}:${l.number.toUpperCase()}`];
+    for (const l of loads) l.job = job;
+    ship.revs = new Map(loads.map((l) => [l.id, revOf(l.id)]));
     ship.loads = loads;
     if (rest) ship.remaining = rest;
     ship.readAt = new Date();
@@ -226,33 +240,57 @@ export function scan(raw, { manual = false } = {}) {
   const open = selectedLoad();
   if (open?.shipped) {
     flashFeedback('bad');
-    showBlock({ title: 'Load already shipped', mark, message: `Load ${open.number} has shipped, so it is view and truck check only. Tap Truck check to check pieces off, or hold to unship to change it.` });
+    const message = `Load ${open.number} has shipped, so it is view and truck check only. Tap Truck check to check pieces off, or hold to unship to change it.`;
+    showBlock({ title: 'Load already shipped', mark, message });
+    safely(() => stacks.refused(open, { mark, title: 'Load already shipped', message }));
+    return null;
+  }
+  if (!open) {
+    flashFeedback('bad');
+    showBlock({ title: 'No load open', mark, message: 'Pick or create a load first.' });
     return null;
   }
   const jobThen = ship.job;
+  // The row shows (as "sending") on every iPad straight away, in this iPad's
+  // active stack; it waits its turn behind any scans still going to PowerFab.
+  const entryId = safely(() => stacks.beginScan(open, mark, { manual }));
+  render();
   return change(async () => {
-    const load = openLoadFor(jobThen, mark);
-    const wasWaiting = Boolean(toLoad(load, mark));
-    const item = await assignOne(load, mark);
     try {
-      await pf.loadMaterial(load.id, item);
+      const load = openLoadFor(jobThen, mark);
+      if (load.id !== open.id) throw Object.assign(new Error(`The open load changed before ${mark} was sent. Scan it again.`), { title: 'Load changed', mark });
+      const wasWaiting = Boolean(toLoad(load, mark));
+      const item = await assignOne(load, mark);
+      try {
+        await pf.loadMaterial(load.id, item);
+      } catch (err) {
+        // Assigning and loading are one step: don't leave it assigned but not loaded.
+        if (!wasWaiting) await pf.removeMaterial(load.id, item, 1).catch(() => {});
+        throw Object.assign(err, { title: err.title ?? 'PowerFab wouldn’t load that', mark });
+      }
+      if (entryId) stacks.finishScan(load, entryId, pieceDetails(item));
+      done(`${mark} loaded on load ${load.number}${item.sequence ? ` (seq ${item.sequence})` : ''}`);
     } catch (err) {
-      // Assigning and loading are one step: don't leave it assigned but not loaded.
-      if (!wasWaiting) await pf.removeMaterial(load.id, item, 1).catch(() => {});
-      throw Object.assign(err, { title: err.title ?? 'PowerFab wouldn’t load that', mark });
+      if (entryId) stacks.failScan(open, entryId, { mark, title: err.title ?? 'PowerFab refused that', message: err.message });
+      throw err;
     }
-    safely(() => stacks.recordLoaded(load, item, mark, { manual }));
-    done(`${mark} loaded on load ${load.number}${item.sequence ? ` (seq ${item.sequence})` : ''}`);
   }, { remaining: true });
 }
 
 // Takes the piece a stack row stands for off the truck and off the load, then
-// drops the row. A row PowerFab no longer has loaded is just dropped.
+// drops the row. A row PowerFab no longer has loaded is just dropped. While
+// PowerFab works on it, the row shows as being taken off on every iPad.
 async function takeOff(load, entry) {
   const item = lastLoaded(load, entry.mark, entry.sequence);
-  if (item) {
-    await pf.unloadMaterial(load.id, item, 1);
-    await pf.removeMaterial(load.id, item, 1);
+  stacks.markRemoving(load, entry.id);
+  try {
+    if (item) {
+      await pf.unloadMaterial(load.id, item, 1);
+      await pf.removeMaterial(load.id, item, 1);
+    }
+  } catch (err) {
+    stacks.markRemoving(load, entry.id, false);
+    throw err;
   }
   safely(() => stacks.removeEntry(load, entry.id));
 }
@@ -433,7 +471,7 @@ function renderLoad(load) {
   try {
     if (syncKey !== syncedAt) {
       syncedAt = syncKey;
-      stacks.sync(load);
+      stacks.sync(load, ship.revs.get(load.id) ?? 0);
     }
     state = stacks.get(load);
   } catch (err) {
@@ -455,7 +493,7 @@ function renderLoad(load) {
         ${load.shipped || load.items.length ? '' : `<button class="btn btn-hold" type="button" data-hold="delete" data-hold-ms="${DELETE_HOLD_MS}">Hold 10 s to delete load</button>`}
       </div>
     </header>`;
-  if (checking) return head + renderCheck(state);
+  if (checking) return head + renderCheck(state, load);
   const locked = load.shipped
     ? '<p class="ship-locked">Shipped: view and truck check only. Pieces and stacks can’t be scanned on, moved, renamed or taken off. Hold to unship to change this load.</p>'
     : '';
@@ -581,6 +619,7 @@ async function submitNewLoad(e) {
     dlg.close();
     ship.selectedId = id;
     toast(`Created load ${number}`);
+    safely(() => stacks.logEvent({ id, number, job: ship.job, items: [] }, 'load-create', `Created load ${number}`));
     await read();
     focusScanner();
   } catch (err) {
@@ -602,17 +641,24 @@ function onHold(btn) {
   const load = findLoad(ship.loads, loadId) ?? selectedLoad();
   if (!load) return;
   const item = itemFor(btn);
+  // Done in PowerFab, so the stacks don't show it: written to the history.
+  const logged = (kind, text, mark = '') => (ok) => {
+    if (!ok) return false;
+    safely(() => stacks.logEvent(load, kind, text, mark));
+    toast(text);
+    return true;
+  };
   const actions = {
-    ship: () => change(() => pf.shipLoad(load.id), { remaining: true }).then((ok) => ok && toast(`Load ${load.number} shipped`)),
-    unship: () => change(() => pf.unshipLoad(load.id), { remaining: true }).then((ok) => ok && toast(`Load ${load.number} is open again`)),
+    ship: () => change(() => pf.shipLoad(load.id), { remaining: true }).then(logged('ship', `Load ${load.number} shipped`)),
+    unship: () => change(() => pf.unshipLoad(load.id), { remaining: true }).then(logged('unship', `Load ${load.number} is open again`)),
     // Deleting frees the load's pieces, so the remaining list is read again too.
     delete: () => change(() => pf.deleteLoad(load.id), { remaining: true }).then((ok) => {
       if (!ok) return;
       safely(() => stacks.clear(load));
       toast(`Load ${load.number} deleted`);
     }),
-    return: () => item && change(() => pf.returnMaterial(load.id, item), { remaining: true }).then((ok) => ok && toast(`${item.mark} returned`)),
-    unreturn: () => item && change(() => pf.unreturnMaterial(load.id, item), { remaining: true }).then((ok) => ok && toast(`Return of ${item.mark} undone`)),
+    return: () => item && change(() => pf.returnMaterial(load.id, item), { remaining: true }).then(logged('return', `${item.mark} returned`, item.mark)),
+    unreturn: () => item && change(() => pf.unreturnMaterial(load.id, item), { remaining: true }).then(logged('unreturn', `Return of ${item.mark} undone`, item.mark)),
   };
   actions[btn.dataset.hold]?.();
 }
@@ -663,8 +709,45 @@ function newStack() {
   toast(`Scanning into ${stacks.activeStack(state).name}`);
 }
 
+// ---- Changes from the other iPads -----------------------------------------------
+
+let renderTimer = null;
+let rereadTimer = null;
+
+// Draws again for a stack change, unless someone is renaming a stack, dragging
+// a row or holding a button: that waits, so it isn't cut short.
+function renderSoon() {
+  clearTimeout(renderTimer);
+  renderTimer = setTimeout(() => {
+    if (document.querySelector('.stack-rename, .drag-ghost, .holding')) renderSoon();
+    else render();
+  }, 60);
+}
+
+// Another iPad changed PowerFab (loaded, took off, deleted): read the numbers again.
+function rereadSoon() {
+  clearTimeout(rereadTimer);
+  rereadTimer = setTimeout(() => {
+    if (ship.busy || ship.reading) rereadSoon();
+    else read({ remaining: true });
+  }, 1200);
+}
+
+const POWERFAB_OPS = new Set(['finishScan', 'removeEntry', 'clear']);
+
+function onStackChange(change) {
+  if (change.refused) toast(`The server refused a stack change: ${change.refused}`, 5000);
+  if (change.remote && POWERFAB_OPS.has(change.op) && findLoad(ship.loads, change.loadId)) rereadSoon();
+  if (!ship.job) return;
+  if (change.loadId === ship.selectedId || !change.loadId) renderSoon();
+  else if ($('#loads-panel').open) renderLoadList();
+}
+
 export function initShipping() {
   const ws = $('#workspace');
+  stacks.onChange(onStackChange);
+  live.on('reconnect', () => { if (ship.job) read({ remaining: true }); });
+  live.on('devices', renderSoon);
   initStacks({
     load: selectedLoad, render, toast, deleteEntry, deleteStack, detailRows, jobTotal,
     detailActions: (entry) => photoOfButton(entry.mark, 'this piece'),

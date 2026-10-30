@@ -1,28 +1,59 @@
-// TERRA API client: server address and key, production control jobs and each
-// job's assembly list. Job data is read live and kept in memory only; the
-// address and key are the one thing this device stores.
+// TERRA API client: the terra-tekla-server address and access key, this
+// device's id, production control jobs and each job's assembly list. Job data
+// is read live and kept in memory only.
 //
-// Nothing about the server is bundled with the app. The address and key are
-// entered once per device (typed, or read from a setup QR code made from the
-// local .env with tools/setup-qr.mjs) and stay in this device's storage.
+// The app is normally opened from terra-tekla-server itself, which is then the
+// server: only the access key has to be entered (typed, or read from a setup
+// QR code made with tools/setup-qr.mjs). A different address can still be set
+// for an app hosted somewhere else.
 //
-// The API passes PowerFab commands through: POST /api/powerfab/<Command> with
-// the command's fields as JSON, reply is PowerFab's XML turned into JSON (an
-// element that repeats becomes an array, one that appears once an object).
+// terra-tekla-server passes PowerFab commands on to tekla-conversion-layer:
+// POST /api/powerfab/<Command> with the command's fields as JSON, reply is
+// PowerFab's XML turned into JSON (an element that repeats becomes an array,
+// one that appears once an object). Stacks, devices and photos are the
+// server's own routes, below.
 
 import { jobKey, normalizeMark } from './parts.js';
 
 const CONFIG_KEY = 'terra.api';
+const DEVICE_KEY = 'terra.device-id';
 export const SETUP_PREFIX = 'TERRACFG:';
 
 // ---- Settings --------------------------------------------------------------
 
+// The page's own address when it was served over http(s) by a server (not a
+// file or a test), which is then terra-tekla-server.
+function pageOrigin() {
+  const origin = globalThis.location?.origin;
+  return origin && /^https?:/.test(origin) ? origin : '';
+}
+
+// { url, key, sameOrigin } or null before a key (or address) is saved. A saved
+// address of '' means "the server this page came from".
 export function getConfig() {
   try {
     const c = JSON.parse(localStorage.getItem(CONFIG_KEY) ?? 'null');
-    return c?.url ? c : null;
+    if (!c || (!c.url && !c.key && !c.saved)) return null;
+    const url = c.url || pageOrigin();
+    return url ? { url, key: c.key ?? '', sameOrigin: !c.url } : null;
   } catch {
     return null;
+  }
+}
+
+// This device's id, made up the first time and kept: the server knows the
+// device (its name, colour, what it scanned) by it.
+export function deviceId() {
+  try {
+    let id = localStorage.getItem(DEVICE_KEY);
+    if (!id) {
+      id = (crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`).toLowerCase();
+      localStorage.setItem(DEVICE_KEY, id);
+    }
+    return id;
+  } catch {
+    deviceId.memo ??= `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    return deviceId.memo;
   }
 }
 
@@ -32,9 +63,12 @@ export function cleanUrl(url) {
   return u;
 }
 
+// A blank address means this page's own server. Clearing both clears the setup.
 export function setConfig({ url, key }) {
-  const config = { url: cleanUrl(url), key: String(key ?? '').trim() };
-  if (!config.url) localStorage.removeItem(CONFIG_KEY);
+  let clean = cleanUrl(url);
+  if (clean && clean === pageOrigin()) clean = '';
+  const config = { url: clean, key: String(key ?? '').trim(), saved: true };
+  if (!config.url && !config.key && !pageOrigin()) localStorage.removeItem(CONFIG_KEY);
   else localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
   return getConfig();
 }
@@ -42,7 +76,7 @@ export function setConfig({ url, key }) {
 // Setup codes are "TERRACFG:" + base64url of {"u": url, "k": key}, so a
 // keyboard-wedge barcode scanner can type one without mangling quotes/braces.
 export function encodeSetup({ url, key }) {
-  const json = JSON.stringify({ u: cleanUrl(url), k: key });
+  const json = JSON.stringify({ u: url ? cleanUrl(url) : '', k: key });
   const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
   return SETUP_PREFIX + b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
@@ -54,7 +88,7 @@ export function decodeSetup(text) {
     const b64 = s.slice(SETUP_PREFIX.length).replace(/-/g, '+').replace(/_/g, '/');
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
     const { u, k } = JSON.parse(new TextDecoder().decode(bytes));
-    return u ? { url: cleanUrl(u), key: k ?? '' } : null;
+    return u || k ? { url: u ? cleanUrl(u) : '', key: k ?? '' } : null;
   } catch {
     return null;
   }
@@ -79,7 +113,12 @@ async function request(path, { method = 'GET', body, blob = false } = {}) {
   try {
     res = await fetch(`${config.url}${path}`, {
       method,
-      headers: { Authorization: `Bearer ${config.key}`, ...(body && !form ? { 'Content-Type': 'application/json' } : {}) },
+      headers: {
+        Authorization: `Bearer ${config.key}`,
+        'X-Terra-Device': deviceId(),
+        'X-Terra-Version': globalThis.TERRA_VERSION ?? '',
+        ...(body && !form ? { 'Content-Type': 'application/json' } : {}),
+      },
       body: form ? body : body ? JSON.stringify(body) : undefined,
       cache: 'no-store',
     });
@@ -89,7 +128,7 @@ async function request(path, { method = 'GET', body, blob = false } = {}) {
   if (blob && res.ok) return res.blob();
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const why = res.status === 401 ? 'The API key was refused.' : data?.detail || data?.title || `Server error ${res.status}.`;
+    const why = res.status === 401 ? 'The access key was refused. Check it in Server settings.' : data?.detail || data?.title || `Server error ${res.status}.`;
     throw new ApiError(why, res.status);
   }
   return data;
@@ -103,17 +142,45 @@ export function powerfab(command, fields = {}) {
   return request(`/api/powerfab/${encodeURIComponent(command)}`, { method: 'POST', body: fields });
 }
 
-// ---- Files (photos) -----------------------------------------------------------
-// The server keeps them in a folder per job, then per load (tekla-conversion-
-// layer docs/FILES.md). Off on the server unless FILES_ENABLED.
+// ---- This device and the others ------------------------------------------------
 
-function filesPath(job, load) {
-  return `/api/files/${encodeURIComponent(job)}/${encodeURIComponent(load)}`;
+// { id, name, color, ... }: this device as the server knows it.
+export function me() {
+  return request('/api/me');
 }
 
-// { enabled, maxBytes, maxFiles, types }. A server older than files answers 404.
+export function updateMe(changes) {
+  return request('/api/me', { method: 'PUT', body: changes });
+}
+
+// ---- Stacks (kept by terra-tekla-server, see js/stack-store.js) -----------------
+
+// Every load of a job the server has stacks for.
+export function jobStates(job) {
+  return request(`/api/jobs/${encodeURIComponent(job)}/loads`);
+}
+
+export function loadState(loadId, job, number) {
+  return request(`/api/loads/${encodeURIComponent(loadId)}?job=${encodeURIComponent(job ?? '')}&number=${encodeURIComponent(number ?? '')}`);
+}
+
+// One change to a load's stacks (js/stack-ops.js). Resolves { state, changed }.
+export function sendOp(loadId, op) {
+  return request(`/api/loads/${encodeURIComponent(loadId)}/ops`, { method: 'POST', body: op });
+}
+
+// ---- Photos -------------------------------------------------------------------------
+// terra-tekla-server keeps them in a folder per job, then per load (its
+// docs/PHOTOS.md), tagged with the device that took them. Off on the server
+// unless PHOTOS_ENABLED.
+
+function filesPath(job, load) {
+  return `/api/photos/${encodeURIComponent(job)}/${encodeURIComponent(load)}`;
+}
+
+// { enabled, maxBytes, maxFiles, types }.
 export function filesStatus() {
-  return request('/api/files');
+  return request('/api/photos');
 }
 
 export function listFiles(job, load) {
@@ -121,7 +188,8 @@ export function listFiles(job, load) {
 }
 
 // Sends photos of a load; `mark` says what they show (a piece mark or stack
-// name), left out for the whole load. Resolves { saved: [{ name, bytes }] }.
+// name), left out for the whole load. The server tags them with this device's
+// name. Resolves { saved: [{ name, bytes }] }.
 export function uploadFiles(job, load, files, { mark = '' } = {}) {
   const form = new FormData();
   for (const f of files) form.append('file', f.blob ?? f, f.name ?? 'photo.jpg');
@@ -135,7 +203,7 @@ export function fetchFile(job, load, name) {
   return request(`${filesPath(job, load)}/${encodeURIComponent(name)}`, { blob: true });
 }
 
-// Deletes one saved file. The server moves it to the load's .deleted folder.
+// Deletes one saved photo. The server moves it to the load's .deleted folder.
 export function deleteFile(job, load, name) {
   return request(`${filesPath(job, load)}/${encodeURIComponent(name)}`, { method: 'DELETE' });
 }
