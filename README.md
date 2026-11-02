@@ -259,7 +259,8 @@ Closing the app lets it go.
 
 A web app can't make iOS stop asking; only the iPad's settings can:
 
-1. **Settings > Apps > Safari > Camera** (older iPadOS: **Settings > Safari >
+1. **Settings > Apps > Safari**, under **Settings for Websites** tap **Camera**
+   (older iPadOS: **Settings > Safari >
    Camera**) and choose **Allow**. This is for every website in Safari.
 2. Or just for this site: open the app's address in **Safari**, tap the page
    menu in the address bar (**aA** or the icon at its left), **Website
