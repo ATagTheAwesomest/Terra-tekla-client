@@ -289,8 +289,65 @@ export function fetchFile(job, load, name) {
 }
 
 // Deletes one saved photo. The server moves it to the load's .deleted folder.
+// Deleting a photo needs the admin code (this device unlocked).
 export function deleteFile(job, load, name) {
-  return request(`${filesPath(job, load)}/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  return request(`/api/admin/photos/${encodeURIComponent(job)}/${encodeURIComponent(load)}/${encodeURIComponent(name)}`, { method: 'DELETE', admin: true });
+}
+
+// ---- Photo explorer ---------------------------------------------------------------
+// /api/browse on the server this page came from (or the saved one). It works without
+// the access key (look only) unless the server has PHOTOS_PUBLIC off; with the key it
+// also says where everything is stored.
+
+async function browseFetch(path) {
+  const config = getConfig();
+  const base = config?.url || pageOrigin();
+  if (!base) throw new ApiError('No server address.');
+  let res;
+  try {
+    res = await fetch(`${base}/api/browse${path}`, {
+      headers: config?.key ? { Authorization: `Bearer ${config.key}` } : {},
+      cache: 'no-store',
+    });
+  } catch {
+    throw new ApiError('Can’t reach the server. Check that this device is online.');
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    const why = res.status === 401 ? 'Looking through photos needs the access key on this server: Server settings.'
+      : res.status === 403 ? 'This server has photos turned off.'
+      : res.status === 404 && !data ? 'This server can’t show photos yet (it needs updating).'
+      : data?.detail || data?.title || `Server error ${res.status}.`;
+    throw new ApiError(why, res.status);
+  }
+  return res;
+}
+
+const seg = (s) => encodeURIComponent(s);
+
+async function browseJson(path) {
+  const res = await browseFetch(path);
+  if (!res.headers.get('content-type')?.includes('json')) throw new ApiError('This server can’t show photos yet (it needs updating).');
+  return res.json();
+}
+
+// { keyed, jobs: [{ job, description, loads, photos, lastAt, folder? }] }
+export async function browseJobs() {
+  return browseJson('');
+}
+
+// { keyed, job, folder?, loads: [{ load, photos, lastAt, folder? }] }
+export async function browseLoads(job) {
+  return browseJson(`/${seg(job)}`);
+}
+
+// { keyed, job, load, folder?, files: [{ name, bytes, modified, mark, by, color, path? }] }
+export async function browsePhotos(job, load) {
+  return browseJson(`/${seg(job)}/${seg(load)}`);
+}
+
+export async function browsePhoto(job, load, name) {
+  return (await browseFetch(`/${seg(job)}/${seg(load)}/${seg(name)}`)).blob();
 }
 
 // Every object stored under `name` anywhere in a reply, as one flat array.

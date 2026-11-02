@@ -29,6 +29,7 @@ const PRECACHE = [
   './js/lookup.js',
   './js/live.js',
   './js/lookup-ui.js',
+  './js/photo-browser.js',
   './js/mobile.js',
   './js/parts.js',
   './js/camera.js',
