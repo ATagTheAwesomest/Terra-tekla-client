@@ -81,4 +81,4 @@
 .camera-shutter:disabled { opacity: 0.35; }
 .camera-actions .btn-primary { min-width: 140px; }
 .modal.camera .camera-fallback { position: relative; overflow: hidden; margin: 0; align-items: center; }
-.modal.camera .camera-fallback[hidden] { display: none; }
+.modal.camera [hidden] { display: none; }
