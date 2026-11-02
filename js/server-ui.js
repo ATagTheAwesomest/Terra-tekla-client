@@ -1,7 +1,9 @@
-// Server settings / Admin: one dialog with this iPad's name and colour, sounds and photos (free to
-// change), and the admin part behind the server's admin code (entered on the 9-pin keypad): open
-// the admin board, change the server connection (address, key, setup QR; free until it is first
-// set), get the newest app onto the server (update-client.ps1) or update the server (deploy.ps1).
+// Server settings / Admin: one dialog with this iPad's number, name and colour (shown; they are set
+// on the admin board), sounds and photos (free to change), and the admin part behind the server's
+// admin code (entered on the 9-pin keypad): only once it is entered do the buttons show to open the
+// admin board, change the server connection (address, key, setup QR; free until it is first set,
+// and whenever the saved server can't check the code), get the newest app onto the server
+// (update-client.ps1) or update the server (deploy.ps1).
 // Also the open job list, read live from the API.
 
 import { escapeHtml, toast } from './app.js';
@@ -11,9 +13,6 @@ import * as live from './live.js';
 import { drawPhotoSetting } from './photos-ui.js';
 import { openKeypad } from './scanner.js';
 import { playBad, playGood, primeSound, setSoundsOn, soundsOn } from './sounds.js';
-
-// The same colours the server hands out, each easy to tell apart on the dark screen.
-export const DEVICE_COLORS = ['#ffb000', '#2f9bff', '#2bd96b', '#ff5c8a', '#b57cff', '#00d1c1', '#ff7a2f', '#e6e14a'];
 
 const $ = (sel) => document.querySelector(sel);
 const dialog = () => $('#dlg-server');
@@ -58,7 +57,8 @@ function fillForm() {
   const config = api.getConfig();
   // Before the first setup there is nothing to protect yet, so the connection is open.
   $('#server-connection').hidden = Boolean(config);
-  $('#server-url').value = config && !config.sameOrigin ? config.url : '';
+  // Filled in with the server in use, or this site's own address before the first setup.
+  $('#server-url').value = config?.url ?? (/^https?:/.test(location.origin) ? location.origin : '');
   $('#server-key').value = config?.key ?? '';
   $('#server-setup').value = '';
   $('#server-result').textContent = serverStatus();
@@ -82,65 +82,67 @@ export function openServerSettings() {
 function drawAdmin() {
   const until = api.adminUntil();
   const left = until ? Math.max(1, Math.ceil((until.getTime() - Date.now()) / 60000)) : 0;
+  const configured = Boolean(api.getConfig());
   $('#admin-lock-state').innerHTML = until ? `&#128275; Unlocked, ${left} min left` : '&#128274; Locked';
   $('#admin-lock-state').classList.toggle('on', Boolean(until));
+  // The admin buttons only exist once the code is entered.
+  $('#admin-actions').hidden = !until;
+  $('#btn-admin-unlock').hidden = Boolean(until) || !configured;
   $('#btn-admin-lock').hidden = !until;
-  const off = !api.getConfig();
-  for (const id of ['#btn-admin-board', '#btn-admin-connection', '#btn-admin-update-app', '#btn-admin-update-server']) $(id).disabled = off && id !== '#btn-admin-connection';
+  $('#admin-note').textContent = !configured
+    ? 'Set up the server connection below first. After that, the admin part needs the admin code.'
+    : 'The admin code, on the keypad, shows the admin buttons. This iPad then stays unlocked for 30 minutes (the admin board too).';
 }
 
-// Makes sure this iPad is unlocked, asking for the code on the keypad (or, the first time, for a
-// new code twice). Resolves true when unlocked, false when cancelled, or 'unreachable' when the
-// server can't be asked (offline, or the access key is refused).
+// Makes sure this iPad is unlocked, asking for the code on the keypad. Resolves true when unlocked,
+// false when cancelled, or 'unreachable' when the server can't check the code: it can't be
+// reached, refuses the access key, doesn't answer like a TERRA server, or has no code (an old
+// server). The connection then has to stay fixable without the code.
 export async function requireAdmin() {
   let state;
   try {
     state = await api.adminState();
-  } catch (err) {
-    return err.status === 0 || err.status === 401 ? 'unreachable' : false;
+  } catch {
+    return 'unreachable';
   }
   if (state.unlocked) return true;
-  if (!state.pinSet) {
-    let error = '';
-    for (;;) {
-      const first = await openKeypad({ mode: 'pin', title: 'Set an admin code', note: 'No admin code is set yet. Pick 4 to 8 digits: it will be needed for the admin board and server settings on every iPad.', error, okLabel: 'Next' });
-      if (first === null) return false;
-      const again = await openKeypad({ mode: 'pin', title: 'Enter it again', note: 'The same code, to be sure.', okLabel: 'Set code' });
-      if (again === null) return false;
-      if (first !== again) { error = 'The two codes didn’t match. Start again.'; continue; }
-      try {
-        await api.adminSetup(first);
-        drawAdmin();
-        return true;
-      } catch (err) {
-        if (err.status === 409) return requireAdmin();
-        error = err.message;
-      }
-    }
-  }
+  if (!state.pinSet) return 'unreachable';
   let error = state.retryAfter ? `Too many wrong codes. Try again in ${state.retryAfter} s.` : '';
   for (;;) {
-    const pin = await openKeypad({ mode: 'pin', title: 'Admin code', note: 'The admin code from the server. This iPad then stays unlocked for 30 minutes.', error });
+    const pin = await openKeypad({ mode: 'pin', title: 'Admin code', note: 'The admin code from the server (the admin board shows how to change it). This iPad then stays unlocked for 30 minutes.', error });
     if (pin === null) return false;
     try {
       await api.adminUnlock(pin);
       drawAdmin();
       return true;
     } catch (err) {
-      if (err.status === 0) return 'unreachable';
+      // A wrong code (403) or too many (429) asks again; anything else means the server can't check it.
+      if (err.status !== 403 && err.status !== 429) return 'unreachable';
       error = err.message;
     }
   }
 }
 
-async function openConnection() {
-  const result = $('#admin-result');
+async function unlockAdmin() {
   const ok = await requireAdmin();
-  if (ok === false) return;
-  // A server that can't be reached can't check the code; the connection must stay fixable then.
-  result.textContent = ok === 'unreachable' ? 'Couldn’t reach the server to check the admin code, so the connection is open to fix.' : '';
+  if (ok === 'unreachable') {
+    showConnection('The server couldn’t check the admin code (it can’t be reached, refused the key, or isn’t a TERRA server), so the connection is open to fix.');
+    return;
+  }
+  $('#admin-result').textContent = '';
+  drawAdmin();
+}
+
+function showConnection(message = '') {
+  $('#admin-result').textContent = message;
   $('#server-connection').hidden = false;
   $('#server-connection').scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+async function openConnection() {
+  const ok = await requireAdmin();
+  if (ok === false) return;
+  showConnection(ok === 'unreachable' ? 'Couldn’t reach the server to check the admin code, so the connection is open to fix.' : '');
 }
 
 async function openAdminBoard() {
@@ -209,30 +211,13 @@ async function updateTheServer() {
   }
 }
 
-// ---- This iPad: name and colour ---------------------------------------------------
+// ---- This iPad: its number, name and colour (set on the admin board) ------------------
 
 function drawDevice() {
   const me = live.getMe();
-  const input = $('#device-name');
-  if (document.activeElement !== input) input.value = me?.name ?? '';
-  input.disabled = !me;
-  $('#btn-device-save').disabled = !me;
-  $('#device-colors').innerHTML = DEVICE_COLORS.concat(me?.color && !DEVICE_COLORS.includes(me.color) ? [me.color] : [])
-    .map((c) => `<button class="device-color${me?.color === c ? ' on' : ''}" type="button" data-color="${c}" style="--c:${c}" aria-label="Colour ${c}"${me ? '' : ' disabled'}></button>`).join('');
-  if (!me) $('#device-result').textContent = api.getConfig() ? 'Connecting to the server…' : 'Save the server first.';
-}
-
-async function saveDevice(changes) {
-  const result = $('#device-result');
-  result.textContent = 'Saving…';
-  try {
-    const me = await api.updateMe(changes);
-    live.setMe(me);
-    result.textContent = `Saved. Every iPad now shows this one as ${me.name}.`;
-  } catch (err) {
-    result.textContent = err.message;
-  }
-  drawDevice();
+  $('#device-who').innerHTML = me
+    ? `<span class="who-dot" style="--who:${escapeHtml(me.color ?? '#777')}" aria-hidden="true"></span><span>${escapeHtml(me.name)}</span>${me.user && me.user !== me.name ? `<span class="device-user">${escapeHtml(me.user)}</span>` : ''}`
+    : `<span class="muted">${api.getConfig() ? 'Connecting to the server…' : 'Save the server first.'}</span>`;
 }
 
 function drawSounds() {
@@ -241,26 +226,29 @@ function drawSounds() {
   $('#sounds-toggle-state').textContent = on ? 'On' : 'Off';
 }
 
+// Saves a connection only once that server has answered as a TERRA server and taken the key, so a
+// mistyped address can't leave this iPad tied to a server that can't check the admin code.
 async function saveAndTest(config) {
-  const saved = api.setConfig(config);
-  onConfigChanged(Boolean(saved));
-  fillForm();
   const result = $('#server-result');
-  if (!saved) {
-    result.textContent = 'Server cleared.';
-    return;
-  }
   result.textContent = 'Testing the connection…';
-  live.reconnect();
+  let checked;
   try {
-    const h = await api.health();
-    const ok = await refreshJobs({ quiet: true });
-    result.textContent = ok
-      ? `Connected to the TERRA server${h?.version ? ` v${h.version}` : ''}. ${JOB_NUMBERS.length} jobs loaded.`
-      : 'The server answered, but the job list couldn’t be read. Check the access key.';
+    checked = await api.checkServer(config);
   } catch (err) {
-    result.textContent = err.message;
+    result.textContent = `Not saved: ${err.message}`;
+    return false;
   }
+  api.setConfig({ url: checked.url, key: config.key });
+  onConfigChanged(true);
+  fillForm();
+  live.reconnect();
+  const ok = await refreshJobs({ quiet: true });
+  $('#server-result').textContent = ok
+    ? `Saved. Connected to the TERRA server v${checked.version}. ${JOB_NUMBERS.length} jobs loaded.`
+    : 'Saved. The server answered, but the job list couldn’t be read yet.';
+  drawAdmin();
+  drawDevice();
+  return true;
 }
 
 function applySetupCode(text) {
@@ -360,6 +348,7 @@ function bindDialog() {
     input.type = input.type === 'password' ? 'text' : 'password';
   });
   $('#btn-server-close').addEventListener('click', () => dialog().close());
+  $('#btn-admin-unlock').addEventListener('click', unlockAdmin);
   $('#btn-admin-board').addEventListener('click', openAdminBoard);
   $('#btn-admin-connection').addEventListener('click', openConnection);
   $('#btn-admin-update-app').addEventListener('click', updateAppOnServer);
@@ -367,17 +356,9 @@ function bindDialog() {
   $('#btn-admin-lock').addEventListener('click', async () => {
     await api.adminLock();
     $('#server-connection').hidden = Boolean(api.getConfig());
+    $('#admin-result').textContent = '';
+    $('#admin-output').hidden = true;
     drawAdmin();
-  });
-  $('#btn-device-save').addEventListener('click', () => saveDevice({ name: $('#device-name').value }));
-  $('#device-name').addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter') return;
-    e.preventDefault();
-    saveDevice({ name: e.target.value });
-  });
-  $('#device-colors').addEventListener('click', (e) => {
-    const color = e.target.closest('[data-color]')?.dataset.color;
-    if (color) saveDevice({ color });
   });
   $('#btn-sounds-toggle').addEventListener('click', () => {
     setSoundsOn(!soundsOn());

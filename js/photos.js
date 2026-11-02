@@ -2,7 +2,7 @@
 // them in a folder per job, then per load (its docs/PHOTOS.md), tagged with
 // this iPad's name.
 //
-// Off until turned on in Server settings on each device. A photo is kept on
+// On unless turned off in Server settings on that device. A photo is kept on
 // this iPad (IndexedDB) until the server has it, so a dropped connection loses
 // nothing: the queue is sent again when the device is back online.
 
@@ -16,11 +16,12 @@ const JPEG_QUALITY = 0.85;
 
 // ---- Setting ------------------------------------------------------------------
 
+// On unless this device turned it off.
 export function photosEnabled() {
   try {
-    return JSON.parse(localStorage.getItem(SETTING_KEY) ?? 'null')?.enabled === true;
+    return JSON.parse(localStorage.getItem(SETTING_KEY) ?? 'null')?.enabled !== false;
   } catch {
-    return false;
+    return true;
   }
 }
 

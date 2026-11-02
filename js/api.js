@@ -139,20 +139,41 @@ export function health() {
   return request('/health');
 }
 
+// Checks a connection before it is saved: the address must answer as a TERRA server and take the
+// key. Resolves { version, url } or throws an ApiError saying what is wrong. A blank address is
+// the server this page came from.
+export async function checkServer({ url, key }) {
+  const base = cleanUrl(url) || pageOrigin();
+  if (!base) throw new ApiError('Enter the server address.');
+  const get = async (path, headers = {}) => {
+    try {
+      return await fetch(`${base}${path}`, { headers, cache: 'no-store' });
+    } catch {
+      throw new ApiError(`Can’t reach ${base}. Check the address, or that this device is online.`);
+    }
+  };
+  const h = await get('/health');
+  const health = await h.json().catch(() => null);
+  if (!h.ok || health?.status !== 'ok') throw new ApiError(`${base} answered, but it isn’t a TERRA server.`, h.status);
+  const s = await get('/api/status', { Authorization: `Bearer ${String(key ?? '').trim()}` });
+  if (s.status === 401) throw new ApiError('The server refused that access key.', 401);
+  const status = await s.json().catch(() => null);
+  if (!s.ok || !status?.version) throw new ApiError(`${base} answered, but not like a TERRA server (error ${s.status}).`, s.status);
+  return { version: status.version, url: base };
+}
+
 export function powerfab(command, fields = {}) {
   return request(`/api/powerfab/${encodeURIComponent(command)}`, { method: 'POST', body: fields });
 }
 
 // ---- This device and the others ------------------------------------------------
 
-// { id, name, color, ... }: this device as the server knows it.
+// { id, number, user, name, color, ... }: this device as the server knows it. Its name and colour
+// are set on the admin board, never from the iPad.
 export function me() {
   return request('/api/me');
 }
 
-export function updateMe(changes) {
-  return request('/api/me', { method: 'PUT', body: changes });
-}
 
 // ---- Admin code (terra-tekla-server checks it) -----------------------------------
 // Entering the code gives a token good for 30 minutes from this device's IP address. It is kept in
@@ -190,13 +211,12 @@ export async function adminLock() {
   try { localStorage.removeItem(UNLOCK_KEY); } catch { /* blocked */ }
 }
 
-// { pinSet, unlocked, until, retryAfter }
-export function adminState() {
-  return request('/api/admin/lock', { admin: true });
-}
-
-export async function adminSetup(pin) {
-  return keepUnlock(await request('/api/admin/setup', { method: 'POST', body: { pin } }));
+// { pinSet, unlocked, until, retryAfter }. Anything else (a page that isn't a TERRA server, a
+// proxy's error page) throws with status 0, like a server that can't be reached.
+export async function adminState() {
+  const state = await request('/api/admin/lock', { admin: true });
+  if (!state || typeof state !== 'object' || typeof state.pinSet !== 'boolean') throw new ApiError('That isn’t a TERRA server.', 0);
+  return state;
 }
 
 export async function adminUnlock(pin) {

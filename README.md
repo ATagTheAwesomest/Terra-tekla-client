@@ -27,9 +27,10 @@ else, the server address) in its own localStorage, entered under **Server
 settings / Admin** (the one menu entry for it; also a home screen tile until
 the first setup) in one of three ways:
 
-- type the key (leave **Server address** blank for "the server this page
-  came from"), then **Save & test**;
-- scan a setup QR code with the camera (**Scan QR with camera**);
+- type the key (**Server address** is already filled in with the site the
+  app was opened from), then **Save & test**;
+- scan a setup QR code with the camera (**Scan QR with camera**): the admin
+  board shows one under Settings > Set up an iPad;
 - scan the same code with the Bluetooth barcode scanner into the setup field.
 
 To make a setup code, copy `.env.example` to `.env` (git-ignored), fill in
@@ -38,20 +39,29 @@ writes `setup-qr.svg` (also git-ignored) and prints the code text. A device
 that's already set up can show the same code with **Show setup QR**. The code
 holds the API key, so treat a printout like a key.
 
-The same dialog sets this iPad's **name** and **colour**. They tag every
-piece it scans, every truck-check tick and every photo it takes, and show in
-the server's history and admin page. A new iPad starts as "iPad N". It also
-has the **Sounds** switch and **Test sounds**.
+**Save & test** only saves a connection once that address has answered as a
+TERRA server (`/health`) and taken the key (`/api/status`); otherwise it says
+why and keeps the old one, so a typo can't tie the iPad to a server that
+can't check the admin code.
 
-The **Admin** part of the dialog needs the server's admin code, typed on the
-9-pin keypad (no soft keyboard). The first time, it asks to set one (twice).
-Once entered, this iPad stays unlocked for 30 minutes, the server's admin board
+The same dialog shows this iPad's fixed number ("User 3", given by the server
+the first time it sees the iPad and never changed), its **name** and
+**colour**. Those are set on the server's admin board only, never here. They
+tag every piece it scans, every truck-check tick and every photo it takes. It
+also has the **Sounds** switch, **Test sounds** and **Send photos** (on unless
+turned off).
+
+The **Admin** part of the dialog shows only **Unlock admin** until the
+server's admin code is typed on the 9-pin keypad (no soft keyboard). The
+server makes the code up itself and it is changed on the admin board. Once
+entered, the admin buttons appear and this iPad stays unlocked for 30 minutes, the server's admin board
 included (they share the unlock in localStorage, `terra.admin.unlock`). In it:
 
 - **Open admin board**: the server's `/admin/`, using this app's key.
 - **Change server settings**: address, key and setup QR. Open without the code
-  until the first save; after that the code is needed, unless the server can't
-  be reached at all (then it opens, so a wrong address can be fixed).
+  until the first save; after that the code is needed, unless the saved server
+  can't check it (unreachable, refuses the key, isn't a TERRA server or has no
+  code: then **Unlock admin** opens the connection, so it can be fixed).
 - **Update the app on the server**: the server runs its `update-client.ps1`
   to get the newest version of this repo; then **Update** here loads it. The
   Update dialog's **Get newest from GitHub first** does both.
@@ -219,7 +229,7 @@ prints the load stack by stack with each stack's pieces and weight.
 
 ### Photos
 
-Off until **Server settings → Send photos to the server** is turned on (per
+On unless **Server settings → Send photos to the server** is turned off (per
 device, `terra.photos`). Then each load gets a **📷 Photos** button, each stack
 header a 📷 button, and each piece's details a **Photo of this piece** button.
 The Photos window takes a photo with the camera or picks some from the
@@ -294,7 +304,7 @@ iPads.
 | `css/shipping.css` | Loads window, stacks and rows, "Not added" card |
 | `js/app.js` | Boot, home screen, menus, status bar, update UI |
 | `js/api.js` | API client: settings, device id, setup codes, jobs and assemblies, value units |
-| `js/server-ui.js` | Server settings / Admin dialog (device name and colour, sounds, admin code, server connection, updates), setup QR, job list |
+| `js/server-ui.js` | Server settings / Admin dialog (device number, name and colour shown, sounds, admin code, server connection, updates), setup QR, job list |
 | `js/current-job.js` | Current job state, the top bar and job picker every module follows |
 | `js/pf-loads.js` | PowerFab loads: reads, parsers and every shipping write command |
 | `js/shipping.js` | Pure helpers: which remaining row a scan takes, totals, sequences |

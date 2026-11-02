@@ -34,13 +34,13 @@ test('only a refusal of the photo itself is kept aside; anything else is retried
   assert.equal(isRefusal({ status: 500 }), false);   // rules file wrong: fix and retry
 });
 
-test('sending photos is off until turned on', () => {
+test('sending photos is on until turned off', () => {
   store.clear();
-  assert.equal(photosEnabled(), false);
-  setPhotosEnabled(true);
   assert.equal(photosEnabled(), true);
   setPhotosEnabled(false);
   assert.equal(photosEnabled(), false);
+  setPhotosEnabled(true);
+  assert.equal(photosEnabled(), true);
 });
 
 test('uploads go to the server’s /api/photos/<job>/<load> as multipart with the key and device', async () => {
