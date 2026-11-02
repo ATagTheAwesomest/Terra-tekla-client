@@ -255,13 +255,40 @@ one back, ✕ removes any one, Done stays off until there is at least one photo,
 and Cancel drops the entry. The photos are queued with the mark once the entry is made; if
 PowerFab refuses it they are dropped. Scanned marks never ask.
 
+**Pallets.** **+ Pallet** in the scan bar makes a stack of one mark that is
+scanned once instead of piece by piece (bolts, clips, plates on a pallet).
+Tap it, scan the mark of one piece (or type it on the Keypad), type how many
+are on the pallet on the 9-pin keypad (it says how many the job has left),
+then, while photos are on, take **at least 3 photos of the whole pallet**:
+the camera says "n of 3 photos needed" and Done stays off until there are 3.
+Cancel at any step and nothing is sent. PowerFab then gets that many assigned
+and loaded in a few writes (one per sequence, lowest sequence first). The
+pallet goes in below the stack you are scanning into, which stays the active
+one; a pallet is never the active stack and pieces can't be dragged into it.
+It shows as one line, "CL-1 × 40", with the weight of one and of all (unit
+weight × count), who made it and how many photos it has. **Change count** adds
+more (loaded the same way) or takes the last ones off the load; holding the
+pallet's 🗑 for 4 seconds deletes it and takes all its pieces off. If PowerFab
+refuses part of it, the pallet keeps the pieces that did load and the warning
+says why; if it refuses all of it, the pallet and its photos are dropped.
+Underneath it is still one row per piece (kept on the server), so totals, the
+export (one line per piece, after a `{PALLET: CL-1 x 40}` line Tekla ignores),
+the printed ticket (one row "CL-1 × 40") and the sync with PowerFab all work as
+for any stack. In the truck check one scan of the mark checks the whole pallet
+off (when the next unchecked piece of that mark is on a pallet); hold ↶ to
+undo it. With photos off on this iPad a pallet asks for no photos, the same as
+a manual entry.
+
 Photos go to terra-tekla-server (`POST /api/photos/<job>/<load>`, with the
-stack name or piece mark as `mark`), which saves them in a folder for the job,
-then one per load, named with the date, the piece and this iPad's name: see
+stack name or piece mark as `mark`, and when it was taken as `takenAt`), which saves them in a folder for the job,
+then one per load, named with the date, the piece and this iPad's name, and
+writes who took it ("User 3 (Yard iPad)") into each JPEG: see
 its `docs/PHOTOS.md` (also on its admin page) for the `PHOTOS_*` settings and
 the regex rules that pick a job's folder. The server has to have
 `PHOTOS_ENABLED` on too; the switch's note says whether it does. Each photo in
-the library shows who took it.
+the library and the explorer shows who took it: the iPad's name and its fixed
+"User N", "probably …" for an older photo the server only knows from its file
+name, or "unknown".
 
 Each photo is shrunk to a JPEG of at most 2048 px and kept on the iPad
 (IndexedDB `terra-photos`) until the server has it, so going offline loses

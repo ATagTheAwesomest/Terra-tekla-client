@@ -54,6 +54,14 @@ export function pickRemaining(mark, remaining, loads) {
   return { reason: onLoads.every((l) => l.shipped) ? 'shipped' : 'on-other-loads' };
 }
 
+// How many more of `mark` a load can take: pieces already on it and not
+// loaded, plus what the job has left that isn't on any load.
+export function leftToLoad(load, mark, remaining) {
+  const waiting = (load?.items ?? []).filter((it) => it.mark === mark).reduce((n, it) => n + Math.max(0, it.qty - it.loaded), 0);
+  const rest = remaining.filter((r) => r.mark === mark).reduce((n, r) => n + Math.max(0, r.remaining), 0);
+  return waiting + rest;
+}
+
 // After assigning `qty` of a remaining row, what PowerFab now has left. Saves
 // re-reading the whole (large) remaining list on every scan.
 export function takeRemaining(remaining, row, qty = 1) {

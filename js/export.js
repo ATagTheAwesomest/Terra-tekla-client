@@ -57,6 +57,8 @@ export function buildLoadText(load, job, exportedAt = new Date(), stackState = n
   }
   for (const stack of stackState.stacks) {
     lines.push(`{STACK: ${stack.name}}`);
+    // A pallet still lists one line per piece (Tekla counts lines); the {} line says it was a pallet.
+    if (stack.pallet) lines.push(`{PALLET: ${stack.pallet.mark} x ${stack.items.length}}`);
     for (const entry of stack.items) lines.push(entry.mark);
   }
   const waiting = notLoaded(load);
@@ -116,6 +118,22 @@ function el(tag, attrs, ...children) {
   return node;
 }
 
+// A pallet on the ticket: one row, "mark × count", with the weight of one and of all.
+function palletRow(stack, totals) {
+  const first = stack.items[0] ?? {};
+  const seqs = [...new Set(stack.items.map((e) => e.sequence).filter(Boolean))].join(', ');
+  return el(
+    'tr',
+    stack.pallet.manual ? { class: 'pt-unmatched' } : null,
+    el('td', { class: 'pt-num' }, 1),
+    el('td', { class: 'pt-mark' }, `${stack.pallet.mark} × ${stack.items.length}`),
+    el('td', null, seqs),
+    el('td', null, `Pallet of ${stack.items.length}${first.description ? ` · ${first.description}` : ''}${first.weight ? ` · ${plainWeight(first.weight)} lbs each` : ''}`),
+    el('td', { class: 'pt-num' }, plainWeight(totals.weight)),
+    el('td', { class: 'pt-check' }, ''),
+  );
+}
+
 export function renderPrintTicket(load, job, printedAt = new Date(), stackState = null) {
   const totals = loadTotals(load);
   const sequences = loadSequences(load);
@@ -148,7 +166,7 @@ export function renderPrintTicket(load, job, printedAt = new Date(), stackState 
           null,
           head(el('th', { class: 'pt-num' }, '#'), el('th', null, 'Mark'), el('th', null, 'Seq'), el('th', null, 'Description'),
             el('th', { class: 'pt-num' }, 'Weight (lbs)'), el('th', { class: 'pt-check' }, '✓')),
-          el('tbody', null, ...stack.items.map((entry, i) => el(
+          el('tbody', null, ...(stack.pallet ? [palletRow(stack, t)] : stack.items.map((entry, i) => el(
             'tr',
             entry.manual ? { class: 'pt-unmatched' } : null,
             el('td', { class: 'pt-num' }, i + 1),
@@ -157,7 +175,7 @@ export function renderPrintTicket(load, job, printedAt = new Date(), stackState 
             el('td', null, entry.description || ''),
             el('td', { class: 'pt-num' }, plainWeight(entry.weight)),
             el('td', { class: 'pt-check' }, ''),
-          ))),
+          )))),
           el('tfoot', null, el('tr', null,
             el('td', { colspan: '4' }, 'Stack subtotal'),
             el('td', { class: 'pt-num' }, plainWeight(t.weight)),

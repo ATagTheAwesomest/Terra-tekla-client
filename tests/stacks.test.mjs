@@ -12,7 +12,7 @@ globalThis.localStorage = {
 const ops = await import('../js/stack-ops.js');
 const stacks = await import('../js/stack-store.js');
 const api = await import('../js/api.js');
-const { checkStatus, checkSummary } = await import('../js/check.js');
+const { checkStatus, checkSummary, extraReason, palletCheckQty } = await import('../js/check.js');
 
 const ctx = { deviceId: 'dev-a', now: '2026-10-30T12:00:00.000Z' };
 const item = (mark, sequence, loaded, returned = 0) => ({
@@ -236,4 +236,77 @@ test('stack rows count each mark across the load, and each stack lists its own s
   const c = pieceCounts(s);
   assert.deepEqual(s.stacks[0].items.map((e) => `${e.mark} ${c.get(e.id).n}/${c.get(e.id).of}`), ['A1 1/2', 'A1 2/2', 'B2 1/1']);
   assert.deepEqual(stackSequences(s.stacks[0]), ['2', '10']);
+});
+
+// ---- Pallets ---------------------------------------------------------------------------------
+
+test('a pallet is one stack of one mark: a row per piece, finished per sequence, one line on the server', async () => {
+  const l = load([], { id: 'L20', number: '20' });
+  await stacks.flush();
+  server.state = null;
+  sent.length = 0;
+  const before = stacks.activeStack(stacks.get(l)).id;
+  const made = stacks.addPallet(l, { mark: 'CL-1', qty: 5, photos: 3 });
+  let state = stacks.get(l);
+  const pallet = state.stacks.find((st) => st.id === made.stackId);
+  assert.equal(made.name, 'Pallet CL-1');
+  assert.deepEqual(pallet.pallet, { mark: 'CL-1', photos: 3, manual: false });
+  assert.equal(pallet.items.length, 5);
+  assert.ok(pallet.items.every((e) => e.pending));
+  // Scans keep going into the stack that was active; a pallet is never the active stack.
+  assert.equal(stacks.activeStack(state).id, before);
+  stacks.setActive(l, made.stackId);
+  assert.equal(stacks.activeStack(stacks.get(l)).id, before);
+
+  stacks.finishScan(l, made.entryIds.slice(0, 3), ops.pieceDetails(item('CL-1', '1', 0)));
+  stacks.failScan(l, made.entryIds.slice(3), { mark: 'CL-1', title: 'No more' });
+  await stacks.flush();
+  assert.deepEqual(sent.filter((s) => s.url.includes('/L20/')).map((s) => [s.body.op, s.body.entryIds?.length ?? null]),
+    [['addStack', null], ['beginScan', 5], ['finishScan', 3], ['failScan', 2]]);
+  state = stacks.get(l);
+  const done = state.stacks.find((st) => st.id === made.stackId);
+  assert.equal(done.items.length, 3);
+  assert.ok(done.items.every((e) => !e.pending && e.sequence === '1'));
+  assert.equal(stacks.palletName(state, 'CL-1'), 'Pallet CL-1 (2)');
+
+  // Change count: more pieces, then some taken off, each in one operation.
+  const more = stacks.growPallet(l, made.stackId, 2);
+  stacks.finishScan(l, more, ops.pieceDetails(item('CL-1', '2', 0)));
+  stacks.markRemoving(l, more);
+  stacks.removeEntry(l, more);
+  await stacks.flush();
+  assert.equal(server.state.stacks.find((st) => st.id === made.stackId).items.length, 3);
+});
+
+test('a pallet takes only its own mark, and a scan never lands in one', () => {
+  const s = ops.newState('L21', 'J1', '21');
+  apply(s, { op: 'addStack', stackId: 'p', pallet: { mark: 'CL-1', photos: 3 } });
+  apply(s, { op: 'beginScan', entryId: 'x', mark: 'B2', stackId: 'p' });
+  assert.equal(s.stacks[1].items.length, 0);
+  // No stack id (or a gone one): the last stack that isn't a pallet.
+  apply(s, { op: 'beginScan', entryId: 'y', mark: 'B2' });
+  assert.equal(s.stacks[0].items[0].mark, 'B2');
+  assert.equal(apply(s, { op: 'moveEntryTo', entryId: 'y', stackId: 'p', index: 0 }), false);
+});
+
+test('truck check: one scan checks a whole pallet', () => {
+  const s = ops.newState('L22', 'J1', '22');
+  apply(s, { op: 'beginScan', entryId: 'a', mark: 'CL-1' });
+  apply(s, { op: 'addStack', stackId: 'p', pallet: { mark: 'CL-1', photos: 3 } });
+  apply(s, { op: 'beginScan', entryIds: ['p1', 'p2', 'p3', 'p4'], mark: 'CL-1', stackId: 'p' });
+  s.truckCheck = { startedAt: ctx.now, updatedAt: ctx.now, scans: [] };
+  // The loose piece comes first in stack order: one scan, one piece.
+  assert.equal(palletCheckQty(s, 'cl-1'), 1);
+  apply(s, { op: 'addCheck', scanId: 'c1', mark: 'CL-1' });
+  // Then the pallet: one scan for its four.
+  assert.equal(palletCheckQty(s, 'CL-1'), 4);
+  apply(s, { op: 'addCheck', scanId: 'c2', mark: 'CL-1', qty: 4 });
+  let st = checkStatus(s);
+  assert.equal(st.checked, 5);
+  assert.equal(st.complete, true);
+  // One more pallet's worth is an extra.
+  apply(s, { op: 'addCheck', scanId: 'c3', mark: 'CL-1', qty: 4 });
+  st = checkStatus(s);
+  assert.equal(st.extras.length, 1);
+  assert.match(extraReason(st.extras[0]), /Pallet of 4: 4 more than the load has/);
 });

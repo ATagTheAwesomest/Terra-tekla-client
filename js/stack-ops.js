@@ -4,13 +4,28 @@
 // Pure functions, no DOM, storage or requests.
 //
 // State  { loadId, job, loadNumber, rev, updatedAt, stacks: Stack[], truckCheck|null, recentOps: [] }
-// Stack  { id, name, createdBy, items: Entry[] }
+// Stack  { id, name, createdBy, pallet|null, items: Entry[] }
+// Pallet { mark, photos, manual }: a stack of one mark scanned once with a quantity. It still has
+//          one Entry per piece, so totals, sync, export and the truck check work as for any stack.
 // Entry  { id, mark, sequence, manual, scannedAt, scannedBy, pending, removing, addedAt, rev,
 //          ...PowerFab details: weight, description, partNumber, remark, shape, dimensions, grade, length }
 //
 // Every operation is { op, opId, ...fields } and names rows and stacks by ids the app made up, so
 // two iPads changing the same load at once never step on each other. An operation the state
 // already lists in recentOps has been applied and is skipped.
+
+// The most pieces one pallet (one operation) can have; the server refuses more.
+export const MAX_PALLET = 2000;
+
+// Every row an operation is about: entryIds (a pallet's pieces) or the one entryId.
+const idsOf = (op) => (Array.isArray(op.entryIds) ? op.entryIds : [op.entryId]);
+
+// Where a scan for a stack that is gone lands: the last stack that isn't a pallet.
+export function lastPlainStack(state) {
+  return [...state.stacks].reverse().find((s) => !s.pallet) ?? null;
+}
+
+const sameMark = (a, b) => String(a).toUpperCase() === String(b).toUpperCase();
 
 export function newId() {
   return crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -86,6 +101,7 @@ const OPS = {
     if (findStack(state, op.stackId)) return false;
     const wanted = String(op.name ?? '').trim();
     const stack = { id: op.stackId, name: wanted && !nameTaken(state, wanted) ? wanted : nextStackName(state), createdBy: ctx.deviceId, items: [] };
+    if (op.pallet?.mark) stack.pallet = { mark: op.pallet.mark, photos: Math.max(0, Number(op.pallet.photos) || 0), manual: Boolean(op.pallet.manual) };
     const after = state.stacks.findIndex((s) => s.id === op.afterStackId);
     state.stacks.splice(after < 0 ? state.stacks.length : after + 1, 0, stack);
     return true;
@@ -108,6 +124,8 @@ const OPS = {
     const hit = findEntry(state, op.entryId);
     const target = findStack(state, op.stackId);
     if (!hit || !target) return false;
+    // A pallet takes only its own mark.
+    if (hit.stack !== target && target.pallet && !sameMark(hit.entry.mark, target.pallet.mark)) return false;
     let at = Math.max(0, Math.min(Number(op.index) || 0, target.items.length));
     if (hit.stack === target && hit.index < at) at--;
     if (hit.stack === target && hit.index === at) return false;
@@ -116,15 +134,34 @@ const OPS = {
     return true;
   },
   beginScan(state, op, ctx) {
-    if (findEntry(state, op.entryId)) return false;
-    const stack = findStack(state, op.stackId) ?? state.stacks.at(-1);
-    stack.items.push({
-      id: op.entryId, mark: op.mark, sequence: '', manual: Boolean(op.manual), scannedAt: ctx.now, scannedBy: ctx.deviceId,
-      pending: true, removing: false, addedAt: ctx.now, rev: state.rev,
-    });
-    return true;
+    let stack = findStack(state, op.stackId) ?? lastPlainStack(state);
+    if (!stack) {
+      stack = { id: `plain-${state.stacks.length}-${state.rev}`, name: nextStackName(state), createdBy: null, items: [] };
+      state.stacks.push(stack);
+    }
+    if (stack.pallet && !sameMark(op.mark, stack.pallet.mark)) return false;
+    let added = false;
+    for (const id of idsOf(op)) {
+      if (findEntry(state, id)) continue;
+      stack.items.push({
+        id, mark: op.mark, sequence: '', manual: Boolean(op.manual), scannedAt: ctx.now, scannedBy: ctx.deviceId,
+        pending: true, removing: false, addedAt: ctx.now, rev: state.rev,
+      });
+      added = true;
+    }
+    return added;
   },
   finishScan(state, op, ctx) {
+    if (Array.isArray(op.entryIds)) {
+      let changed = false;
+      for (const id of op.entryIds) {
+        const hit = findEntry(state, id);
+        if (!hit || (!hit.entry.pending && hit.entry.description !== undefined)) continue;
+        Object.assign(hit.entry, op.piece ?? {}, { pending: false });
+        changed = true;
+      }
+      return changed;
+    }
     let hit = findEntry(state, op.entryId);
     if (!hit) {
       OPS.beginScan(state, op, ctx);
@@ -135,22 +172,20 @@ const OPS = {
     return true;
   },
   failScan(state, op) {
-    const hit = findEntry(state, op.entryId);
-    if (!hit) return false;
-    hit.stack.items.splice(hit.index, 1);
-    return true;
+    let changed = false;
+    for (const id of idsOf(op)) {
+      const hit = findEntry(state, id);
+      if (!hit) continue;
+      hit.stack.items.splice(hit.index, 1);
+      changed = true;
+    }
+    return changed;
   },
   markRemoving(state, op) {
-    const hit = findEntry(state, op.entryId);
-    if (!hit || hit.entry.removing) return false;
-    hit.entry.removing = true;
-    return true;
+    return setRemoving(state, op, true);
   },
   unmarkRemoving(state, op) {
-    const hit = findEntry(state, op.entryId);
-    if (!hit || !hit.entry.removing) return false;
-    hit.entry.removing = false;
-    return true;
+    return setRemoving(state, op, false);
   },
   removeEntry(state, op) {
     return OPS.failScan(state, op);
@@ -167,7 +202,10 @@ const OPS = {
   addCheck(state, op, ctx) {
     state.truckCheck ??= { startedAt: ctx.now, updatedAt: ctx.now, scans: [] };
     if (state.truckCheck.scans.some((s) => s.id === op.scanId)) return false;
-    state.truckCheck.scans.push({ id: op.scanId, mark: op.mark, manual: Boolean(op.manual), scannedAt: ctx.now, scannedBy: ctx.deviceId });
+    state.truckCheck.scans.push({
+      id: op.scanId, mark: op.mark, manual: Boolean(op.manual), scannedAt: ctx.now, scannedBy: ctx.deviceId,
+      qty: Math.min(MAX_PALLET, Math.max(1, Math.floor(Number(op.qty)) || 1)),
+    });
     state.truckCheck.updatedAt = ctx.now;
     return true;
   },
@@ -185,6 +223,17 @@ const OPS = {
     return true;
   },
 };
+
+function setRemoving(state, op, on) {
+  let changed = false;
+  for (const id of idsOf(op)) {
+    const hit = findEntry(state, id);
+    if (!hit || hit.entry.removing === on) continue;
+    hit.entry.removing = on;
+    changed = true;
+  }
+  return changed;
+}
 
 // What a sync operation sends: every piece PowerFab has loaded (and not returned) on the load,
 // one line per mark and sequence with how many.

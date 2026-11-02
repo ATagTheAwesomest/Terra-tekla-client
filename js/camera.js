@@ -27,12 +27,14 @@ const dialog = () => $('#dlg-camera');
 
 // Opens the camera. Resolves with the photos taken (Blobs, oldest first) when
 // Done is tapped, or null when cancelled. `required`: Done needs at least one
-// photo and the window says so. With `keep(blob)` each photo is handed over as
-// soon as it is taken and it resolves with how many were kept.
+// photo and the window says so; a number needs that many (a pallet needs 3).
+// With `keep(blob)` each photo is handed over as soon as it is taken and it
+// resolves with how many were kept.
 export function openCamera({ title = 'Take photos', note = '', required = false, keep = null } = {}) {
   if (session) finish(null);
   return new Promise((resolve) => {
-    session = { resolve, shots: [], stream: null, required, keep, kept: 0, busy: 0 };
+    const min = typeof required === 'number' ? Math.max(0, required) : required ? 1 : 0;
+    session = { resolve, shots: [], stream: null, required: min > 0, min, keep, kept: 0, busy: 0 };
     $('#btn-camera-cancel').hidden = Boolean(keep);
     $('#btn-camera-undo').hidden = Boolean(keep);
     $('#camera-title').textContent = title;
@@ -144,11 +146,13 @@ function drawShots() {
   const n = shots.length;
   const busy = session?.busy > 0;
   $('#btn-camera-done').textContent = n ? `Done (${n})` : 'Done';
-  $('#btn-camera-done').disabled = busy || (Boolean(session?.required) && !n);
+  const min = session?.min ?? 0;
+  $('#btn-camera-done').disabled = busy || n < min;
   $('#btn-camera-undo').disabled = !n;
   $('#camera-count').innerHTML = busy ? 'Saving…'
+    : min > 1 && n < min ? `<strong>${n} of ${min} photos needed</strong>`
     : n ? `${n} photo${n === 1 ? '' : 's'}${saved ? ' saved' : ''}`
-    : session?.required ? '<strong>A photo is needed</strong>' : 'Tap the shutter, or hold it for a burst';
+    : min ? '<strong>A photo is needed</strong>' : 'Tap the shutter, or hold it for a burst';
 }
 
 function stopBurst() {
@@ -172,8 +176,8 @@ function finish(result) {
 
 function done() {
   if (!session || $('#btn-camera-done').disabled) return;
-  if (session.required && !session.shots.length) {
-    toast('Take a photo first');
+  if (session.shots.length < session.min) {
+    toast(session.min > 1 ? `Take at least ${session.min} photos` : 'Take a photo first');
     return;
   }
   finish(session.keep ? session.kept : session.shots.map((s) => s.blob));

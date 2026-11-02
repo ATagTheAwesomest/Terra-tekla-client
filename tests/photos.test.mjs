@@ -95,3 +95,12 @@ test('view fetches the file as a blob; delete sends DELETE, both with the key', 
   globalThis.fetch = async () => new Response(JSON.stringify({ detail: 'There is no file' }), { status: 404 });
   await assert.rejects(api.fetchFile('J1', '8', 'x.jpg'), (err) => err.status === 404 && /no file/.test(err.message));
 });
+
+test('who took a photo: name and fixed user, a guess from the file name, or unknown', async () => {
+  const { takenBy } = await import('../js/photos.js');
+  assert.equal(takenBy({ by: 'Yard iPad', user: 'User 3' }), 'Yard iPad (User 3)');
+  assert.equal(takenBy({ by: 'User 3', user: 'User 3' }), 'User 3');
+  assert.equal(takenBy({ by: 'User 3', user: 'User 3' }, 'Dock iPad'), 'Dock iPad (User 3)');
+  assert.equal(takenBy({ by: 'Yard iPad', byGuess: true }), 'probably Yard iPad');
+  assert.equal(takenBy({}), 'unknown');
+});

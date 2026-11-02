@@ -107,7 +107,7 @@ function onLooseKey(e) {
 const DIGITS = ['7', '8', '9', '4', '5', '6', '1', '2', '3'];
 const QWERTY = ['QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'];
 
-let pad = null; // { mode: 'mark' | 'weight' | 'pin', value, resolve }
+let pad = null; // { mode: 'mark' | 'weight' | 'pin' | 'qty', value, resolve }
 
 function keyButton(key, label = key, cls = '') {
   return `<button class="btn key ${cls}" type="button" data-key="${key}">${label}</button>`;
@@ -116,7 +116,7 @@ function keyButton(key, label = key, cls = '') {
 // Weight and the admin code use the 9-pin digits only; a mark gets the letters too.
 function renderKeypad() {
   const digitsOnly = pad.mode !== 'mark';
-  const bottom = pad.mode === 'weight' ? ['.', '0', 'back'] : pad.mode === 'pin' ? ['clear', '0', 'back'] : ['-', '0', 'back'];
+  const bottom = pad.mode === 'weight' ? ['.', '0', 'back'] : pad.mode === 'pin' || pad.mode === 'qty' ? ['clear', '0', 'back'] : ['-', '0', 'back'];
   const digits = [...DIGITS, ...bottom].map((k) => (k === 'back' ? keyButton('back', '&#9003;', 'key-fn')
     : k === 'clear' ? keyButton('clear', 'Clear', 'key-fn') : keyButton(k))).join('');
   $('#keypad-digits').innerHTML = digits;
@@ -137,6 +137,12 @@ function renderKeypadValue() {
     $('#keypad-ok').disabled = pad.value.length < 4;
     return;
   }
+  if (pad.mode === 'qty') {
+    display.textContent = pad.value ? `${pad.value} pcs` : 'How many?';
+    display.classList.toggle('placeholder', !pad.value);
+    $('#keypad-ok').disabled = !(Number(pad.value) >= 1 && Number(pad.value) <= (pad.max ?? Infinity));
+    return;
+  }
   const suffix = pad.mode === 'weight' ? ' lbs' : '';
   display.textContent = pad.value ? pad.value + suffix : (pad.mode === 'weight' ? '0 lbs' : 'Type a mark');
   display.classList.toggle('placeholder', !pad.value);
@@ -149,6 +155,8 @@ function pressKey(key) {
   else if (key === 'clear') pad.value = '';
   else if (pad.mode === 'pin') {
     if (/^\d$/.test(key) && pad.value.length < 8) pad.value += key;
+  } else if (pad.mode === 'qty') {
+    if (/^\d$/.test(key) && pad.value.length < 4 && (pad.value || key !== '0')) pad.value += key;
   } else if (pad.mode === 'weight') {
     if (key === '.' && pad.value.includes('.')) return;
     if (/^[\d.]$/.test(key) && pad.value.length < 9) pad.value += key;
@@ -165,10 +173,11 @@ function closeKeypad(result) {
 
 // Opens the keypad. Resolves with the entered string, or null on cancel.
 // mode 'pin' is the admin code: digits only, shown as dots, 4 to 8 long. `error` shows in red.
-export function openKeypad({ mode = 'mark', title, note = '', error = '', initial = '', okLabel } = {}) {
+// mode 'qty' is a whole number of pieces, 1 to `max`.
+export function openKeypad({ mode = 'mark', title, note = '', error = '', initial = '', okLabel, max } = {}) {
   if (pad) closeKeypad(null);
   return new Promise((resolve) => {
-    pad = { mode, value: String(initial), resolve };
+    pad = { mode, value: String(initial), resolve, max };
     $('#keypad-title').textContent = title ?? (mode === 'weight' ? 'Set weight' : mode === 'pin' ? 'Admin code' : 'Manual entry');
     $('#keypad-note').textContent = error || note;
     $('#keypad-note').classList.toggle('keypad-error', Boolean(error));

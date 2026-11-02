@@ -92,6 +92,25 @@ function renderRow({ entry, scan }) {
     </li>`;
 }
 
+// A pallet is one line: one scan of its mark checks every piece on it.
+function renderPalletRow(stack, rows) {
+  const checked = rows.filter((r) => r.scan);
+  const done = rows.length > 0 && checked.length === rows.length;
+  const last = checked.at(-1)?.scan;
+  const first = rows[0]?.entry;
+  const weight = rows.reduce((n, r) => n + (Number(r.entry.weight) || 0), 0);
+  return `
+    <li class="check-row${done ? ' done' : ''}${stack.pallet.manual ? ' flagged' : ''}" data-check-stack="${escapeHtml(stack.id)}"${last ? ` data-scan-id="${escapeHtml(last.id)}"` : ''}>
+      <span class="check-tick" aria-label="${done ? 'Checked' : 'Not checked'}">${done ? '&#10003;' : ''}</span>
+      <span class="check-mark">${escapeHtml(stack.pallet.mark)} &times; ${rows.length}</span>
+      <span class="check-desc">${checked.length && !done ? `${checked.length} of ${rows.length} checked · ` : ''}Pallet${first?.description ? ` · ${escapeHtml(first.description)}` : ''}${last ? ` ${whoBadge(last.scannedBy)}` : ''}</span>
+      <span class="check-time">${last ? formatTime(last.scannedAt) : formatWeight(weight)}</span>
+      ${last
+        ? `<button class="btn btn-icon btn-hold" type="button" data-hold="check-undo" data-hold-ms="${UNDO_HOLD_MS}" aria-label="Hold to uncheck" title="Hold to uncheck">&#8630;</button>`
+        : '<span></span>'}
+    </li>`;
+}
+
 function renderStacks(state, s) {
   const byStack = new Map(state.stacks.map((st) => [st.id, []]));
   for (const row of s.rows) byStack.get(row.stack.id).push(row);
@@ -107,7 +126,9 @@ function renderStacks(state, s) {
           <span class="stack-name">${escapeHtml(stack.name)}</span>
           <span class="stack-stats"><b>${checked}</b> of <b>${rows.length}</b> checked${complete ? ' &#10003;' : ''}</span>
         </header>
-        ${shown.length
+        ${stack.pallet && rows.length
+          ? `<ol class="check-rows">${renderPalletRow(stack, rows)}</ol>`
+          : shown.length
           ? `<ol class="check-rows">${shown.map(renderRow).join('')}</ol>`
           : '<p class="stack-empty">No pieces in this stack.</p>'}
       </section>`;
@@ -145,7 +166,10 @@ export function submitCheck(raw, { manual = false } = {}) {
   const s = checkStatus(stacks.get(load));
   const entry = s.byScan.get(scan.id);
   if (entry) {
-    const row = document.querySelector(`[data-check-item="${CSS.escape(entry.id)}"]`);
+    const stack = s.rows.find((r) => r.entry === entry)?.stack;
+    const row = document.querySelector(`[data-check-item="${CSS.escape(entry.id)}"]`)
+      ?? (stack && document.querySelector(`[data-check-stack="${CSS.escape(stack.id)}"]`));
+    if (stack?.pallet && Number(scan.qty) > 1 && !s.complete) ctx.toast(`Pallet checked: ${scan.qty} × ${scan.mark}`);
     row?.scrollIntoView({ block: 'nearest' });
     const finished = s.complete && !wasComplete;
     flashFeedback('ok', row, { sound: !finished });
