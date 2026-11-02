@@ -10,6 +10,7 @@ import { escapeHtml, toast } from './app.js';
 import * as api from './api.js';
 import { JOB_NUMBERS, setJobNumbers } from './current-job.js';
 import * as live from './live.js';
+import { acquireCamera, releaseCamera } from './camera.js';
 import { drawPhotoSetting } from './photos-ui.js';
 import { openKeypad } from './scanner.js';
 import { playBad, playComplete, playGood, playStackComplete, primeSound, setSoundsOn, soundsOn } from './sounds.js';
@@ -294,20 +295,22 @@ async function startCamera() {
   const video = $('#server-video');
   try {
     await loadScript('js/vendor/jsQR.js');
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    // The same camera stream as the photo window, so it asks for the camera once.
+    const stream = await acquireCamera();
+    let running = true;
+    scanStop = () => {
+      running = false;
+      releaseCamera(); // never stop the shared stream's tracks here
+      video.pause();
+      video.hidden = true;
+      video.srcObject = null;
+      scanStop = null;
+    };
     video.srcObject = stream;
     video.hidden = false;
     await video.play();
     const canvas = document.createElement('canvas');
     const g = canvas.getContext('2d', { willReadFrequently: true });
-    let running = true;
-    scanStop = () => {
-      running = false;
-      stream.getTracks().forEach((t) => t.stop());
-      video.hidden = true;
-      video.srcObject = null;
-      scanStop = null;
-    };
     const tick = () => {
       if (!running) return;
       if (video.readyState >= 2 && video.videoWidth) {
@@ -321,6 +324,7 @@ async function startCamera() {
     };
     tick();
   } catch (err) {
+    stopCamera();
     $('#server-result').textContent = `Camera unavailable: ${err.message}`;
   }
 }
