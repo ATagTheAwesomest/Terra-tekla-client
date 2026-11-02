@@ -11,6 +11,7 @@
 //
 // Two things stay on this iPad only: which stack it scans into (each iPad has its own active
 // stack), and a solo truck check (when the check is switched to "Solo" for a load).
+// A draft check is not kept anywhere: it lives in memory until it is left (see startDraft).
 
 import * as api from './api.js';
 import { addCheckScan, emptyCheck, palletCheckQty, removeCheckScan } from './check.js';
@@ -26,6 +27,7 @@ const SOLO_KEY = 'terra.solo-check';
 const MODE_KEY = 'terra.check-mode';
 const CACHE_LOADS = 60;
 
+let draft = null;          // { loadId, check }: the throwaway draft check, memory only
 const servers = new Map(); // loadId -> the server's state
 const meta = new Map();    // loadId -> { job, number } from the PowerFab load
 let queue = [];            // ops not confirmed by the server yet: { loadId, job, loadNumber, op, opId, ... }
@@ -114,9 +116,11 @@ function view(load) {
 
 // The load's stacks as this iPad should show them, with the truck check it is using
 // (the shared one, or its solo one).
-export function get(load) {
+// With `saved`, a draft check is left out (the saved check is shown instead), as in load lists.
+export function get(load, { saved = false } = {}) {
   const state = view(load);
-  if (checkMode(load) === 'solo') state.truckCheck = read(SOLO_KEY, {})[load.id] ?? null;
+  if (!saved && draft?.loadId === load.id) state.truckCheck = draft.check;
+  else if (read(MODE_KEY, {})[load.id] === 'solo') state.truckCheck = read(SOLO_KEY, {})[load.id] ?? null;
   return state;
 }
 
@@ -405,9 +409,30 @@ export function clear(load) {
 
 // ---- Truck check: shared (on the server, every iPad's ticks) or solo (this iPad only) -------------
 
-// 'shared' or 'solo' for a load on this iPad. Shared unless switched.
+// 'draft', 'shared' or 'solo' for a load on this iPad. Shared unless switched.
 export function checkMode(load) {
+  if (draft?.loadId === load.id) return 'draft';
   return read(MODE_KEY, {})[load.id] === 'solo' ? 'solo' : 'shared';
+}
+
+// A draft check: a throwaway check of a load. Its scans are kept in memory only, never sent to the
+// server or saved on this iPad, and are gone once it is left (endDraft), the app is closed or another
+// load's draft starts. It doesn't touch the load's real (shared or solo) check.
+export function startDraft(load) {
+  draft = { loadId: load.id, check: emptyCheck() };
+  emit({ loadId: load.id });
+  return get(load);
+}
+
+export function endDraft() {
+  if (!draft) return;
+  const { loadId } = draft;
+  draft = null;
+  emit({ loadId });
+}
+
+export function isDraft(load) {
+  return Boolean(load && draft?.loadId === load.id);
 }
 
 export function setCheckMode(load, mode) {
@@ -430,12 +455,14 @@ function updateSolo(load, fn) {
 }
 
 export function startCheck(load) {
+  if (checkMode(load) === 'draft') return get(load);
   if (checkMode(load) === 'solo') updateSolo(load, () => null);
   else send(load, { op: 'startCheck' });
   return get(load);
 }
 
 export function resetCheck(load) {
+  if (checkMode(load) === 'draft') return startDraft(load);
   if (checkMode(load) === 'solo') updateSolo(load, (check) => Object.assign(check, emptyCheck()));
   else send(load, { op: 'resetCheck' });
   return get(load);
@@ -445,6 +472,11 @@ export function resetCheck(load) {
 // A mark whose next unchecked piece is on a pallet checks the whole pallet (js/check.js palletCheckQty).
 export function addCheck(load, rawMark, { manual = false } = {}) {
   const qty = palletCheckQty(get(load), rawMark);
+  if (checkMode(load) === 'draft') {
+    const scan = addCheckScan(draft.check, rawMark, { manual, qty });
+    emit({ loadId: load.id });
+    return scan;
+  }
   if (checkMode(load) === 'solo') return updateSolo(load, (check) => addCheckScan(check, rawMark, { manual, qty }));
   const probe = addCheckScan(emptyCheck(), rawMark, { manual, qty });
   if (!probe) return null;
@@ -453,6 +485,11 @@ export function addCheck(load, rawMark, { manual = false } = {}) {
 }
 
 export function removeCheck(load, scanId) {
+  if (checkMode(load) === 'draft') {
+    const scan = removeCheckScan(draft.check, scanId);
+    emit({ loadId: load.id });
+    return scan;
+  }
   if (checkMode(load) === 'solo') return updateSolo(load, (check) => removeCheckScan(check, scanId));
   const scan = get(load).truckCheck?.scans.find((s) => s.id === scanId) ?? null;
   if (scan) send(load, { op: 'removeCheck', scanId });

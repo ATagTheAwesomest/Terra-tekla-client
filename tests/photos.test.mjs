@@ -73,6 +73,13 @@ test('a saved photo’s name says what it is of', () => {
   assert.equal(markOf('20261028-143611_Stack 8 - 1 (2).jpg'), 'Stack 8 - 1');
   assert.equal(markOf('20261028-143611_load.png'), 'Whole load');
   assert.equal(markOf('scan.pdf'), 'scan.pdf');
+  // Names made now: dotted date and time, no iPad.
+  assert.equal(markOf('2026.11.02_14.05.33_1001-C1.jpg'), '1001-C1');
+  assert.equal(markOf('2026.11.02_14.05.33_load (3).jpg'), 'Whole load');
+  assert.equal(markOf('2026.11.02_14.05.33_A_B.jpg'), 'A_B');
+  // Older names with the iPad at the end.
+  assert.equal(markOf('20261102-140533_1001-C1_Yard iPad.jpg'), '1001-C1');
+  assert.equal(markOf('20261102-140533_load_Dock iPad (2).jpg'), 'Whole load');
 });
 
 test('view fetches the file as a blob; delete sends DELETE, both with the key', async () => {

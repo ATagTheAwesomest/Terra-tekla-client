@@ -6,13 +6,15 @@
 // A load's check is shared by default: kept on terra-tekla-server, so every
 // iPad checking the load ticks off the same list and each tick shows who made
 // it. Switched to Solo, this iPad keeps a check of its own (js/stack-store.js).
+// A draft check is a throwaway practice run: kept in memory only, nothing saved
+// or logged, typed marks need no photo, and it is gone once you leave it.
 
 import { escapeHtml } from './app.js';
 import { checkStatus, extraReason } from './check.js';
 import { bindHold } from './hold.js';
 import { flashFeedback } from './scanner.js';
 import { cleanMark, formatWeight } from './shipping.js';
-import { playComplete, primeSound } from './sounds.js';
+import { playComplete, playStackComplete, primeSound } from './sounds.js';
 import * as stacks from './stack-store.js';
 import { whoBadge } from './stacks-ui.js';
 
@@ -32,7 +34,9 @@ function formatTime(iso) {
 // ---- Rendering -----------------------------------------------------------
 
 function renderSummary(s, load) {
-  const solo = stacks.checkMode(load) === 'solo';
+  const mode = stacks.checkMode(load);
+  const solo = mode === 'solo';
+  const draft = mode === 'draft';
   const pct = s.total ? Math.round((s.checked / s.total) * 100) : 0;
   const banner = s.complete
     ? `<p class="check-banner ok">All ${s.total} pieces checked. Nothing missing.</p>`
@@ -51,11 +55,12 @@ function renderSummary(s, load) {
       </div>
       <div class="check-bar" role="progressbar" aria-valuemin="0" aria-valuemax="${s.total}" aria-valuenow="${s.checked}"><span style="width:${pct}%"></span></div>
       <div class="check-actions">
-        <button class="btn check-mode${solo ? ' solo' : ''}" type="button" data-action="check-mode" title="${solo ? 'Only this iPad’s checks. Tap to check together with the other iPads.' : 'Every iPad checking this load ticks off the same list. Tap to check on this iPad alone.'}">${solo ? '&#128100; Solo: this iPad only' : '&#128101; Shared with every iPad'}</button>
+        ${draft ? '<span class="check-draft-tag">&#9998; Draft: nothing is saved</span>' : `<button class="btn check-mode${solo ? ' solo' : ''}" type="button" data-action="check-mode" title="${solo ? 'Only this iPad’s checks. Tap to check together with the other iPads.' : 'Every iPad checking this load ticks off the same list. Tap to check on this iPad alone.'}">${solo ? '&#128100; Solo: this iPad only' : '&#128101; Shared with every iPad'}</button>`}
         <button class="btn${missingOnly ? ' btn-primary' : ''}" type="button" data-action="check-filter">${missingOnly ? 'Showing missing only' : 'Show missing only'}</button>
         <button class="btn btn-hold" type="button" data-hold="check-reset" data-hold-ms="${RESET_HOLD_MS}" title="Hold 4 seconds to clear every check">&#8634; Start over</button>
-        <button class="btn" type="button" data-action="check-exit">Back to loading</button>
+        <button class="btn" type="button" data-action="check-exit">${draft ? 'End draft' : 'Back to loading'}</button>
       </div>
+      ${draft ? '<p class="check-banner draft">Draft check: a practice run. Scans aren’t saved or shared, typed marks don’t need photos, and it is thrown away when you end it. The load’s real check is untouched.</p>' : ''}
       ${banner}
     </section>`;
 }
@@ -154,7 +159,8 @@ export function renderCheck(state, load) {
 export function submitCheck(raw, { manual = false } = {}) {
   const load = ctx.load();
   if (!load || !cleanMark(raw)) return null;
-  const wasComplete = checkStatus(stacks.get(load)).complete;
+  const before = checkStatus(stacks.get(load));
+  const wasComplete = before.complete;
   let scan;
   try { scan = stacks.addCheck(load, raw, { manual }); } catch (err) {
     flashFeedback('bad');
@@ -172,11 +178,15 @@ export function submitCheck(raw, { manual = false } = {}) {
     if (stack?.pallet && Number(scan.qty) > 1 && !s.complete) ctx.toast(`Pallet checked: ${scan.qty} × ${scan.mark}`);
     row?.scrollIntoView({ block: 'nearest' });
     const finished = s.complete && !wasComplete;
-    flashFeedback('ok', row, { sound: !finished });
+    // The stack this scan finished (every piece in it checked now, not before), if any.
+    const stackDone = stack && !finished && stackComplete(s, stack.id) && !stackComplete(before, stack.id);
+    flashFeedback('ok', row, { sound: !finished && !stackDone });
     if (s.complete) ctx.toast(`All ${s.total} pieces checked`, 4000);
+    else if (stackDone) ctx.toast(`${stack.name} checked: all ${s.rows.filter((r) => r.stack.id === stack.id).length} pieces`, 3000);
+    if (stackDone) playStackComplete();
     if (finished) {
       playComplete();
-      stacks.logEvent(load, 'check-complete', `Truck check complete: all ${s.total} pieces on load ${load.number} checked`);
+      if (stacks.checkMode(load) !== 'draft') stacks.logEvent(load, 'check-complete', `Truck check complete: all ${s.total} pieces on load ${load.number} checked`);
     }
   } else {
     const row = document.querySelector(`[data-scan-id="${CSS.escape(scan.id)}"]`);
@@ -187,6 +197,11 @@ export function submitCheck(raw, { manual = false } = {}) {
   return scan;
 }
 
+function stackComplete(s, stackId) {
+  const rows = s.rows.filter((r) => r.stack.id === stackId);
+  return rows.length > 0 && rows.every((r) => r.scan);
+}
+
 // ---- Wiring --------------------------------------------------------------
 
 function completeHold(btn) {
@@ -195,8 +210,9 @@ function completeHold(btn) {
   const wasComplete = checkStatus(stacks.get(load)).complete;
   try {
     if (btn.dataset.hold === 'check-reset') {
+      const draft = stacks.checkMode(load) === 'draft';
       stacks.resetCheck(load);
-      ctx.toast('Truck check cleared');
+      ctx.toast(draft ? 'Draft check cleared' : 'Truck check cleared');
     } else {
       const id = btn.closest('[data-scan-id]')?.dataset.scanId;
       const scan = id && stacks.removeCheck(load, id);

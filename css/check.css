@@ -103,3 +103,16 @@ body.mode-check .topbar { border-bottom-color: var(--ok); }
 /* Shared (every iPad) or solo (this iPad) truck check */
 .check-mode.solo { border-color: var(--flag); color: var(--flag); }
 .check-row .who { margin-left: 6px; }
+
+/* Draft check: a throwaway practice run (js/stack-store.js startDraft) */
+.check-draft-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap);
+  padding: 0 14px;
+  border: 2px dashed var(--flag);
+  border-radius: var(--radius);
+  color: var(--flag);
+  font-weight: 800;
+}
+.check-banner.draft { background: transparent; border: 2px dashed var(--flag); color: var(--flag); font-weight: 600; }
