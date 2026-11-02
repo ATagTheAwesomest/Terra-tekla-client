@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TERRA">
   <meta name="format-detection" content="telephone=no">
-  <meta name="terra-version" content="0.15.0">
+  <meta name="terra-version" content="0.16.0">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -111,7 +111,7 @@
   </dialog>
 
   <footer class="statusbar">
-    <button class="status-device" id="status-device" type="button" title="This iPad: tap to rename it or change its colour"><span class="who-dot" aria-hidden="true"></span><span id="status-device-name">This iPad</span></button>
+    <button class="status-device" id="status-device" type="button" title="This iPad: its number, name and colour (set on the admin board)"><span class="who-dot" aria-hidden="true"></span><span id="status-device-name">This iPad</span></button>
     <span id="status-offline">Starting&hellip;</span>
     <span id="status-parts"></span>
     <span id="status-version"></span>
@@ -182,13 +182,8 @@
       </div>
       <fieldset class="device-settings" id="device-settings">
         <legend>This iPad</legend>
-        <label for="device-name">Name, shown on every iPad next to what this one scans and on its photos</label>
-        <div class="server-key-row">
-          <input id="device-name" type="text" maxlength="40" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="e.g. Yard iPad, Mike">
-          <button class="btn" type="button" id="btn-device-save">Save name</button>
-        </div>
-        <div class="device-colors" id="device-colors" role="group" aria-label="Colour"></div>
-        <p class="muted" id="device-result" role="status"></p>
+        <p class="device-who" id="device-who"></p>
+        <p class="muted" id="device-result" role="status">Its name and colour are set on the admin board (Devices), with the admin code.</p>
       </fieldset>
       <button class="btn btn-block menu-toggle sounds-toggle" id="btn-sounds-toggle" type="button" aria-pressed="true">
         <span class="icon" aria-hidden="true">&#128264;</span><span>Sounds when a scan is added or refused</span><span class="toggle-state" id="sounds-toggle-state">On</span>
@@ -201,8 +196,9 @@
 
       <fieldset class="device-settings admin-box" id="admin-box">
         <legend>Admin <span class="admin-lock" id="admin-lock-state">&#128274; Locked</span></legend>
-        <p class="muted" id="admin-note">These need the admin code, on the keypad. Once it is entered, this iPad stays unlocked for 30 minutes (the admin board too).</p>
-        <div class="admin-actions">
+        <p class="muted" id="admin-note">The admin code, on the keypad, shows the admin buttons. This iPad then stays unlocked for 30 minutes (the admin board too).</p>
+        <button class="btn btn-lg btn-primary" type="button" id="btn-admin-unlock">&#128275; Unlock admin</button>
+        <div class="admin-actions" id="admin-actions" hidden>
           <button class="btn btn-lg" type="button" id="btn-admin-board">&#128202; Open admin board</button>
           <button class="btn btn-lg" type="button" id="btn-admin-connection">&#128273; Change server settings</button>
           <button class="btn btn-lg" type="button" id="btn-admin-update-app">&#11015; Update the app on the server</button>
@@ -217,7 +213,7 @@
         <legend>Server connection</legend>
         <p class="muted">Saved on this device only. The app talks to the TERRA server it was opened from; it holds the stacks every iPad shares and reaches PowerFab.</p>
         <label for="server-url">Server address</label>
-        <input id="server-url" type="text" inputmode="url" placeholder="Blank: the server this app was opened from" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <input id="server-url" type="text" inputmode="url" placeholder="https://… (blank: the server this app was opened from)" autocapitalize="off" autocorrect="off" spellcheck="false">
         <label for="server-key">Access key</label>
         <div class="server-key-row">
           <input id="server-key" type="password" autocapitalize="off" autocorrect="off" spellcheck="false">

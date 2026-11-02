@@ -520,6 +520,9 @@ body.at-home .topbar, body.at-home .scanbar, body.at-home .ship-body { visibilit
 .device-settings { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px 6px; margin: 10px 0; }
 .device-settings legend { padding: 0 6px; font-weight: 700; }
 .device-colors { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.device-who { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: 1.15rem; font-weight: 700; }
+.device-who .who-dot { width: 18px; height: 18px; border-radius: 50%; background: var(--who, #777); flex: 0 0 auto; }
+.device-who .device-user { font-family: var(--mono); font-weight: 600; color: var(--text-muted); font-size: 0.95rem; }
 .device-color {
   width: var(--tap);
   height: var(--tap);
@@ -537,6 +540,7 @@ body.at-home .topbar, body.at-home .scanbar, body.at-home .ship-body { visibilit
 .admin-box legend { display: flex; gap: 10px; align-items: center; }
 .admin-lock { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); }
 .admin-lock.on { color: var(--accent); }
+.admin-box [hidden] { display: none !important; }
 .admin-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--gap); margin: 8px 0; }
 .admin-actions .btn { justify-content: flex-start; text-align: left; }
 .admin-output {
