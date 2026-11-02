@@ -58,3 +58,27 @@
 .photo-view-actions { justify-content: space-between; }
 
 .photo-by { margin: 2px 0; }
+
+/* Rapid-fire camera (js/camera.js) */
+.modal.camera { width: min(1100px, 98vw); max-height: 98vh; padding: 16px; display: none; flex-direction: column; gap: 10px; }
+.modal.camera[open] { display: flex; }
+.camera-note { margin: 4px 0 0; }
+.camera-view { position: relative; flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center; background: #000; border-radius: var(--radius); overflow: hidden; }
+.camera-view video { width: 100%; max-height: 62vh; object-fit: contain; cursor: pointer; }
+.camera-view::after { content: ''; position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+.camera-view.flash::after { animation: camera-flash 0.25s ease-out; }
+@keyframes camera-flash { from { opacity: 0.7; } to { opacity: 0; } }
+.camera-message { position: absolute; inset: auto 12px 12px; margin: 0; padding: 10px 12px; border-radius: var(--radius); background: rgba(0, 0, 0, 0.8); font-weight: 600; }
+.camera-shots { list-style: none; margin: 0; padding: 0; display: flex; gap: 8px; overflow-x: auto; min-height: 76px; }
+.camera-shot { position: relative; flex: 0 0 auto; }
+.camera-shot img { display: block; height: 76px; width: auto; border-radius: 6px; background: #000; }
+.camera-shot-remove { position: absolute; top: -2px; right: -2px; width: 34px; height: 34px; border: 0; border-radius: 50%; background: rgba(0, 0, 0, 0.75); color: #fff; font-size: 1.3rem; line-height: 1; cursor: pointer; }
+.camera-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--gap); flex-wrap: wrap; }
+.camera-count { flex: 1; min-width: 140px; color: var(--text-muted); }
+.camera-count strong { color: var(--flag); }
+.camera-shutter { width: 88px; height: 88px; flex: 0 0 auto; border: 6px solid #fff; border-radius: 50%; background: var(--accent); cursor: pointer; touch-action: none; -webkit-user-select: none; user-select: none; }
+.camera-shutter:active { transform: scale(0.92); }
+.camera-shutter:disabled { opacity: 0.35; }
+.camera-actions .btn-primary { min-width: 140px; }
+.modal.camera .camera-fallback { position: relative; overflow: hidden; margin: 0; align-items: center; }
+.modal.camera .camera-fallback[hidden] { display: none; }

@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TERRA">
   <meta name="format-detection" content="telephone=no">
-  <meta name="terra-version" content="0.14.0">
+  <meta name="terra-version" content="0.15.0">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -248,9 +248,7 @@
     <label for="photos-of">Photo of</label>
     <select id="photos-of" class="photos-of"></select>
     <div class="photos-take">
-      <label class="btn btn-lg btn-primary photos-pick">&#128247; Take photo
-        <input id="photos-camera" type="file" accept="image/*" capture="environment" class="photos-input">
-      </label>
+      <button class="btn btn-lg btn-primary photos-pick" type="button" id="btn-photos-camera">&#128247; Take photos</button>
       <label class="btn btn-lg photos-pick">&#128444; From library
         <input id="photos-library" type="file" accept="image/*" multiple class="photos-input">
       </label>
@@ -263,6 +261,29 @@
       <button class="btn" type="button" id="btn-photos-refresh" aria-label="Send and read again">&#8635;</button>
     </div>
     <ul class="photo-grid" id="photos-server"></ul>
+  </dialog>
+
+  <dialog class="modal camera" id="dlg-camera" aria-labelledby="camera-title">
+    <div class="server-head">
+      <div>
+        <h2 id="camera-title">Take photos</h2>
+        <p class="muted camera-note" id="camera-note" hidden></p>
+      </div>
+      <button class="btn btn-ghost" type="button" id="btn-camera-cancel">Cancel</button>
+    </div>
+    <div class="camera-view" id="camera-view">
+      <video id="camera-video" playsinline muted autoplay></video>
+      <p class="camera-message" id="camera-message" role="status" hidden></p>
+    </div>
+    <ul class="camera-shots" id="camera-shots"></ul>
+    <div class="camera-actions">
+      <span class="camera-count" id="camera-count" role="status"></span>
+      <label class="btn btn-lg camera-fallback" id="camera-fallback" hidden>&#128247; iPad camera
+        <input id="camera-input" type="file" accept="image/*" capture="environment" class="photos-input">
+      </label>
+      <button class="camera-shutter" type="button" id="btn-camera-shutter" aria-label="Take a photo (hold for several)"></button>
+      <button class="btn btn-lg btn-primary" type="button" id="btn-camera-done">Done</button>
+    </div>
   </dialog>
 
   <dialog class="modal photo-view" id="dlg-photo-view">
