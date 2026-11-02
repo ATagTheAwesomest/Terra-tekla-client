@@ -253,7 +253,8 @@ into the same list.
 The app asks iOS for the camera once and keeps that camera running between
 photo windows (and the QR scanner), because each new request is a chance for
 iOS to ask again. **Server settings > Keep the camera ready** sets how long it
-stays on after the last photo: Off, 10 min, **1 hour** (default) or While open.
+stays on after the last photo: **Off** (default, saves battery), 10 min, 1 hour
+or While open.
 While it is on, iOS shows the green camera dot and it uses a little battery.
 Closing the app lets it go.
 

@@ -41,7 +41,7 @@ export const READY_CHOICES = [
   { value: '60', label: '1 hour', ms: 60 * 60e3 },
   { value: 'app', label: 'While open', ms: Infinity },
 ];
-const READY_DEFAULT = '60';
+const READY_DEFAULT = 'off';
 
 export function cameraReadySetting() {
   let v = null;
