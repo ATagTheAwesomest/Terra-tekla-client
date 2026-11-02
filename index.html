@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TERRA">
   <meta name="format-detection" content="telephone=no">
-  <meta name="terra-version" content="0.18.0">
+  <meta name="terra-version" content="0.18.1">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -200,6 +200,10 @@
         <span class="icon" aria-hidden="true">&#128247;</span><span>Send photos to the server</span><span class="toggle-state" id="photos-toggle-state">Off</span>
       </button>
       <p class="muted photos-setting-note" id="photos-setting-note"></p>
+      <button class="btn btn-block menu-toggle camera-ready-toggle" id="btn-camera-ready" type="button" aria-pressed="false">
+        <span class="icon" aria-hidden="true">&#127909;</span><span>Keep the camera ready</span><span class="toggle-state" id="camera-ready-state">Off</span>
+      </button>
+      <p class="muted photos-setting-note" id="camera-ready-note"></p>
 
       <fieldset class="device-settings admin-box" id="admin-box">
         <legend>Admin <span class="admin-lock" id="admin-lock-state">&#128274; Locked</span></legend>

@@ -248,6 +248,34 @@ It needs the camera permission and the `https://` address (or localhost);
 without them it says why and offers the iPad's own camera, one photo per tap,
 into the same list.
 
+#### Camera keeps asking
+
+The app asks iOS for the camera once and keeps that camera running between
+photo windows (and the QR scanner), because each new request is a chance for
+iOS to ask again. **Server settings > Keep the camera ready** sets how long it
+stays on after the last photo: **Off** (default, saves battery), 10 min, 1 hour
+or While open.
+While it is on, iOS shows the green camera dot and it uses a little battery.
+Closing the app lets it go.
+
+A web app can't make iOS stop asking; only the iPad's settings can:
+
+1. **Settings > Apps > Safari**, under **Settings for Websites** tap **Camera**
+   (older iPadOS: **Settings > Safari >
+   Camera**) and choose **Allow**. This is for every website in Safari.
+2. Or just for this site: open the app's address in **Safari**, tap the page
+   menu in the address bar (**aA** or the icon at its left), **Website
+   Settings**, **Camera: Allow**.
+3. Use the one https:// address every time (the same one the Home Screen icon
+   was added from). Permissions belong to an address, so `http://`, an IP, or a
+   different host name each count as a new site that asks again.
+4. The Home Screen app is its own copy of Safari: iOS may still ask once each
+   time the app is started fresh, whatever Safari's setting says. With **Keep
+   the camera ready** on, that is once per start, not once per photo.
+
+The setting's note shows what the iPad currently says about the camera
+(allowed / asks / blocked) when iOS reports it.
+
 **Manual entries need a photo.** While photos are on, a mark typed on the
 keypad (in Shipping or in the truck check) opens that camera first, titled with
 the mark. Those photos are held until the entry is made: **Undo** takes the last

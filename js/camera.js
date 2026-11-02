@@ -6,6 +6,13 @@
 // them the window says why and offers the iPad's own camera instead, one photo
 // per tap, into the same list.
 //
+// One camera stream is shared (this window and the QR scanner in Server
+// settings) and kept running after the window closes, for as long as the
+// "Keep the camera ready" setting says. Every new getUserMedia call is a
+// chance for iOS to ask for the camera again, so asking once and reusing the
+// stream is what stops the prompt coming up for every photo. iOS still decides
+// when it asks: see README "Camera keeps asking".
+//
 // Two ways to use it:
 // - Held photos (manual entries): the photos stay here until Done, so Undo, ✕
 //   and Cancel can still drop them.
@@ -22,6 +29,101 @@ const JPEG_QUALITY = 0.9;    // photos.js shrinks and recompresses before sendin
 
 let session = null; // { resolve, shots: [{ blob, url }], stream, required, keep, kept, busy }
 let burst = null;   // timer while the shutter is held
+
+// ---- The shared camera stream ------------------------------------------------------
+
+const READY_KEY = 'terra.cameraReady';
+// How long the camera stays on after the last use. Longer = fewer permission
+// prompts but the green camera dot stays on and it uses more battery.
+export const READY_CHOICES = [
+  { value: 'off', label: 'Off', ms: 0 },
+  { value: '10', label: '10 min', ms: 10 * 60e3 },
+  { value: '60', label: '1 hour', ms: 60 * 60e3 },
+  { value: 'app', label: 'While open', ms: Infinity },
+];
+const READY_DEFAULT = 'off';
+
+export function cameraReadySetting() {
+  let v = null;
+  try { v = localStorage.getItem(READY_KEY); } catch { /* blocked: default */ }
+  return READY_CHOICES.find((c) => c.value === v) ?? READY_CHOICES.find((c) => c.value === READY_DEFAULT);
+}
+
+export function setCameraReadySetting(value) {
+  try { localStorage.setItem(READY_KEY, value); } catch { /* blocked: stays default */ }
+  if (!users) scheduleRelease();
+}
+
+let live = null;      // the MediaStream while it is running
+let pending = null;   // the getUserMedia promise while iOS is asking
+let users = 0;        // windows using the stream right now
+let idleTimer = null;
+
+const isLive = (stream) => {
+  const tracks = stream?.getVideoTracks() ?? [];
+  return tracks.length > 0 && tracks.every((t) => t.readyState === 'live');
+};
+
+function stopLive() {
+  clearTimeout(idleTimer);
+  idleTimer = null;
+  live?.getTracks().forEach((t) => t.stop());
+  live = null;
+}
+
+function scheduleRelease() {
+  clearTimeout(idleTimer);
+  idleTimer = null;
+  if (!live) return;
+  const { ms } = cameraReadySetting();
+  if (ms === Infinity) return;
+  if (!ms) return stopLive();
+  idleTimer = setTimeout(() => { if (!users) stopLive(); }, ms);
+}
+
+// The running stream, or a new one (iOS may ask for permission then). Callers
+// must hand it back with releaseCamera() and never stop its tracks themselves.
+export async function acquireCamera() {
+  users++;
+  clearTimeout(idleTimer);
+  idleTimer = null;
+  try {
+    if (isLive(live)) return live;
+    live = null;
+    pending ??= navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 2560 }, height: { ideal: 1920 } },
+      audio: false,
+    }).finally(() => { pending = null; });
+    const stream = await pending;
+    if (!isLive(live)) {
+      live = stream;
+      // iOS (or the user via Control Centre) ended it: the next use starts a new one.
+      stream.getVideoTracks().forEach((t) => t.addEventListener('ended', () => { if (live === stream) live = null; }));
+    }
+    return live;
+  } catch (err) {
+    users = Math.max(0, users - 1);
+    throw err;
+  }
+}
+
+export function releaseCamera() {
+  users = Math.max(0, users - 1);
+  if (!users) scheduleRelease();
+}
+
+// Closing the app (not just switching away) lets the camera go.
+window.addEventListener('pagehide', (e) => { if (!e.persisted) stopLive(); });
+
+// What the browser says about the camera permission, if it says: 'granted',
+// 'prompt', 'denied' or null (unknown; older iOS).
+export async function cameraPermission() {
+  try {
+    return (await navigator.permissions?.query({ name: 'camera' }))?.state ?? null;
+  } catch {
+    return null;
+  }
+}
 
 const dialog = () => $('#dlg-camera');
 
@@ -56,24 +158,51 @@ async function start() {
     fallback(window.isSecureContext ? 'This browser has no live camera.' : 'The live camera needs the https:// address.');
     return;
   }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: 2560 }, height: { ideal: 1920 } },
-      audio: false,
-    });
-    if (session !== mine) {
-      stream.getTracks().forEach((t) => t.stop());
+  if (!session.stream) {
+    try {
+      const stream = await acquireCamera();
+      if (session !== mine) {
+        releaseCamera();
+        return;
+      }
+      session.stream = stream;
+      stream.getVideoTracks().forEach((t) => {
+        // Ended under us (iOS took the camera away): get a new one quietly.
+        t.addEventListener('ended', () => {
+          if (session?.stream !== stream || !dialog().open || document.hidden) return;
+          session.stream = null;
+          releaseCamera();
+          start();
+        });
+        // Back from an interruption (a call, Control Centre): the picture may need a nudge.
+        t.addEventListener('unmute', () => { if (session?.stream === stream) playVideo(); });
+      });
+    } catch (err) {
+      if (session !== mine) return;
+      fallback(err?.name === 'NotAllowedError'
+        ? 'Camera not allowed. Allow it in Settings > Apps > Safari > Camera, or use the iPad camera below.'
+        : `Camera unavailable: ${err?.message ?? err}`);
       return;
     }
-    session.stream = stream;
-    video.srcObject = stream;
+  }
+  if (video.srcObject !== session.stream) video.srcObject = session.stream;
+  await playVideo();
+}
+
+// Starts the picture. A refused play() is not a camera problem: the stream is
+// fine, the page just needs a tap first (rare with muted + playsinline).
+async function playVideo() {
+  const video = $('#camera-video');
+  const mine = session;
+  try {
     await video.play();
+    if (session !== mine) return;
+    message('');
     $('#btn-camera-shutter').disabled = false;
   } catch (err) {
-    if (session !== mine) return;
-    fallback(err?.name === 'NotAllowedError'
-      ? 'Camera not allowed. Allow it in Settings > Safari > Camera (or for this app), or use the iPad camera below.'
-      : `Camera unavailable: ${err?.message ?? err}`);
+    if (session !== mine || video.srcObject !== session?.stream) return;
+    message('Tap the picture to start the camera.');
+    $('#btn-camera-shutter').disabled = false;
   }
 }
 
@@ -89,7 +218,11 @@ function message(text) {
 
 async function shoot() {
   const video = $('#camera-video');
-  if (!session?.stream || !video.videoWidth) return;
+  if (!session?.stream) return;
+  if (video.paused || !video.videoWidth) {
+    playVideo();
+    return;
+  }
   const canvas = document.createElement('canvas');
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
@@ -166,8 +299,10 @@ function finish(result) {
   if (!s) return;
   session = null;
   stopBurst();
-  s.stream?.getTracks().forEach((t) => t.stop());
-  $('#camera-video').srcObject = null;
+  const video = $('#camera-video');
+  video.pause();
+  video.srcObject = null;
+  if (s.stream) releaseCamera(); // kept running for the next window (see the setting)
   s.shots.forEach((shot) => URL.revokeObjectURL(shot.url));
   $('#camera-shots').innerHTML = '';
   if (dialog().open) dialog().close();
@@ -227,14 +362,16 @@ export function initCamera() {
     e.preventDefault();
     cancel();
   });
-  // iOS stops the camera when the app goes to the background; start it again.
+  // iOS pauses or stops the camera when the app goes to the background. Coming
+  // back with the window open: play again, or get a new stream if it ended.
   document.addEventListener('visibilitychange', () => {
     if (document.hidden || !session || !dialog().open) return;
-    const tracks = session.stream?.getVideoTracks() ?? [];
-    if (tracks.length && tracks.every((t) => t.readyState === 'ended')) {
+    if (session.stream && !isLive(session.stream)) {
       session.stream = null;
+      releaseCamera();
       start();
+    } else if (session.stream) {
+      playVideo();
     }
   });
 }
-
