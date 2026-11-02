@@ -126,7 +126,7 @@ function serverTile(f) {
     <span class="photo-of">${escapeHtml(photoOf(f))}</span>
     ${f.by ? `<span class="photo-by who" style="--who:${escapeHtml(live.deviceInfo(f.byId)?.color ?? f.color ?? '#777')}">${escapeHtml(live.deviceInfo(f.byId)?.name ?? f.by)}</span>` : ''}
     <span class="photo-meta">${escapeHtml(shortTime(f.modified))} · ${kb(f.bytes)}</span>
-    <span class="photo-actions"><button class="btn btn-hold" type="button" data-hold="delete-photo" data-hold-ms="${DELETE_HOLD_MS}">Hold to delete</button></span>
+    ${canDelete() ? `<span class="photo-actions"><button class="btn btn-hold" type="button" data-hold="delete-photo" data-hold-ms="${DELETE_HOLD_MS}">Hold to delete</button></span>` : ''}
   </li>`;
 }
 
@@ -167,6 +167,7 @@ function drawViewer() {
   $('#photo-view-body').innerHTML = url && url !== 'error'
     ? (isImage(file.name) ? `<img src="${url}" alt="${escapeHtml(file.name)}">` : `<a class="btn btn-lg" href="${url}" target="_blank" rel="noopener">Open ${escapeHtml(file.name)}</a>`)
     : `<p class="muted">${url === 'error' ? 'Couldn’t load this file.' : 'Loading…'}</p>`;
+  $('#dlg-photo-view [data-hold="delete-photo"]').hidden = !canDelete();
   $('#btn-photo-prev').disabled = i <= 0;
   $('#btn-photo-next').disabled = i < 0 || i >= order.length - 1;
 }
@@ -203,6 +204,11 @@ async function deleteOnServer(name) {
     toast(`Not deleted: ${err.message}`, 6000);
     readServer();
   }
+}
+
+// Deleting a photo needs the admin code: only offered while this iPad is unlocked.
+function canDelete() {
+  return Boolean(api.adminUntil());
 }
 
 function shortTime(iso) {

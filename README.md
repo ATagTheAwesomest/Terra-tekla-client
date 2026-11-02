@@ -271,6 +271,14 @@ big, bad name) stays with the reason, to send again or hold to discard.
 Code: `js/photos.js` (queue, sending), `js/photos-ui.js` (window, switch),
 `js/camera.js` (the rapid-fire camera).
 
+## Photos explorer
+
+The **Photos** home tile looks through every job's photos on the server: jobs › loads › the photos,
+newest first, tap one for the big picture (◀ ▶ to step through). It needs no job picked and no access
+key (the server allows that unless `PHOTOS_PUBLIC` is off); with the key saved it also shows where each
+job, load and photo is stored. It's look only: deleting is on the admin board, or in Shipping's Photos
+window while this iPad is unlocked with the admin code (`js/photo-browser.js`, `css/photos.css`).
+
 ## Piece lookup
 
 **Piece lookup** (home tile, or the menu inside Shipping) answers "what is
@@ -315,6 +323,7 @@ iPads.
 | `js/live.js` | Live connection to the server: other iPads' changes, devices, photos |
 | `js/sounds.js` | Good / bad / complete sounds |
 | `js/check.js` / `js/check-ui.js` | Truck check: matching scans to stacked pieces, and its screen (`css/check.css`) |
+| `js/photo-browser.js` | Photos explorer (home tile): jobs › loads › photos from the server's `/api/browse` |
 | `js/lookup.js` / `js/lookup-ui.js` | Piece lookup data and screen (`css/lookup.css`) |
 | `js/export.js` | Text export, share sheet and print ticket |
 | `js/scanner.js` | Always-focused scan field and on-screen keypad |

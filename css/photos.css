@@ -82,3 +82,25 @@
 .camera-actions .btn-primary { min-width: 140px; }
 .modal.camera .camera-fallback { position: relative; overflow: hidden; margin: 0; align-items: center; }
 .modal.camera [hidden] { display: none; }
+
+/* Photos explorer (js/photo-browser.js): a full-screen dialog like Piece lookup. */
+.pb-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-1); border-bottom: 2px solid var(--border); font-weight: 600; }
+.pb-crumbs .btn { min-height: 40px; padding: 0 10px; }
+.pb-message { max-width: 720px; margin: 32px auto; text-align: center; font-size: 1.1rem; }
+.pb-error { color: var(--danger); font-weight: 700; }
+.pb-filter { width: 100%; max-width: 520px; margin: 0 0 12px; }
+.pb-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--gap); }
+.pb-row { width: 100%; min-height: 72px; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; text-align: left; }
+.pb-row .pb-name { font-family: var(--mono); font-size: 1.25rem; font-weight: 700; color: var(--accent); }
+.pb-row .pb-desc { font-weight: 600; }
+.pb-row .muted { font-size: 0.85rem; font-weight: 400; }
+.pb-path, .pb-where code { font-family: var(--mono); font-size: 0.78rem; color: var(--text-muted); overflow-wrap: anywhere; white-space: normal; }
+.pb-where { margin: 0 0 12px; }
+.pb-viewer { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--bg); z-index: 2; }
+.pb-viewer[hidden] { display: none; }
+.pb-viewer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--gap); padding: max(10px, env(safe-area-inset-top)) 12px 8px; background: var(--surface-1); border-bottom: 2px solid var(--border); }
+.pb-viewer-head p { margin: 4px 0 0; font-size: 0.85rem; overflow-wrap: anywhere; }
+.pb-viewer-body { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 8px; }
+.pb-viewer-body img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: var(--radius); background: #000; }
+.pb-viewer-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--gap); padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); background: var(--surface-1); border-top: 2px solid var(--border); }
+.photo-view-actions [hidden] { display: none; }

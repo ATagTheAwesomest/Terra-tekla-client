@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TERRA">
   <meta name="format-detection" content="telephone=no">
-  <meta name="terra-version" content="0.16.1">
+  <meta name="terra-version" content="0.17.0">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -28,6 +28,7 @@
   <script src="js/vendor/qrcode.js"></script>
   <script type="module" src="js/app.js"></script>
   <script type="module" src="js/lookup-ui.js"></script>
+  <script type="module" src="js/photo-browser.js"></script>
 </head>
 <body class="at-home">
   <section class="home" id="home">
@@ -47,6 +48,11 @@
         <span class="home-tile-icon" aria-hidden="true">&#128269;</span>
         <span class="home-tile-name">Piece lookup</span>
         <span class="muted">Any mark on the job: size, weight, loads, shipped</span>
+      </button>
+      <button class="btn home-tile" type="button" data-module="photos">
+        <span class="home-tile-icon" aria-hidden="true">&#128247;</span>
+        <span class="home-tile-name">Photos</span>
+        <span class="muted">Look through every job’s photos, load by load</span>
       </button>
       <button class="btn home-tile" type="button" id="home-server-tile" data-module="server">
         <span class="home-tile-icon" aria-hidden="true">&#128273;</span>
