@@ -5,6 +5,13 @@
 // The live view needs the camera permission and the https:// address. Without
 // them the window says why and offers the iPad's own camera instead, one photo
 // per tap, into the same list.
+//
+// Two ways to use it:
+// - Held photos (manual entries): the photos stay here until Done, so Undo, ✕
+//   and Cancel can still drop them.
+// - keep(blob) (the Photos window): each photo is saved the moment it is taken,
+//   so nothing is lost if the app is closed mid-run. There is nothing to cancel
+//   or undo; Done (or Escape) closes it.
 
 import { toast } from './app.js';
 
@@ -13,18 +20,21 @@ const BURST_DELAY_MS = 600;  // hold the shutter this long to start a burst
 const BURST_EVERY_MS = 500;  // then one photo this often while it is held
 const JPEG_QUALITY = 0.9;    // photos.js shrinks and recompresses before sending
 
-let session = null; // { resolve, shots: [{ blob, url }], stream, required }
+let session = null; // { resolve, shots: [{ blob, url }], stream, required, keep, kept, busy }
 let burst = null;   // timer while the shutter is held
 
 const dialog = () => $('#dlg-camera');
 
 // Opens the camera. Resolves with the photos taken (Blobs, oldest first) when
 // Done is tapped, or null when cancelled. `required`: Done needs at least one
-// photo and the window says so.
-export function openCamera({ title = 'Take photos', note = '', required = false } = {}) {
+// photo and the window says so. With `keep(blob)` each photo is handed over as
+// soon as it is taken and it resolves with how many were kept.
+export function openCamera({ title = 'Take photos', note = '', required = false, keep = null } = {}) {
   if (session) finish(null);
   return new Promise((resolve) => {
-    session = { resolve, shots: [], stream: null, required };
+    session = { resolve, shots: [], stream: null, required, keep, kept: 0, busy: 0 };
+    $('#btn-camera-cancel').hidden = Boolean(keep);
+    $('#btn-camera-undo').hidden = Boolean(keep);
     $('#camera-title').textContent = title;
     $('#camera-note').textContent = note;
     $('#camera-note').hidden = !note;
@@ -91,23 +101,53 @@ async function shoot() {
   if (blob && session === mine) addShot(blob);
 }
 
-function addShot(blob) {
-  session.shots.push({ blob, url: URL.createObjectURL(blob) });
+async function addShot(blob) {
+  const s = session;
+  if (!s || !blob) return;
+  if (s.keep) {
+    s.busy++;
+    drawShots();
+    try {
+      await s.keep(blob);
+      s.kept++;
+    } catch (err) {
+      s.busy--;
+      if (session === s) {
+        toast(`Photo not saved: ${err?.message ?? err}`, 6000);
+        drawShots();
+      }
+      return;
+    }
+    s.busy--;
+  }
+  if (session !== s) return;
+  s.shots.push({ blob, url: URL.createObjectURL(blob) });
   drawShots();
   const strip = $('#camera-shots');
   strip.scrollLeft = strip.scrollWidth;
 }
 
+function undo() {
+  if (!session || session.keep) return;
+  const gone = session.shots.pop();
+  if (gone) URL.revokeObjectURL(gone.url);
+  drawShots();
+}
+
 function drawShots() {
   const shots = session?.shots ?? [];
+  const saved = Boolean(session?.keep); // already saved: no ✕
   $('#camera-shots').innerHTML = shots.map((s, i) => `<li class="camera-shot">
-      <img src="${s.url}" alt="Photo ${i + 1}">
-      <button class="camera-shot-remove" type="button" data-shot="${i}" aria-label="Remove photo ${i + 1}">&times;</button>
+      <img src="${s.url}" alt="Photo ${i + 1}">${saved ? '' : `
+      <button class="camera-shot-remove" type="button" data-shot="${i}" aria-label="Remove photo ${i + 1}">&times;</button>`}
     </li>`).join('');
   const n = shots.length;
+  const busy = session?.busy > 0;
   $('#btn-camera-done').textContent = n ? `Done (${n})` : 'Done';
-  $('#btn-camera-done').disabled = Boolean(session?.required) && !n;
-  $('#camera-count').innerHTML = n ? `${n} photo${n === 1 ? '' : 's'}`
+  $('#btn-camera-done').disabled = busy || (Boolean(session?.required) && !n);
+  $('#btn-camera-undo').disabled = !n;
+  $('#camera-count').innerHTML = busy ? 'Saving…'
+    : n ? `${n} photo${n === 1 ? '' : 's'}${saved ? ' saved' : ''}`
     : session?.required ? '<strong>A photo is needed</strong>' : 'Tap the shutter, or hold it for a burst';
 }
 
@@ -130,7 +170,17 @@ function finish(result) {
   s.resolve(result);
 }
 
+function done() {
+  if (!session || $('#btn-camera-done').disabled) return;
+  if (session.required && !session.shots.length) {
+    toast('Take a photo first');
+    return;
+  }
+  finish(session.keep ? session.kept : session.shots.map((s) => s.blob));
+}
+
 function cancel() {
+  if (session?.keep) return done(); // already saved: closing loses nothing
   const n = session?.shots.length ?? 0;
   if (n && !window.confirm(`Throw away ${n} photo${n === 1 ? '' : 's'}?`)) return;
   finish(null);
@@ -155,7 +205,7 @@ export function initCamera() {
   $('#camera-video').addEventListener('click', shoot);
   $('#camera-shots').addEventListener('click', (e) => {
     const i = Number(e.target.closest('[data-shot]')?.dataset.shot);
-    if (!session || !Number.isInteger(i)) return;
+    if (!session || session.keep || !Number.isInteger(i)) return;
     const [gone] = session.shots.splice(i, 1);
     if (gone) URL.revokeObjectURL(gone.url);
     drawShots();
@@ -165,19 +215,22 @@ export function initCamera() {
     e.target.value = '';
     if (session) files.forEach(addShot);
   });
-  $('#btn-camera-done').addEventListener('click', () => {
-    if (!session) return;
-    if (session.required && !session.shots.length) {
-      toast('Take a photo first');
-      return;
-    }
-    finish(session.shots.map((s) => s.blob));
-  });
+  $('#btn-camera-done').addEventListener('click', done);
+  $('#btn-camera-undo').addEventListener('click', undo);
   $('#btn-camera-cancel').addEventListener('click', cancel);
   // Escape: same as Cancel (and asks before throwing photos away).
   dialog().addEventListener('cancel', (e) => {
     e.preventDefault();
     cancel();
+  });
+  // iOS stops the camera when the app goes to the background; start it again.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || !session || !dialog().open) return;
+    const tracks = session.stream?.getVideoTracks() ?? [];
+    if (tracks.length && tracks.every((t) => t.readyState === 'ended')) {
+      session.stream = null;
+      start();
+    }
   });
 }
 
