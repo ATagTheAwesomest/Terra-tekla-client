@@ -95,8 +95,10 @@ Code: `js/stack-ops.js` (the operations, the same as the server's),
 
 A scan that goes on the load plays a short high double beep; one that is
 refused (too many of that piece, not on the job, shipped load, PowerFab said
-no) plays a low buzz, with the red "Not added" card as always. A finished
-truck check plays a fanfare. Sounds need the iPad's volume up and silent mode
+no) plays a low buzz, with the red "Not added" card as always. In a truck
+check, finishing a stack plays a quick ringing run and finishing the whole
+load plays a full fanfare (about 2.5 s). Everything goes through a limiter so
+it can play loud without crackling. **Test sounds** plays all four. Sounds need the iPad's volume up and silent mode
 off; **Server settings → Sounds** turns them off. Code: `js/sounds.js`.
 
 ## Current job
@@ -167,8 +169,9 @@ checklist and each scan ticks off one piece of that mark, in stack order. A
 scan not on the load, or one more than the load has, is listed red as an
 extra. **Show missing only**, hold to undo a check (1.5 s) or **Start over**
 (4 s), and **Done checking** goes back to loading. When every piece is
-checked with no extras, the iPad plays a loud beep (sound needs the iPad's
-volume up and silent mode off); every check plays the good or bad scan sound.
+checked with no extras, the iPad plays the fanfare, and each stack that gets
+fully checked plays the stack sound (sound needs the iPad's volume up and
+silent mode off); every other check plays the good or bad scan sound.
 The check never changes PowerFab; the Loads window shows how far each load's
 check got.
 
@@ -177,6 +180,12 @@ the default, keeps it on the server: every iPad on the load works the same
 check and each tick shows who made it. Solo keeps a private check on this iPad
 only (`terra.solo-check`), which also works offline. Switching doesn't erase
 either.
+
+**Draft check** (load header, next to Truck check) is a throwaway practice
+check. It works like a truck check, but nothing is saved or sent to the
+server, typed marks need no photo, nothing goes in the load's history, and the
+load's real check (shared or solo) is untouched. It is thrown away when you
+tap **End draft**, open another load or close the app.
 
 The load has **Hold to ship** (3 s), which PowerFab only allows once every
 piece is loaded, and once shipped **Hold to unship**. Shipped loads going

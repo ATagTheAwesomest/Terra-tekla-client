@@ -208,6 +208,39 @@ test('truck check: shared on the server by default, or solo on this iPad', async
   assert.equal(checkStatus(stacks.get(l)).checked, 0);
 });
 
+test('a draft check is thrown away: never sent, never saved, the real check untouched', async () => {
+  const l = load([], { id: 'L11', number: '11' });
+  await stacks.flush(); // the last test's changes reach its own pretend load first
+  server.state = null;
+  const a = stacks.beginScan(l, 'A1');
+  stacks.finishScan(l, a, ops.pieceDetails(item('A1', '1', 1)));
+  const b = stacks.beginScan(l, 'B2');
+  stacks.finishScan(l, b, ops.pieceDetails(item('B2', '1', 1)));
+  stacks.startCheck(l);
+  stacks.addCheck(l, 'A1');
+  await stacks.flush();
+  const saved = JSON.stringify([...mem.entries()]);
+
+  stacks.startDraft(l);
+  assert.equal(stacks.checkMode(l), 'draft');
+  assert.equal(stacks.isDraft(l), true);
+  assert.equal(checkStatus(stacks.get(l)).checked, 0);
+  stacks.addCheck(l, 'A1');
+  stacks.addCheck(l, 'B2');
+  assert.equal(checkStatus(stacks.get(l)).complete, true);
+  // Load lists show the real check, not the draft.
+  assert.equal(checkSummary(stacks.get(l, { saved: true })), '1 of 2 checked');
+  await stacks.flush();
+  assert.equal(server.state.truckCheck.scans.length, 1);
+  assert.equal(JSON.stringify([...mem.entries()]), saved);
+  stacks.resetCheck(l);
+  assert.equal(checkStatus(stacks.get(l)).checked, 0);
+
+  stacks.endDraft();
+  assert.equal(stacks.checkMode(l), 'shared');
+  assert.equal(checkStatus(stacks.get(l)).checked, 1);
+});
+
 test('a shipped load is view and truck check only', () => {
   const open = load();
   const state = stacks.get(open);

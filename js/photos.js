@@ -59,11 +59,20 @@ export function takenBy(f, name = null) {
 }
 
 // What a saved photo is of, from the name the server gave it:
-// "20261028-143611_1001-C1 (2).jpg" -> "1001-C1"; "..._load.jpg" -> "Whole load".
+// "2026.10.28_14.36.11_1001-C1 (2).jpg" -> "1001-C1"; "..._load.jpg" -> "Whole load".
+// Older servers named them "20261028-143611_1001-C1_Yard iPad.jpg", with the iPad
+// at the end: that part is dropped (a guess, as on the server: a mark with "_" in
+// it would lose its end, but the server's own record says the mark when it has one).
 export function markOf(name) {
-  const m = /^\d{8}-\d{6}_(.+?)(?: \(\d+\))?\.[a-z]+$/i.exec(name);
-  if (!m) return name;
-  return m[1] === 'load' ? 'Whole load' : m[1];
+  const now = /^\d{4}\.\d{2}\.\d{2}_\d{2}\.\d{2}\.\d{2}_(.+?)(?: \(\d+\))?\.[a-z0-9]+$/i.exec(name);
+  const old = !now && /^\d{8}-\d{6}_(.+?)(?: \(\d+\))?\.[a-z0-9]+$/i.exec(name);
+  if (!now && !old) return name;
+  let mark = (now ?? old)[1];
+  if (old) {
+    const cut = mark.lastIndexOf('_');
+    if (cut > 0) mark = mark.slice(0, cut);
+  }
+  return mark === 'load' ? 'Whole load' : mark;
 }
 
 // A failed send that sending again won't fix (the server refused this photo),

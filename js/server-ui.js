@@ -12,7 +12,7 @@ import { JOB_NUMBERS, setJobNumbers } from './current-job.js';
 import * as live from './live.js';
 import { drawPhotoSetting } from './photos-ui.js';
 import { openKeypad } from './scanner.js';
-import { playBad, playGood, primeSound, setSoundsOn, soundsOn } from './sounds.js';
+import { playBad, playComplete, playGood, playStackComplete, primeSound, setSoundsOn, soundsOn } from './sounds.js';
 
 const $ = (sel) => document.querySelector(sel);
 const dialog = () => $('#dlg-server');
@@ -368,11 +368,14 @@ function bindDialog() {
       playGood();
     }
   });
-  // A tap here also lets the page play sound (Safari needs one), then plays both.
+  // A tap here also lets the page play sound (Safari needs one), then plays each in turn:
+  // added, refused, stack checked, truck check complete.
   $('#btn-sounds-test').addEventListener('click', () => {
     primeSound();
     playGood();
     setTimeout(playBad, 600);
+    setTimeout(playStackComplete, 1500);
+    setTimeout(playComplete, 2600);
   });
   live.on('devices', () => { if (dialog().open) drawDevice(); });
   dialog().addEventListener('close', stopCamera);

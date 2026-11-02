@@ -243,7 +243,8 @@ export function scan(raw, { manual = false } = {}) {
     setPalletArmed(false);
     return startPallet(raw, { manual });
   }
-  if (manual && photosOn()) return manualWithPhoto(raw);
+  // A draft check is a throwaway practice run: typed marks need no photo there.
+  if (manual && photosOn() && !(checking && stacks.isDraft(selectedLoad()))) return manualWithPhoto(raw);
   return scanNow(raw, { manual });
 }
 
@@ -662,6 +663,7 @@ function renderStats() {
   $('#stat-weight').textContent = formatWeight(t.weight);
   $('#ship-badge').hidden = !load?.shipped;
   $('#check-badge').hidden = !(load && checking);
+  $('#check-badge').textContent = load && checking && stacks.isDraft(load) ? 'Draft check' : 'Truck check';
   document.body.classList.toggle('mode-check', Boolean(load && checking));
   document.body.classList.toggle('load-shipped', Boolean(load?.shipped));
 }
@@ -669,7 +671,7 @@ function renderStats() {
 function loadRow(l) {
   const t = loadTotals(l);
   let check = null;
-  try { check = checkSummary(stacks.get(l)); } catch { /* storage blocked */ }
+  try { check = checkSummary(stacks.get(l, { saved: true })); } catch { /* storage blocked */ }
   const status = l.shipped ? `Shipped${l.shipDate ? ` ${shortDate(l.shipDate)}` : ''}` : 'Open';
   return `<li class="load-list-item" data-load-id="${escapeHtml(l.id)}">
     <button class="btn load-row${l.id === ship.selectedId ? ' active' : ''}${l.shipped ? ' shipped' : ''}" type="button" data-load-id="${escapeHtml(l.id)}">
@@ -778,6 +780,7 @@ function renderLoad(load) {
       <div class="ship-actions">
         ${photoButton(ship.job, load.number)}
         <button class="btn${checking ? ' btn-primary' : ''}" type="button" data-action="truck-check">${checking ? 'Back to loading' : '&#10003; Truck check'}</button>
+        ${checking ? '' : '<button class="btn" type="button" data-action="draft-check" title="A practice check: nothing is saved or shared, and typed marks need no photo">&#9998; Draft check</button>'}
         ${load.shipped
           ? `<button class="btn btn-hold" type="button" data-hold="unship" data-hold-ms="${SHIP_HOLD_MS}">Hold to unship</button>`
           : `<button class="btn btn-hold btn-ship" type="button" data-hold="ship" data-hold-ms="${SHIP_HOLD_MS}"${t.pieces && t.loaded >= t.pieces ? '' : ' disabled'} title="Every piece has to be loaded first">Hold to ship</button>`}
@@ -847,6 +850,9 @@ function renderScanbar() {
 }
 
 export function render() {
+  // A draft check belongs to the load it was started on: opening another load, or
+  // leaving the check any other way, throws it away.
+  if (!checking || !stacks.isDraft(selectedLoad())) stacks.endDraft();
   renderStats();
   renderLoadList();
   renderWorkspace();
@@ -959,22 +965,27 @@ function onHold(btn) {
   actions[btn.dataset.hold]?.();
 }
 
-// Switches between loading and the truck check.
-function setChecking(on) {
+// Switches between loading and the truck check, or a draft check (`draft`):
+// a throwaway one that is gone as soon as it is left.
+function setChecking(on, { draft = false } = {}) {
   const load = selectedLoad();
   if (on && !load) {
     toast('Open a load first');
     return;
   }
+  const wasDraft = stacks.isDraft(load);
   checking = on;
+  if (!on || !draft) stacks.endDraft();
   if (on) {
     primeSound();
-    try { stacks.startCheck(load); } catch (err) { toast(err.message, 5000); }
+    try { draft ? stacks.startDraft(load) : stacks.startCheck(load); } catch (err) { toast(err.message, 5000); }
   }
   render();
   $('#workspace').scrollTop = 0;
   focusScanner();
-  toast(on ? `Truck check: scan every piece on load ${load.number}` : 'Back to loading');
+  toast(on
+    ? draft ? `Draft check of load ${load.number}: nothing is saved` : `Truck check: scan every piece on load ${load.number}`
+    : wasDraft ? 'Draft check thrown away. Back to loading' : 'Back to loading');
 }
 
 export function canScan() {
@@ -1059,6 +1070,7 @@ export function initShipping() {
     else if (action === 'new-load') showNewLoad();
     else if (action === 'refresh') refresh();
     else if (action === 'truck-check') setChecking(!checking);
+    else if (action === 'draft-check') setChecking(true, { draft: true });
     else if (action === 'photos') showPhotos();
   });
   const holdSelector = '[data-hold]:not([data-hold="item"]):not([data-hold="stack"]):not([data-hold^="check-"])';
