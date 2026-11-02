@@ -36,18 +36,20 @@ import { jobKey } from './parts.js';
 import * as pf from './pf-loads.js';
 import { flashFeedback, focusScanner, openKeypad } from './scanner.js';
 import * as stacks from './stack-store.js';
-import { pieceDetails } from './stack-ops.js';
+import { MAX_PALLET, pieceDetails } from './stack-ops.js';
 import { initStacks, renderStacks } from './stacks-ui.js';
 import { initPhotos, openPhotos, photoButton, photoOfButton, photosOn } from './photos-ui.js';
 import { openCamera } from './camera.js';
 import { queuePhotos } from './photos.js';
-import { claimsText, cleanMark, findLoad, formatWeight, lastLoaded, loadSequences, loadTotals, pickRemaining, takeRemaining, toLoad } from './shipping.js';
+import { claimsText, cleanMark, findLoad, formatWeight, lastLoaded, leftToLoad, loadSequences, loadTotals, pickRemaining, takeRemaining, toLoad } from './shipping.js';
 
 const $ = (sel) => document.querySelector(sel);
 
 const SHIP_HOLD_MS = 3000;
 const DELETE_HOLD_MS = 10000;
 const ROW_HOLD_MS = 1500;
+// A pallet needs at least this many photos of the whole stack (while photos are on).
+export const PALLET_MIN_PHOTOS = 3;
 
 // Everything Shipping knows, all of it read from PowerFab for the open job.
 export const ship = {
@@ -65,6 +67,8 @@ export const ship = {
 
 // Truck check on: scans check pieces off instead of loading them.
 let checking = false;
+// "+ Pallet" tapped: the next scan (or keypad entry) is the pallet's mark.
+let palletArmed = false;
 let queue = Promise.resolve();
 let readSeq = 0;
 
@@ -235,8 +239,213 @@ async function assignOne(load, mark) {
 // stack. A mark PowerFab has none left of is refused with the reason.
 // A manual entry (typed, not scanned) needs a photo first while photos are on.
 export function scan(raw, { manual = false } = {}) {
+  if (palletArmed && !checking) {
+    setPalletArmed(false);
+    return startPallet(raw, { manual });
+  }
   if (manual && photosOn()) return manualWithPhoto(raw);
   return scanNow(raw, { manual });
+}
+
+// ---- Pallets -----------------------------------------------------------------
+// A pallet is a stack of one mark (bolts, clips, plates...): its mark is
+// scanned once, the count typed on the keypad, and then, while photos are on,
+// at least PALLET_MIN_PHOTOS photos of the whole pallet are taken before
+// anything is sent. PowerFab then gets that many assigned and loaded in a few
+// writes (one per sequence), and the pallet shows as one line in the stacks.
+
+function setPalletArmed(on) {
+  palletArmed = on;
+  renderScanbar();
+  focusScanner();
+}
+
+function armPallet() {
+  const load = selectedLoad();
+  if (!load) return toast('Open a load first');
+  if (load.shipped) return toast(`Load ${load.number} has shipped: hold to unship it to add a pallet.`, 5000);
+  setPalletArmed(!palletArmed);
+  if (palletArmed) toast('New pallet: scan the mark of one of its pieces, or type it on the Keypad', 5000);
+}
+
+async function startPallet(raw, { manual = false } = {}) {
+  const mark = cleanMark(raw);
+  const open = selectedLoad();
+  if (!mark || !open) return null;
+  if (open.shipped) {
+    flashFeedback('bad');
+    showBlock({ title: 'Load already shipped', mark, message: `Load ${open.number} has shipped. Hold to unship it to add a pallet.` });
+    return null;
+  }
+  // How many the load can still take of the mark, before asking for a count and photos.
+  const left = leftToLoad(open, mark, ship.remaining);
+  if (!left) {
+    flashFeedback('bad');
+    const err = blocked(mark, pickRemaining(mark, ship.remaining, ship.loads).reason ?? 'not-on-job');
+    showBlock({ title: err.title, mark, message: err.message });
+    return null;
+  }
+  const max = Math.min(left, MAX_PALLET);
+  const count = await openKeypad({
+    mode: 'qty', max, okLabel: photosOn() ? 'Next: photos' : 'Make pallet',
+    title: `How many ${mark} on the pallet?`,
+    note: `${left} ${mark} left to load on ${ship.job}${left > MAX_PALLET ? ` (at most ${MAX_PALLET} on one pallet)` : ''}.`,
+  });
+  focusScanner();
+  const qty = Number(count);
+  if (!count || !(qty >= 1)) return null;
+  let shots = [];
+  if (photosOn()) {
+    shots = await openCamera({
+      title: `Pallet: ${qty} × ${mark}`,
+      note: `A pallet needs at least ${PALLET_MIN_PHOTOS} photos of the whole stack: each side and the top, with the tag in view. Take them, then Done.`,
+      required: PALLET_MIN_PHOTOS,
+    });
+    focusScanner();
+    if (!shots || shots.length < PALLET_MIN_PHOTOS) {
+      toast(`Pallet of ${mark} not made: it needs at least ${PALLET_MIN_PHOTOS} photos`, 5000);
+      return null;
+    }
+  }
+  return makePallet(open, { mark, qty, shots, manual });
+}
+
+// Puts `qty` of `mark` on the load and loads them: first any already on the
+// load and not loaded, then more assigned from what the job has left, lowest
+// sequence first. One PowerFab write each, not one per piece. Returns
+// [{ item, n }] in the order loaded. On a refusal the error carries what was
+// loaded before it (err.loaded).
+async function loadMany(load, mark, qty) {
+  const done = [];
+  let left = qty;
+  try {
+    for (let guard = 0; left > 0 && guard < 50; guard++) {
+      const waiting = toLoad(load, mark);
+      if (waiting) {
+        const n = Math.min(left, waiting.qty - waiting.loaded);
+        await pf.loadMaterial(load.id, waiting, n);
+        done.push({ item: waiting, n });
+        left -= n;
+      } else {
+        const pick = pickRemaining(mark, ship.remaining, ship.loads);
+        if (!pick.row) throw blocked(mark, pick.reason);
+        const n = Math.min(left, pick.row.remaining);
+        await pf.addMaterial(load.id, pick.row, n);
+        ship.remaining = takeRemaining(ship.remaining, pick.row, n);
+        ship.loads = await pf.readLoads(ship.pcid);
+        load = findLoad(ship.loads, load.id) ?? load;
+        const item = toLoad(load, mark, pick.row.sequence) ?? toLoad(load, mark);
+        if (!item) throw new Error(`${n} × ${mark} were put on load ${load.number} but PowerFab didn’t list them to load. Refresh and check the pallet.`);
+        const k = Math.min(n, item.qty - item.loaded);
+        try {
+          await pf.loadMaterial(load.id, item, k);
+        } catch (err) {
+          // Assigning and loading are one step: don't leave them assigned but not loaded.
+          await pf.removeMaterial(load.id, item, n).catch(() => {});
+          throw Object.assign(err, { title: err.title ?? 'PowerFab wouldn’t load that', mark });
+        }
+        done.push({ item, n: k });
+        left -= k;
+      }
+      ship.loads = await pf.readLoads(ship.pcid);
+      load = findLoad(ship.loads, load.id) ?? load;
+    }
+    if (left > 0) throw new Error(`Only ${qty - left} of ${qty} × ${mark} could be loaded.`);
+  } catch (err) {
+    throw Object.assign(err, { loaded: done, mark });
+  }
+  return done;
+}
+
+// Gives the pallet's "sending" rows the details of what PowerFab loaded, in
+// order, and returns the ids left over.
+function finishRows(load, ids, loaded) {
+  let at = 0;
+  for (const { item, n } of loaded) {
+    const rows = ids.slice(at, at + n);
+    at += n;
+    if (rows.length) stacks.finishScan(load, rows, pieceDetails(item));
+  }
+  return ids.slice(at);
+}
+
+// Loads `ids.length` of `mark` for a pallet's rows. Resolves with how many
+// were loaded; rows PowerFab refused go, with the usual warning.
+function loadPalletRows(open, mark, ids) {
+  const jobThen = ship.job;
+  let loadedCount = 0;
+  return change(async () => {
+    let loaded = [];
+    try {
+      const load = openLoadFor(jobThen, mark);
+      if (load.id !== open.id) throw Object.assign(new Error(`The open load changed before the pallet of ${mark} was sent. Make it again.`), { title: 'Load changed', mark });
+      loaded = await loadMany(load, mark, ids.length);
+    } catch (err) {
+      loaded = err.loaded ?? [];
+      throw err;
+    } finally {
+      loadedCount = loaded.reduce((n, l) => n + l.n, 0);
+      const rest = finishRows(open, ids, loaded);
+      if (rest.length) stacks.failScan(open, rest, { mark, title: 'PowerFab refused part of a pallet', message: `${rest.length} of ${ids.length} not loaded` });
+    }
+  }, { remaining: true }).then(() => loadedCount);
+}
+
+async function makePallet(open, { mark, qty, shots, manual }) {
+  const job = ship.job;
+  const made = safely(() => stacks.addPallet(open, { mark, qty, photos: shots.length, manual }));
+  if (!made) return null;
+  render();
+  const loaded = await loadPalletRows(open, mark, made.entryIds);
+  if (!loaded) {
+    safely(() => stacks.removeStack(open, made.stackId));
+    if (shots.length) toast(`The pallet wasn’t loaded, so its photos weren’t kept`, 5000);
+    render();
+    return null;
+  }
+  done(`Pallet of ${loaded === qty ? qty : `${loaded} (not ${qty})`} × ${mark} loaded on load ${open.number}`);
+  if (shots.length) {
+    try {
+      await queuePhotos({ job, load: open.number, mark: made.name, files: shots });
+    } catch (err) {
+      toast(`Pallet loaded, but its photos couldn’t be kept: ${err.message}`, 6000);
+    }
+  }
+  return made;
+}
+
+// Change count on a pallet: more are loaded onto it, or the last ones taken off.
+async function palletCount(stackId) {
+  const open = selectedLoad();
+  if (!open || open.shipped) return;
+  const stack = stacks.get(open).stacks.find((st) => st.id === stackId);
+  if (!stack?.pallet) return;
+  const now = stack.items.length;
+  const mark = stack.pallet.mark;
+  const left = leftToLoad(open, mark, ship.remaining);
+  const value = await openKeypad({
+    mode: 'qty', max: Math.min(now + left, MAX_PALLET), initial: String(now), okLabel: 'Change',
+    title: `How many ${mark} on ${stack.name}?`,
+    note: `Now ${now}. Up to ${now + left} (${left} more left to load on ${ship.job}).`,
+  });
+  focusScanner();
+  const want = Number(value);
+  if (!value || !(want >= 1) || want === now) return;
+  if (want > now) {
+    const ids = safely(() => stacks.growPallet(open, stackId, want - now));
+    if (!ids) return;
+    render();
+    const loaded = await loadPalletRows(open, mark, ids);
+    if (loaded) done(`${loaded} more ${mark} loaded on ${stack.name}`);
+    return;
+  }
+  const jobThen = ship.job;
+  const off = stack.items.slice(want);
+  change(async () => {
+    const load = openLoadFor(jobThen, mark);
+    await takeOffMany(load, off);
+    toast(`${off.length} × ${mark} taken off ${stack.name}`);
+  }, { remaining: true });
 }
 
 // The camera opens for the typed mark and the entry only goes ahead with at
@@ -335,6 +544,43 @@ async function takeOff(load, entry) {
   safely(() => stacks.removeEntry(load, entry.id));
 }
 
+// takeOff for many rows at once (a pallet): one unload and one remove per
+// PowerFab load record, not per piece. Rows PowerFab no longer has loaded are
+// just dropped. If PowerFab refuses, the rows not taken off stay.
+async function takeOffMany(load, entries) {
+  const ids = entries.map((e) => e.id);
+  stacks.markRemoving(load, ids);
+  const gone = [];
+  const groups = new Map();
+  for (const e of entries) {
+    const key = `${e.mark}|${e.sequence}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(e.id);
+  }
+  try {
+    for (const group of groups.values()) {
+      const { mark, sequence } = entries.find((e) => e.id === group[0]);
+      for (let guard = 0; group.length && guard < 50; guard++) {
+        const item = lastLoaded(load, mark, sequence);
+        if (!item?.loads.length) break;
+        const n = Math.min(group.length, item.loads.at(-1).qty, item.loaded - item.returned);
+        if (n <= 0) break;
+        await pf.unloadMaterial(load.id, item, n);
+        await pf.removeMaterial(load.id, item, n);
+        gone.push(...group.splice(0, n));
+        ship.loads = await pf.readLoads(ship.pcid);
+        load = findLoad(ship.loads, load.id) ?? load;
+      }
+      gone.push(...group.splice(0));
+    }
+  } catch (err) {
+    stacks.markRemoving(load, ids.filter((id) => !gone.includes(id)), false);
+    safely(() => stacks.removeEntry(load, gone));
+    throw err;
+  }
+  safely(() => stacks.removeEntry(load, gone));
+}
+
 function deleteEntry(entryId) {
   const jobThen = ship.job;
   return change(async () => {
@@ -355,7 +601,12 @@ function deleteStack(stackId) {
     const stack = stacks.get(load).stacks.find((s) => s.id === stackId);
     if (!stack) return;
     const pieces = stack.items.length;
-    for (const entry of [...stack.items]) {
+    if (stack.pallet && pieces) {
+      await takeOffMany(load, [...stack.items]);
+      ship.loads = await pf.readLoads(ship.pcid);
+      load = findLoad(ship.loads, load.id) ?? load;
+    }
+    for (const entry of stack.pallet ? [] : [...stack.items]) {
       await takeOff(load, entry);
       ship.loads = await pf.readLoads(ship.pcid);
       load = findLoad(ship.loads, load.id) ?? load;
@@ -584,9 +835,14 @@ function renderScanbar() {
   try { stackName = stacks.activeStack(stacks.get(load)).name; } catch { /* storage blocked */ }
   const viewOnly = load.shipped && !checking;
   $('#scanbar').classList.toggle('view-only', viewOnly);
-  $('#scan-label').textContent = ship.busy ? 'Sending to PowerFab…' : checking ? 'Truck check' : viewOnly ? 'Shipped, view only' : 'Scanning into';
-  $('#scan-stack').textContent = checking ? `Load ${load.number}` : viewOnly ? 'Tap Truck check to scan' : stackName;
-  $('#btn-new-stack').hidden = checking || load.shipped;
+  if (palletArmed && (checking || load.shipped)) palletArmed = false;
+  $('#scanbar').classList.toggle('pallet-armed', palletArmed);
+  $('#scan-label').textContent = ship.busy ? 'Sending to PowerFab…' : checking ? 'Truck check' : viewOnly ? 'Shipped, view only' : palletArmed ? 'New pallet' : 'Scanning into';
+  $('#scan-stack').textContent = checking ? `Load ${load.number}` : viewOnly ? 'Tap Truck check to scan' : palletArmed ? 'Scan the mark (or Keypad)' : stackName;
+  $('#btn-new-stack').hidden = checking || load.shipped || palletArmed;
+  $('#btn-pallet').hidden = checking || load.shipped;
+  $('#btn-pallet').textContent = palletArmed ? 'Cancel pallet' : '+ Pallet';
+  $('#btn-pallet').classList.toggle('btn-primary', !palletArmed);
   $('#btn-check-done').hidden = !checking;
 }
 
@@ -793,6 +1049,7 @@ export function initShipping() {
     detailActions: (entry) => photoOfButton(entry.mark, 'this piece'),
     stackActions: (stack) => photoOfButton(stack.name, stack.name),
     photo: showPhotos,
+    palletCount,
   });
   initPhotos({ render, closed: focusScanner });
   initCheck({ load: selectedLoad, checking: () => checking, render, toast, exit: () => setChecking(false) });
@@ -819,6 +1076,7 @@ export function initShipping() {
     const id = e.target.closest('.load-row')?.dataset.loadId;
     if (!id) return;
     ship.selectedId = id;
+    palletArmed = false;
     setPanel(false);
     render();
     focusScanner();
@@ -839,6 +1097,7 @@ export function initShipping() {
     if (value) input.value = value.trim().toUpperCase();
   });
   $('#btn-new-stack').addEventListener('click', newStack);
+  $('#btn-pallet').addEventListener('click', armPallet);
   $('#btn-check-done').addEventListener('click', () => setChecking(false));
   onCurrentJobChange((job) => openJob(job));
 }

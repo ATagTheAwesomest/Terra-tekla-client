@@ -5,6 +5,7 @@
 
 import { escapeHtml } from './app.js';
 import * as api from './api.js';
+import { takenBy } from './photos.js';
 
 const $ = (sel) => document.querySelector(sel);
 const IMAGE = /\.(jpe?g|png|webp|heic)$/i;
@@ -191,7 +192,7 @@ function renderPhotos() {
     <ul class="photo-grid">${files.map((f, i) => `<li class="photo-tile" data-pb-file="${escapeHtml(f.name)}">
       <button class="photo-open" type="button" data-pb-view="${i}" aria-label="View ${escapeHtml(f.name)}">${picture(f.name)}</button>
       <span class="photo-of">${escapeHtml(f.mark || 'Whole load')}</span>
-      ${f.by ? `<span class="photo-by who" style="--who:${escapeHtml(f.color ?? '#777')}">${escapeHtml(f.by)}</span>` : ''}
+      <span class="photo-by who" style="--who:${escapeHtml(f.color ?? '#777')}">${escapeHtml(takenBy(f))}</span>
       <span class="photo-meta">${escapeHtml(when(f.modified))} · ${kb(f.bytes)}</span>
       ${view.keyed ? `<code class="pb-path">${escapeHtml(f.name)}</code>` : ''}
     </li>`).join('')}</ul>`;
@@ -241,7 +242,7 @@ function drawViewer() {
   const key = thumbKey(f.name);
   const url = thumbs.get(key);
   $('#pb-viewer-title').textContent = `${f.mark || 'Whole load'} · Job ${view.job} · load ${view.load}`;
-  $('#pb-viewer-meta').innerHTML = [f.by ? `By ${escapeHtml(f.by)}` : '', escapeHtml(when(f.modified)), kb(f.bytes),
+  $('#pb-viewer-meta').innerHTML = [`Taken by ${escapeHtml(takenBy(f))}`, escapeHtml(when(f.modified)), kb(f.bytes),
     view.keyed && f.path ? `<code>${escapeHtml(f.path)}</code>` : escapeHtml(f.name)].filter(Boolean).join(' · ');
   $('#pb-viewer-body').innerHTML = typeof url === 'string' && url !== 'error'
     ? (IMAGE.test(f.name) ? `<img src="${url}" alt="${escapeHtml(f.name)}">` : `<a class="btn btn-lg" href="${url}" target="_blank" rel="noopener">Open ${escapeHtml(f.name)}</a>`)

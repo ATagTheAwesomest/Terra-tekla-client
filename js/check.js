@@ -7,7 +7,8 @@
 // (js/stack-store.js, state.truckCheck).
 //
 // truckCheck { startedAt, updatedAt, scans: CheckScan[] }
-// CheckScan  { id, mark, manual, scannedAt }
+// CheckScan  { id, mark, manual, scannedAt, qty? }: qty > 1 checks that many
+//            of the mark at once (a whole pallet, see palletCheckQty).
 //
 // Only the scans are stored. Which piece each scan checks off is worked out
 // again on every read (checkStatus), in stack and row order, so moving or
@@ -50,15 +51,20 @@ export function checkStatus(state) {
   const byScan = new Map();
   for (const scan of state?.truckCheck?.scans ?? []) {
     const key = cleanMark(scan.mark);
-    const row = queues.get(key)?.shift();
-    if (row) {
+    const qty = Math.max(1, Number(scan.qty) || 1);
+    let hit = 0;
+    for (let i = 0; i < qty; i++) {
+      const row = queues.get(key)?.shift();
+      if (!row) break;
       row.scan = scan;
       checkedBy.set(row.entry.id, scan);
-      byScan.set(scan.id, row.entry);
-    } else {
+      if (!hit++) byScan.set(scan.id, row.entry);
+    }
+    if (hit < qty) {
+      // Nothing left to check off (or not all of a pallet's count): an extra.
       const of = counts.get(key) ?? 0;
-      extras.push({ scan, reason: of ? 'over' : 'not-on-load', of });
-      byScan.set(scan.id, null);
+      extras.push({ scan, reason: of ? 'over' : 'not-on-load', of, short: qty - hit });
+      if (!hit) byScan.set(scan.id, null);
     }
   }
   const total = rows.length;
@@ -70,11 +76,22 @@ export function checkStatus(state) {
   };
 }
 
+// How many pieces a check scan of `rawMark` should check off: when the next
+// piece of that mark not checked yet is on a pallet, every piece of the mark
+// on that pallet not checked yet (one scan checks a pallet); else 1.
+export function palletCheckQty(state, rawMark) {
+  const key = cleanMark(rawMark);
+  const s = checkStatus(state);
+  const next = s.rows.find((r) => !r.scan && cleanMark(r.entry.mark) === key);
+  if (!next?.stack.pallet) return 1;
+  return Math.max(1, s.rows.filter((r) => !r.scan && r.stack === next.stack && cleanMark(r.entry.mark) === key).length);
+}
+
 // Logs one check scan into `check` (mutated). Returns null for an empty scan.
-export function addCheckScan(check, rawMark, { manual = false } = {}) {
+export function addCheckScan(check, rawMark, { manual = false, qty = 1 } = {}) {
   const mark = cleanMark(rawMark);
   if (!mark) return null;
-  const scan = { id: newId(), mark, manual, scannedAt: new Date().toISOString() };
+  const scan = { id: newId(), mark, manual, scannedAt: new Date().toISOString(), ...(qty > 1 ? { qty } : {}) };
   check.scans.push(scan);
   check.updatedAt = scan.scannedAt;
   return scan;
@@ -90,6 +107,7 @@ export function removeCheckScan(check, scanId) {
 }
 
 export function extraReason(x) {
+  if (x.short && Number(x.scan.qty) > 1) return `Pallet of ${x.scan.qty}: ${x.short} more than the load has of this mark`;
   return x.reason === 'over'
     ? `Extra: the load only has ${x.of} of this mark`
     : 'Not on this load';

@@ -13,9 +13,9 @@
 // stack), and a solo truck check (when the check is switched to "Solo" for a load).
 
 import * as api from './api.js';
-import { addCheckScan, emptyCheck, removeCheckScan } from './check.js';
+import { addCheckScan, emptyCheck, palletCheckQty, removeCheckScan } from './check.js';
 import * as live from './live.js';
-import { applyOp, findEntry, newId, newState, stepTarget, syncPieces } from './stack-ops.js';
+import { applyOp, findEntry, lastPlainStack, MAX_PALLET, newId, newState, stepTarget, syncPieces } from './stack-ops.js';
 
 export { findEntry };
 
@@ -230,11 +230,12 @@ export function sync(load, knownRev = serverRev(load.id)) {
 // The stack scans go into on this iPad. The first time, that is the last stack
 // there is, and it stays that one when other iPads add stacks below it. If the
 // stack is deleted (here or on another iPad), it is the last stack again.
+// A pallet is never the one scans go into (it is filled by its quantity).
 export function activeStack(state) {
   const id = read(ACTIVE_KEY, {})[state.loadId];
-  const stack = state.stacks.find((s) => s.id === id);
+  const stack = state.stacks.find((s) => s.id === id && !s.pallet);
   if (stack) return stack;
-  const last = state.stacks.at(-1);
+  const last = lastPlainStack(state) ?? state.stacks.at(-1);
   if (state.loadId && last) setActiveId(state.loadId, last.id);
   return last;
 }
@@ -247,7 +248,7 @@ function setActiveId(loadId, stackId) {
 
 export function setActive(load, stackId) {
   assertEditable(load);
-  if (get(load).stacks.some((s) => s.id === stackId)) setActiveId(load.id, stackId);
+  if (get(load).stacks.some((s) => s.id === stackId && !s.pallet)) setActiveId(load.id, stackId);
   emit({ loadId: load.id });
   return get(load);
 }
@@ -266,6 +267,45 @@ export function addStack(load) {
   send(load, { op: 'addStack', stackId, afterStackId, name });
   setActiveId(load.id, stackId);
   return get(load);
+}
+
+// A pallet's name: "Pallet <mark>", then "Pallet <mark> (2)"... as long as it is free.
+export function palletName(state, mark) {
+  const taken = (name) => state.stacks.some((st) => st.name.toLowerCase() === name.toLowerCase());
+  let name = `Pallet ${mark}`;
+  for (let n = 2; taken(name); n++) name = `Pallet ${mark} (${n})`;
+  return name.slice(0, 60);
+}
+
+// A pallet: a new stack of `qty` pieces of one mark, below the active stack (which stays the
+// one scans go into), every piece as a "sending" row at once. `photos` is how many photos of it
+// were taken. Returns { stackId, entryIds, name } for finishScan / failScan.
+export function addPallet(load, { mark, qty, photos = 0, manual = false }) {
+  assertEditable(load);
+  const n = Math.floor(Number(qty));
+  if (!(n >= 1 && n <= MAX_PALLET)) throw new Error(`A pallet has 1 to ${MAX_PALLET} pieces.`);
+  const state = get(load);
+  const stackId = newId();
+  const name = palletName(state, mark);
+  const active = activeStack(state);
+  // After the active stack and any pallets already right below it, so pallets stay in the order made.
+  let after = state.stacks.indexOf(active);
+  while (state.stacks[after + 1]?.pallet) after++;
+  send(load, { op: 'addStack', stackId, afterStackId: state.stacks[after]?.id ?? active.id, name, pallet: { mark, photos, manual } });
+  const entryIds = Array.from({ length: n }, (_, i) => `${stackId}-${i + 1}`);
+  send(load, { op: 'beginScan', entryIds, mark, manual, stackId });
+  return { stackId, entryIds, name };
+}
+
+// More pieces on a pallet (its quantity raised): "sending" rows for finishScan / failScan.
+export function growPallet(load, stackId, qty) {
+  assertEditable(load);
+  const stack = get(load).stacks.find((st) => st.id === stackId);
+  if (!stack?.pallet) throw new Error('That pallet is gone.');
+  const base = newId();
+  const entryIds = Array.from({ length: qty }, (_, i) => `${base}-${i + 1}`);
+  send(load, { op: 'beginScan', entryIds, mark: stack.pallet.mark, manual: stack.pallet.manual, stackId });
+  return entryIds;
 }
 
 // A blank name keeps the current one.
@@ -311,18 +351,24 @@ export function moveEntryTo(load, entryId, stackId, index) {
 export function beginScan(load, mark, { manual = false } = {}) {
   assertEditable(load);
   const entryId = newId();
+  // Only pallets left (the plain stacks were deleted): a plain stack for the scan first.
+  if (activeStack(get(load)).pallet) addStack(load);
   send(load, { op: 'beginScan', entryId, mark, manual, stackId: activeStack(get(load)).id });
   return entryId;
 }
 
-// PowerFab loaded it: the row gets the piece's details (js/stack-ops.js pieceDetails).
+// An entry id, or a list of them (a pallet's pieces), as an operation's fields.
+const rows = (ids) => (Array.isArray(ids) ? { entryIds: ids } : { entryId: ids });
+
+// PowerFab loaded it: the row (or rows) get the piece's details (js/stack-ops.js pieceDetails).
 export function finishScan(load, entryId, piece) {
-  send(load, { op: 'finishScan', entryId, piece });
+  send(load, { op: 'finishScan', ...rows(entryId), piece });
 }
 
-// PowerFab (or a check here) refused it: the row goes, and the server logs why.
+// PowerFab (or a check here) refused it: the row (or rows) go, and the server logs why.
 export function failScan(load, entryId, { mark = '', title = '', message = '' } = {}) {
-  send(load, { op: 'failScan', entryId, mark, title, message });
+  if (Array.isArray(entryId) && !entryId.length) return;
+  send(load, { op: 'failScan', ...rows(entryId), mark, title, message });
 }
 
 // A scan refused before anything was sent (shipped load), for the history.
@@ -335,13 +381,18 @@ export function logEvent(load, kind, text, mark = '') {
   send(load, { op: 'log', kind, text, mark });
 }
 
-// A row being taken off the load in PowerFab: no other iPad's read removes it meanwhile.
+// A row (or rows) being taken off the load in PowerFab: no other iPad's read removes it meanwhile.
 export function markRemoving(load, entryId, on = true) {
-  send(load, { op: on ? 'markRemoving' : 'unmarkRemoving', entryId });
+  if (Array.isArray(entryId) && !entryId.length) return;
+  send(load, { op: on ? 'markRemoving' : 'unmarkRemoving', ...rows(entryId) });
 }
 
-// Takes one entry off its stack, after PowerFab has taken the piece off.
+// Takes one entry (or a list of them) off its stack, after PowerFab has taken the pieces off.
 export function removeEntry(load, entryId) {
+  if (Array.isArray(entryId)) {
+    if (entryId.length) send(load, { op: 'removeEntry', entryIds: entryId });
+    return null;
+  }
   const hit = findEntry(get(load), entryId);
   send(load, { op: 'removeEntry', entryId });
   return hit?.entry ?? null;
@@ -390,12 +441,14 @@ export function resetCheck(load) {
   return get(load);
 }
 
-// Returns the scan { id, mark, manual, scannedAt, scannedBy }, or null for an empty mark.
+// Returns the scan { id, mark, manual, scannedAt, scannedBy, qty? }, or null for an empty mark.
+// A mark whose next unchecked piece is on a pallet checks the whole pallet (js/check.js palletCheckQty).
 export function addCheck(load, rawMark, { manual = false } = {}) {
-  if (checkMode(load) === 'solo') return updateSolo(load, (check) => addCheckScan(check, rawMark, { manual }));
-  const probe = addCheckScan(emptyCheck(), rawMark, { manual });
+  const qty = palletCheckQty(get(load), rawMark);
+  if (checkMode(load) === 'solo') return updateSolo(load, (check) => addCheckScan(check, rawMark, { manual, qty }));
+  const probe = addCheckScan(emptyCheck(), rawMark, { manual, qty });
   if (!probe) return null;
-  send(load, { op: 'addCheck', scanId: probe.id, mark: probe.mark, manual });
+  send(load, { op: 'addCheck', scanId: probe.id, mark: probe.mark, manual, ...(qty > 1 ? { qty } : {}) });
   return get(load).truckCheck.scans.find((s) => s.id === probe.id) ?? probe;
 }
 

@@ -98,26 +98,53 @@ function renderItem(entry, i, locked, count) {
     </li>`;
 }
 
+// A pallet shows as one line: "mark × count", what it weighs, and how many
+// rows are still going to (or coming off) PowerFab. Its pieces don't move one
+// by one; Change count adds or takes off pieces.
+function renderPallet(stack, locked) {
+  const items = stack.items;
+  const first = items.find((e) => !e.pending) ?? items[0];
+  const pending = items.filter((e) => e.pending).length;
+  const removing = items.filter((e) => e.removing).length;
+  const t = stackTotals(stack);
+  const each = Number(first?.weight) || 0;
+  const busy = pending || removing;
+  const status = pending ? `Sending ${pending} to PowerFab…` : removing ? `Taking ${removing} off the load…` : '';
+  const color = first ? whoColor(first) : '';
+  const desc = [first?.description, each ? `${formatWeight(each)} each` : ''].filter(Boolean).join(' · ');
+  return `
+      <div class="pallet-row${stack.pallet.manual ? ' flagged' : ''}${busy ? ' pending' : ''}${color ? ' by-device' : ''}"${color ? ` style="--who:${escapeHtml(color)}"` : ''}>
+        <span class="pallet-mark">${escapeHtml(stack.pallet.mark)}</span>
+        <span class="pallet-qty">&times; ${items.length}</span>
+        <span class="item-desc">${escapeHtml(status || desc)} ${first ? whoBadge(first.scannedBy) : ''}</span>
+        <span class="item-weight">${formatWeight(t.weight)}</span>
+        <span class="item-actions">${locked || busy ? '' : '<button class="btn" type="button" data-action="pallet-count">Change count</button>'}</span>
+      </div>
+      <p class="pallet-note">&#128247; ${stack.pallet.photos} photo${stack.pallet.photos === 1 ? '' : 's'} of this pallet${stack.pallet.manual ? ' &middot; mark typed on keypad' : ''}</p>`;
+}
+
 function renderStack(stack, state, locked, counts) {
   const t = stackTotals(stack);
   const seqs = stackSequences(stack);
   const manual = stack.items.filter((entry) => entry.manual).length;
   const active = stacks.activeStack(state) === stack;
+  const pallet = Boolean(stack.pallet);
   return `
-    <section class="stack${active ? ' active' : ''}" data-stack-id="${escapeHtml(stack.id)}">
+    <section class="stack${active ? ' active' : ''}${pallet ? ' pallet' : ''}" data-stack-id="${escapeHtml(stack.id)}"${pallet ? ' data-pallet' : ''}>
       <header class="stack-head">
         <div class="stack-title">
+          ${pallet ? '<span class="badge badge-pallet">Pallet</span>' : ''}
           <span class="stack-name">${escapeHtml(stack.name)}</span>
           ${locked ? '' : '<button class="btn btn-icon btn-ghost" type="button" data-action="rename" aria-label="Rename stack" title="Rename stack">&#9998;</button>'}
         </div>
         <span class="stack-stats">${seqs.length ? `<span class="stack-seqs">${seqs.length} seq${seqs.length === 1 ? '' : 's'}: <b>${escapeHtml(seqs.join(', '))}</b></span> &middot; ` : ''}<b>${t.pieces}</b> pcs &middot; <b>${formatWeight(t.weight)}</b>${manual ? ` &middot; <span class="stack-flagged">${manual} typed</span>` : ''}</span>
-        ${locked ? '' : active
+        ${locked || pallet ? '' : active
           ? '<span class="badge badge-active">Scanning here</span>'
           : '<button class="btn" type="button" data-action="activate">Scan here</button>'}
         ${ctx.stackActions?.(stack) ?? ''}
         ${locked ? '' : `<button class="btn btn-icon btn-hold" type="button" data-hold="stack" data-hold-ms="${STACK_HOLD_MS}" aria-label="Hold 4 seconds to delete stack" title="Hold 4 seconds to delete stack">&#128465;</button>`}
       </header>
-      ${stack.items.length
+      ${pallet ? renderPallet(stack, locked) : stack.items.length
         ? `<ol class="items">${stack.items.map((entry, i) => renderItem(entry, i, locked, counts.get(entry.id))).join('')}</ol>`
         : `<p class="stack-empty">${locked ? 'No pieces.' : 'No pieces yet. Scan, or drag pieces here.'}</p>`}
     </section>`;
@@ -200,7 +227,8 @@ function clearDropMarks() {
 function dropTargetAt(x, y) {
   const el = document.elementFromPoint(x, y);
   const stackEl = el?.closest('#workspace [data-stack-id]');
-  if (!stackEl) return null;
+  // A pallet holds one mark, counted, not pieces dragged in.
+  if (!stackEl || stackEl.hasAttribute('data-pallet')) return null;
   const stackId = stackEl.dataset.stackId;
   const rows = [...stackEl.querySelectorAll('[data-item-id]')];
   const row = el.closest('[data-item-id]');
@@ -269,7 +297,8 @@ function endDrag(e, commit = true) {
 //        deleteEntry(entryId), deleteStack(stackId), detailRows?(entry),
 //        jobTotal?(mark) how many of the mark the job has,
 //        detailActions?(entry) / stackActions?(stack) extra buttons (html),
-//        photo?(label) for a [data-action="photo"] button }
+//        photo?(label) for a [data-action="photo"] button,
+//        palletCount?(stackId) to change how many pieces a pallet has }
 export function initStacks(context) {
   ctx = context;
   const ws = document.getElementById('workspace');
@@ -311,6 +340,9 @@ export function initStacks(context) {
       case 'photo':
         ctx.photo?.(btn.dataset.photoOf);
         break;
+      case 'pallet-count':
+        ctx.palletCount?.(stackEl.dataset.stackId);
+        break;
     }
   });
 
@@ -318,7 +350,7 @@ export function initStacks(context) {
     selector: '[data-hold="item"], [data-hold="stack"]',
     onComplete: completeHold,
     onTap: (btn, secs) => ctx.toast(btn.dataset.hold === 'stack'
-      ? `Hold for ${secs} seconds to delete this stack and take its pieces off the load.`
+      ? `Hold for ${secs} seconds to delete this ${btn.closest('[data-pallet]') ? 'pallet' : 'stack'} and take its pieces off the load.`
       : `Hold for ${secs} seconds to take this piece off the load.`),
   });
   ws.addEventListener('pointerdown', (e) => {

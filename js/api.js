@@ -275,10 +275,12 @@ export function listFiles(job, load) {
 // Sends photos of a load; `mark` says what they show (a piece mark or stack
 // name), left out for the whole load. The server tags them with this device's
 // name. Resolves { saved: [{ name, bytes }] }.
-export function uploadFiles(job, load, files, { mark = '' } = {}) {
+export function uploadFiles(job, load, files, { mark = '', takenAt = '' } = {}) {
   const form = new FormData();
   for (const f of files) form.append('file', f.blob ?? f, f.name ?? 'photo.jpg');
   if (mark) form.append('mark', mark);
+  // When it was taken (it may wait on this iPad a while): written into the photo by the server.
+  if (takenAt) form.append('takenAt', takenAt);
   return request(filesPath(job, load), { method: 'POST', body: form });
 }
 

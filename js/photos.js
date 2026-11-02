@@ -46,6 +46,18 @@ export function photoLabel(text) {
     .replace(/[. ]+$/, '');
 }
 
+// Who took a saved photo, as the server lists it ({ by, user, byGuess }):
+// "Yard iPad (User 3)", "User 3", "probably Yard iPad" for a photo from before
+// the server kept that (read from its file name), or "unknown". `name` is the
+// iPad's current name when the app knows it.
+export function takenBy(f, name = null) {
+  const by = name ?? f.by ?? '';
+  const user = f.user ?? '';
+  if (!by && !user) return 'unknown';
+  const who = by && user && by !== user ? `${by} (${user})` : by || user;
+  return f.byGuess ? `probably ${who}` : who;
+}
+
 // What a saved photo is of, from the name the server gave it:
 // "20261028-143611_1001-C1 (2).jpg" -> "1001-C1"; "..._load.jpg" -> "Whole load".
 export function markOf(name) {
@@ -198,7 +210,7 @@ async function sendAll() {
       if (photo.error) continue;
       const ext = photo.blob?.type === 'image/png' ? 'png' : 'jpg';
       try {
-        await api.uploadFiles(photo.job, photo.load, [{ blob: photo.blob, name: `photo.${ext}` }], { mark: photo.mark });
+        await api.uploadFiles(photo.job, photo.load, [{ blob: photo.blob, name: `photo.${ext}` }], { mark: photo.mark, takenAt: photo.takenAt });
         await tx('readwrite', (s) => s.delete(photo.id));
         lastError = '';
       } catch (err) {

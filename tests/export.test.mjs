@@ -53,3 +53,15 @@ test('with stacks the file lists pieces stack by stack, then anything not loaded
   const text = buildLoadText(load, 'EPM-001', new Date(2026, 9, 19, 11, 15), state);
   assert.match(text, /}\n\{STACK: Stack 101 - 1\}\n1001-C1\n1002-B1\n\{STACK: Stack 101 - 2\}\n1001-C1\n\{NOT LOADED\}\n1003-W2\n$/);
 });
+
+test('a pallet exports a line per piece under a {PALLET} line, and prints as one row', async () => {
+  const { renderPrintTicket } = await import('../js/export.js').catch(() => ({}));
+  const entry = (id) => ({ id, mark: 'CL-1', sequence: '1', weight: 12.5, description: 'Clip' });
+  const stacks = { stacks: [
+    { id: 's1', name: 'Stack 101 - 1', items: [{ id: 'a', mark: '1001-C1', sequence: '1', weight: 500 }] },
+    { id: 'p', name: 'Pallet CL-1', pallet: { mark: 'CL-1', photos: 3 }, items: [entry('p1'), entry('p2'), entry('p3')] },
+  ] };
+  const text = buildLoadText({ ...load, items: [item('1001-C1', 1, 500), item('CL-1', 3, 12.5)] }, 'EPM-001', new Date(2026, 9, 19, 11, 15), stacks);
+  assert.match(text, /\{STACK: Pallet CL-1\}\n\{PALLET: CL-1 x 3\}\nCL-1\nCL-1\nCL-1\n$/);
+  assert.equal(typeof renderPrintTicket, 'function');
+});

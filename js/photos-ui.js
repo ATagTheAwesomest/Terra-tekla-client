@@ -124,7 +124,7 @@ function serverTile(f) {
   return `<li class="photo-tile on-server" data-file-name="${escapeHtml(f.name)}">
     <button class="photo-open" type="button" data-photo-view aria-label="View ${escapeHtml(f.name)}">${picture(f.name)}</button>
     <span class="photo-of">${escapeHtml(photoOf(f))}</span>
-    ${f.by ? `<span class="photo-by who" style="--who:${escapeHtml(live.deviceInfo(f.byId)?.color ?? f.color ?? '#777')}">${escapeHtml(live.deviceInfo(f.byId)?.name ?? f.by)}</span>` : ''}
+    <span class="photo-by who" style="--who:${escapeHtml(live.deviceInfo(f.byId)?.color ?? f.color ?? '#777')}">${escapeHtml(photos.takenBy(f, live.deviceInfo(f.byId)?.name))}</span>
     <span class="photo-meta">${escapeHtml(shortTime(f.modified))} · ${kb(f.bytes)}</span>
     ${canDelete() ? `<span class="photo-actions"><button class="btn btn-hold" type="button" data-hold="delete-photo" data-hold-ms="${DELETE_HOLD_MS}">Hold to delete</button></span>` : ''}
   </li>`;
@@ -163,7 +163,7 @@ function drawViewer() {
   const i = order.indexOf(viewing);
   const url = serverThumbs.get(viewing);
   $('#photo-view-title').textContent = photoOf(file);
-  $('#photo-view-meta').textContent = `${file.by ? `${live.deviceInfo(file.byId)?.name ?? file.by} · ` : ''}${file.name} · ${shortTime(file.modified)} · ${kb(file.bytes)} · ${i + 1} of ${order.length}`;
+  $('#photo-view-meta').textContent = `Taken by ${photos.takenBy(file, live.deviceInfo(file.byId)?.name)} · ${file.name} · ${shortTime(file.modified)} · ${kb(file.bytes)} · ${i + 1} of ${order.length}`;
   $('#photo-view-body').innerHTML = url && url !== 'error'
     ? (isImage(file.name) ? `<img src="${url}" alt="${escapeHtml(file.name)}">` : `<a class="btn btn-lg" href="${url}" target="_blank" rel="noopener">Open ${escapeHtml(file.name)}</a>`)
     : `<p class="muted">${url === 'error' ? 'Couldn’t load this file.' : 'Loading…'}</p>`;
