@@ -45,7 +45,6 @@
 
 /* Server settings switch */
 .modal.server .photos-toggle { margin-top: 16px; justify-content: flex-start; }
-.modal.server .camera-ready-toggle { margin-top: 10px; justify-content: flex-start; }
 .photos-setting-note { margin: 6px 0 0; font-size: 0.85rem; }
 
 @media print { .btn-photo, [data-action="photos"] { display: none !important; } }

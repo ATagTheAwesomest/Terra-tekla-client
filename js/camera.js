@@ -6,12 +6,10 @@
 // them the window says why and offers the iPad's own camera instead, one photo
 // per tap, into the same list.
 //
-// One camera stream is shared (this window and the QR scanner in Server
-// settings) and kept running after the window closes, for as long as the
-// "Keep the camera ready" setting says. Every new getUserMedia call is a
-// chance for iOS to ask for the camera again, so asking once and reusing the
-// stream is what stops the prompt coming up for every photo. iOS still decides
-// when it asks: see README "Camera keeps asking".
+// The camera runs only while a window is using it: it starts when the window
+// opens and every track is stopped when it closes (or the app goes to the
+// background), so it never drains the battery in the background. iOS may ask
+// for the camera again on a new start: see README "Camera keeps asking".
 //
 // Two ways to use it:
 // - Held photos (manual entries): the photos stay here until Done, so Undo, ✕
@@ -30,99 +28,25 @@ const JPEG_QUALITY = 0.9;    // photos.js shrinks and recompresses before sendin
 let session = null; // { resolve, shots: [{ blob, url }], stream, required, keep, kept, busy }
 let burst = null;   // timer while the shutter is held
 
-// ---- The shared camera stream ------------------------------------------------------
-
-const READY_KEY = 'terra.cameraReady';
-// How long the camera stays on after the last use. Longer = fewer permission
-// prompts but the green camera dot stays on and it uses more battery.
-export const READY_CHOICES = [
-  { value: 'off', label: 'Off', ms: 0 },
-  { value: '10', label: '10 min', ms: 10 * 60e3 },
-  { value: '60', label: '1 hour', ms: 60 * 60e3 },
-  { value: 'app', label: 'While open', ms: Infinity },
-];
-const READY_DEFAULT = 'off';
-
-export function cameraReadySetting() {
-  let v = null;
-  try { v = localStorage.getItem(READY_KEY); } catch { /* blocked: default */ }
-  return READY_CHOICES.find((c) => c.value === v) ?? READY_CHOICES.find((c) => c.value === READY_DEFAULT);
-}
-
-export function setCameraReadySetting(value) {
-  try { localStorage.setItem(READY_KEY, value); } catch { /* blocked: stays default */ }
-  if (!users) scheduleRelease();
-}
-
-let live = null;      // the MediaStream while it is running
-let pending = null;   // the getUserMedia promise while iOS is asking
-let users = 0;        // windows using the stream right now
-let idleTimer = null;
+// ---- Starting and stopping the camera ------------------------------------------------
 
 const isLive = (stream) => {
   const tracks = stream?.getVideoTracks() ?? [];
   return tracks.length > 0 && tracks.every((t) => t.readyState === 'live');
 };
 
-function stopLive() {
-  clearTimeout(idleTimer);
-  idleTimer = null;
-  live?.getTracks().forEach((t) => t.stop());
-  live = null;
+// A new camera stream (iOS may ask for permission). Whoever starts it must
+// stop it with stopCamera() when done: nothing keeps it running.
+export function startCamera() {
+  return navigator.mediaDevices.getUserMedia({
+    video: { facingMode: 'environment', width: { ideal: 2560 }, height: { ideal: 1920 } },
+    audio: false,
+  });
 }
 
-function scheduleRelease() {
-  clearTimeout(idleTimer);
-  idleTimer = null;
-  if (!live) return;
-  const { ms } = cameraReadySetting();
-  if (ms === Infinity) return;
-  if (!ms) return stopLive();
-  idleTimer = setTimeout(() => { if (!users) stopLive(); }, ms);
-}
-
-// The running stream, or a new one (iOS may ask for permission then). Callers
-// must hand it back with releaseCamera() and never stop its tracks themselves.
-export async function acquireCamera() {
-  users++;
-  clearTimeout(idleTimer);
-  idleTimer = null;
-  try {
-    if (isLive(live)) return live;
-    live = null;
-    pending ??= navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: 2560 }, height: { ideal: 1920 } },
-      audio: false,
-    }).finally(() => { pending = null; });
-    const stream = await pending;
-    if (!isLive(live)) {
-      live = stream;
-      // iOS (or the user via Control Centre) ended it: the next use starts a new one.
-      stream.getVideoTracks().forEach((t) => t.addEventListener('ended', () => { if (live === stream) live = null; }));
-    }
-    return live;
-  } catch (err) {
-    users = Math.max(0, users - 1);
-    throw err;
-  }
-}
-
-export function releaseCamera() {
-  users = Math.max(0, users - 1);
-  if (!users) scheduleRelease();
-}
-
-// Closing the app (not just switching away) lets the camera go.
-window.addEventListener('pagehide', (e) => { if (!e.persisted) stopLive(); });
-
-// What the browser says about the camera permission, if it says: 'granted',
-// 'prompt', 'denied' or null (unknown; older iOS).
-export async function cameraPermission() {
-  try {
-    return (await navigator.permissions?.query({ name: 'camera' }))?.state ?? null;
-  } catch {
-    return null;
-  }
+// Stops every track, so the camera (and its green dot) turns off.
+export function stopCamera(stream) {
+  stream?.getTracks().forEach((t) => t.stop());
 }
 
 const dialog = () => $('#dlg-camera');
@@ -159,10 +83,13 @@ async function start() {
     return;
   }
   if (!session.stream) {
+    if (session.starting) return; // already asking
+    session.starting = true;
     try {
-      const stream = await acquireCamera();
-      if (session !== mine) {
-        releaseCamera();
+      const stream = await startCamera().finally(() => { mine.starting = false; });
+      // Closed, or the app went to the background, while iOS was asking.
+      if (session !== mine || document.hidden) {
+        stopCamera(stream);
         return;
       }
       session.stream = stream;
@@ -171,7 +98,7 @@ async function start() {
         t.addEventListener('ended', () => {
           if (session?.stream !== stream || !dialog().open || document.hidden) return;
           session.stream = null;
-          releaseCamera();
+          stopCamera(stream);
           start();
         });
         // Back from an interruption (a call, Control Centre): the picture may need a nudge.
@@ -302,7 +229,7 @@ function finish(result) {
   const video = $('#camera-video');
   video.pause();
   video.srcObject = null;
-  if (s.stream) releaseCamera(); // kept running for the next window (see the setting)
+  stopCamera(s.stream); // fully off: the next window starts it again
   s.shots.forEach((shot) => URL.revokeObjectURL(shot.url));
   $('#camera-shots').innerHTML = '';
   if (dialog().open) dialog().close();
@@ -362,16 +289,24 @@ export function initCamera() {
     e.preventDefault();
     cancel();
   });
-  // iOS pauses or stops the camera when the app goes to the background. Coming
-  // back with the window open: play again, or get a new stream if it ended.
+  // Going to the background stops the camera; coming back with the window
+  // still open starts it again.
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden || !session || !dialog().open) return;
-    if (session.stream && !isLive(session.stream)) {
+    if (!session || !dialog().open) return;
+    if (document.hidden) {
+      const stream = session.stream;
       session.stream = null;
-      releaseCamera();
+      $('#camera-video').srcObject = null;
+      stopCamera(stream);
+      $('#btn-camera-shutter').disabled = true;
+    } else if (!session.stream || !isLive(session.stream)) {
+      stopCamera(session.stream);
+      session.stream = null;
       start();
-    } else if (session.stream) {
+    } else {
       playVideo();
     }
   });
+  // Closing the app with the window open: let the camera go.
+  window.addEventListener('pagehide', () => { if (session?.stream) { stopCamera(session.stream); session.stream = null; } });
 }

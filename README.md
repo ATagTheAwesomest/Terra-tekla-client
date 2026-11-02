@@ -259,13 +259,10 @@ into the same list.
 
 #### Camera keeps asking
 
-The app asks iOS for the camera once and keeps that camera running between
-photo windows (and the QR scanner), because each new request is a chance for
-iOS to ask again. **Server settings > Keep the camera ready** sets how long it
-stays on after the last photo: **Off** (default, saves battery), 10 min, 1 hour
-or While open.
-While it is on, iOS shows the green camera dot and it uses a little battery.
-Closing the app lets it go.
+The camera only runs while a camera window (or the QR scanner) is open. It
+starts when the window opens and is fully stopped when it closes or the app
+goes to the background, so it never drains the battery in the background.
+Because each start is a new request, iOS may ask again.
 
 A web app can't make iOS stop asking; only the iPad's settings can:
 
