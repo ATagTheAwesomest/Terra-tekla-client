@@ -107,6 +107,10 @@ export async function shareLoadFile(load, job) {
 }
 
 // ---- Print shipping ticket -------------------------------------------------
+// One ticket layout for both ways of printing: ticketModel() describes it, and
+// renderPrintTicket() turns that into the page AirPrint prints (css/print.css),
+// while the server draws the same model on the shop's printers (server
+// docs/PRINTING.md, "The ticket").
 
 function el(tag, attrs, ...children) {
   const node = document.createElement(tag);
@@ -118,124 +122,138 @@ function el(tag, attrs, ...children) {
   return node;
 }
 
+const COL = {
+  n: { label: '#', kind: 'num' },
+  mark: { label: 'Mark', kind: 'mark' },
+  seq: { label: 'Seq', kind: 'text' },
+  desc: { label: 'Description', kind: 'text' },
+  qty: { label: 'Qty', kind: 'num' },
+  weight: { label: 'Weight (lbs)', kind: 'num' },
+};
+
 // A pallet on the ticket: one row, "mark × count", with the weight of one and of all.
 function palletRow(stack, totals) {
   const first = stack.items[0] ?? {};
   const seqs = [...new Set(stack.items.map((e) => e.sequence).filter(Boolean))].join(', ');
-  return el(
-    'tr',
-    stack.pallet.manual ? { class: 'pt-unmatched' } : null,
-    el('td', { class: 'pt-num' }, 1),
-    el('td', { class: 'pt-mark' }, `${stack.pallet.mark} × ${stack.items.length}`),
-    el('td', null, seqs),
-    el('td', null, `Pallet of ${stack.items.length}${first.description ? ` · ${first.description}` : ''}${first.weight ? ` · ${plainWeight(first.weight)} lbs each` : ''}`),
-    el('td', { class: 'pt-num' }, plainWeight(totals.weight)),
-    el('td', { class: 'pt-check' }, ''),
-  );
+  return {
+    cells: ['1', `${stack.pallet.mark} × ${stack.items.length}`, seqs,
+      `Pallet of ${stack.items.length}${first.description ? ` · ${first.description}` : ''}${first.weight ? ` · ${plainWeight(first.weight)} lbs each` : ''}`,
+      plainWeight(totals.weight), ''],
+    manual: Boolean(stack.pallet.manual),
+  };
 }
 
-export function renderPrintTicket(load, job, printedAt = new Date(), stackState = null) {
+// The ticket as data: { title, job, load, summary: [[label, value]], sections:
+// [{ heading, note, columns: [{ label, kind }], rows: [{ cells, manual }],
+// foot: [{ text, span }] }], signoff: [line] }. Every cell is text.
+export function ticketModel(load, job, printedAt = new Date(), stackState = null) {
   const totals = loadTotals(load);
   const sequences = loadSequences(load);
+  const summary = [
+    ['Load', String(load.number)],
+    ['Job', job || ''],
+    ...(load.shipped ? [['Shipped', load.shipDate || 'Yes']] : []),
+    ['Printed', formatDateTime(printedAt)],
+    ['Sequences', sequences.length ? sequences.join(', ') : 'None'],
+    ['Total pieces', `${totals.pieces} (${totals.loaded} loaded)`],
+    ['Total weight', formatWeight(totals.weight)],
+  ];
 
-  const summary = el(
-    'dl',
-    { class: 'pt-summary' },
-    el('dt', null, 'Load'), el('dd', null, load.number),
-    el('dt', null, 'Job'), el('dd', null, job || ''),
-    load.shipped ? el('dt', null, 'Shipped') : null,
-    load.shipped ? el('dd', null, load.shipDate || 'Yes') : null,
-    el('dt', null, 'Printed'), el('dd', null, formatDateTime(printedAt)),
-    el('dt', null, 'Sequences'), el('dd', null, sequences.length ? sequences.join(', ') : 'None'),
-    el('dt', null, 'Total pieces'), el('dd', null, `${totals.pieces} (${totals.loaded} loaded)`),
-    el('dt', null, 'Total weight'), el('dd', null, formatWeight(totals.weight)),
-  );
-
-  const head = (...cols) => el('thead', null, el('tr', null, ...cols));
   const sections = [];
   if (stackState) {
     // Stack by stack, as terra-loads-web prints them.
     for (const stack of stackState.stacks) {
       const t = stackTotals(stack);
-      sections.push(el(
-        'section',
-        { class: 'pt-stack' },
-        el('h2', null, stack.name, el('span', null, `${t.pieces} pcs · ${formatWeight(t.weight)}`)),
-        el(
-          'table',
-          null,
-          head(el('th', { class: 'pt-num' }, '#'), el('th', null, 'Mark'), el('th', null, 'Seq'), el('th', null, 'Description'),
-            el('th', { class: 'pt-num' }, 'Weight (lbs)'), el('th', { class: 'pt-check' }, '✓')),
-          el('tbody', null, ...(stack.pallet ? [palletRow(stack, t)] : stack.items.map((entry, i) => el(
-            'tr',
-            entry.manual ? { class: 'pt-unmatched' } : null,
-            el('td', { class: 'pt-num' }, i + 1),
-            el('td', { class: 'pt-mark' }, entry.mark),
-            el('td', null, entry.sequence || ''),
-            el('td', null, entry.description || ''),
-            el('td', { class: 'pt-num' }, plainWeight(entry.weight)),
-            el('td', { class: 'pt-check' }, ''),
-          )))),
-          el('tfoot', null, el('tr', null,
-            el('td', { colspan: '4' }, 'Stack subtotal'),
-            el('td', { class: 'pt-num' }, plainWeight(t.weight)),
-            el('td', { class: 'pt-check' }, ''))),
-        ),
-      ));
+      sections.push({
+        heading: stack.name,
+        note: `${t.pieces} pcs · ${formatWeight(t.weight)}`,
+        columns: [COL.n, COL.mark, COL.seq, COL.desc, COL.weight, { label: '✓', kind: 'check' }],
+        rows: stack.pallet ? [palletRow(stack, t)] : stack.items.map((entry, i) => ({
+          cells: [String(i + 1), entry.mark, entry.sequence || '', entry.description || '', plainWeight(entry.weight), ''],
+          manual: Boolean(entry.manual),
+        })),
+        foot: [{ text: 'Stack subtotal', span: 4 }, { text: plainWeight(t.weight) }, { text: '' }],
+      });
     }
   }
   // Without stacks every piece is listed; with them, only those not loaded.
   const listed = stackState ? notLoaded(load).map(({ item, n }) => ({ ...item, qty: n, loaded: 0 })) : load.items;
   if (listed.length) {
-    const rows = listed.map((item, i) =>
-      el(
-        'tr',
-        null,
-        el('td', { class: 'pt-num' }, i + 1),
-        el('td', { class: 'pt-mark' }, item.mark),
-        el('td', null, item.sequence),
-        el('td', null, item.description || ''),
-        el('td', { class: 'pt-num' }, item.qty),
-        el('td', { class: 'pt-num' }, plainWeight(item.qty * item.weightEach)),
-        el('td', { class: 'pt-check' }, item.loaded >= item.qty ? '✓' : item.loaded ? `${item.loaded}/${item.qty}` : ''),
-      ),
-    );
-    sections.push(el(
+    sections.push({
+      heading: stackState ? 'Not loaded' : null,
+      note: stackState ? '' : null,
+      columns: [COL.n, COL.mark, COL.seq, COL.desc, COL.qty, COL.weight, { label: 'Loaded', kind: 'check' }],
+      rows: listed.map((item, i) => ({
+        cells: [String(i + 1), item.mark, String(item.sequence ?? ''), item.description || '', String(item.qty),
+          plainWeight(item.qty * item.weightEach), item.loaded >= item.qty ? '✓' : item.loaded ? `${item.loaded}/${item.qty}` : ''],
+        manual: false,
+      })),
+      foot: stackState ? null : [{ text: 'Load total', span: 4 }, { text: String(totals.pieces) }, { text: plainWeight(totals.weight) }, { text: '' }],
+    });
+  }
+
+  return {
+    title: 'Shipping Ticket',
+    job: job || null,
+    load: String(load.number),
+    summary,
+    sections,
+    signoff: ['Loaded by: ______________________', 'Checked by: _____________________', 'Driver: _________________________'],
+  };
+}
+
+const CELL_CLASS = { num: 'pt-num', mark: 'pt-mark', check: 'pt-check' };
+const cellAttrs = (kind) => (CELL_CLASS[kind] ? { class: CELL_CLASS[kind] } : null);
+
+// The model as the page AirPrint prints.
+export function ticketElement(model) {
+  const summary = el('dl', { class: 'pt-summary' }, ...model.summary.flatMap(([k, v]) => [el('dt', null, k), el('dd', null, v)]));
+  const sections = model.sections.map((s) => {
+    const kinds = s.columns.map((c) => c.kind);
+    let foot = null;
+    if (s.foot) {
+      let col = 0;
+      foot = el('tfoot', null, el('tr', null, ...s.foot.map((c) => {
+        const span = c.span ?? 1;
+        const td = el('td', span > 1 ? { colspan: String(span) } : cellAttrs(kinds[col]), c.text);
+        col += span;
+        return td;
+      })));
+    }
+    return el(
       'section',
       { class: 'pt-stack' },
-      stackState ? el('h2', null, 'Not loaded', el('span', null, '')) : null,
+      s.heading === null || s.heading === undefined ? null : el('h2', null, s.heading, el('span', null, s.note ?? '')),
       el(
         'table',
         null,
-        head(el('th', { class: 'pt-num' }, '#'), el('th', null, 'Mark'), el('th', null, 'Seq'), el('th', null, 'Description'),
-          el('th', { class: 'pt-num' }, 'Qty'), el('th', { class: 'pt-num' }, 'Weight (lbs)'), el('th', { class: 'pt-check' }, 'Loaded')),
-        el('tbody', null, ...rows),
-        stackState ? null : el('tfoot', null, el('tr', null,
-          el('td', { colspan: '4' }, 'Load total'),
-          el('td', { class: 'pt-num' }, totals.pieces),
-          el('td', { class: 'pt-num' }, plainWeight(totals.weight)),
-          el('td', { class: 'pt-check' }, ''))),
+        el('thead', null, el('tr', null, ...s.columns.map((c) => el('th', c.kind === 'mark' ? null : cellAttrs(c.kind), c.label)))),
+        el('tbody', null, ...s.rows.map((r) => el('tr', r.manual ? { class: 'pt-unmatched' } : null,
+          ...r.cells.map((cell, i) => el('td', cellAttrs(kinds[i]), cell))))),
+        foot,
       ),
-    ));
-  }
-
+    );
+  });
   return el(
     'div',
     { id: 'print-ticket', 'aria-hidden': 'true' },
-    el('h1', null, 'Shipping Ticket'),
+    el('h1', null, model.title),
     summary,
     ...sections,
-    el(
-      'div',
-      { class: 'pt-signoff' },
-      el('p', null, 'Loaded by: ______________________'),
-      el('p', null, 'Checked by: _____________________'),
-      el('p', null, 'Driver: _________________________'),
-    ),
+    el('div', { class: 'pt-signoff' }, ...model.signoff.map((line) => el('p', null, line))),
   );
 }
 
-// Replaces any previous ticket, then opens the native print dialog.
+export function renderPrintTicket(load, job, printedAt = new Date(), stackState = null) {
+  return ticketElement(ticketModel(load, job, printedAt, stackState));
+}
+
+// The ticket for a load as it is now, with this iPad's view of its stacks.
+export function currentTicket(load, job) {
+  return ticketModel(load, job, new Date(), stacksFor(load));
+}
+
+// Replaces any previous ticket, then opens the native print dialog (AirPrint).
 export function printLoad(load, job) {
   document.getElementById('print-ticket')?.remove();
   document.body.appendChild(renderPrintTicket(load, job, new Date(), stacksFor(load)));

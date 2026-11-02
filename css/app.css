@@ -550,3 +550,19 @@ body.at-home .topbar, body.at-home .scanbar, body.at-home .ship-body { visibilit
 }
 .keypad-note.keypad-error { color: #ff6b6b; }
 .modal.keypad.keypad-pin .keypad-display:not(.placeholder) { letter-spacing: 0.3em; text-align: center; }
+
+/* Print shipping ticket: printer picker (js/print-ui.js) */
+.modal.print-pick { width: min(560px, 96vw); max-height: 92vh; overflow-y: auto; }
+.print-pick h2 { margin: 0 0 4px; }
+.print-pick #print-sub { margin: 0 0 16px; }
+.print-copies { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; font-weight: 700; }
+.print-copies span { flex: 1; color: var(--text-muted); font-weight: 600; }
+.print-copies output { min-width: 2.5ch; text-align: center; font-size: 1.6rem; font-family: var(--mono); }
+.print-list { display: grid; gap: 10px; }
+.print-list .btn { flex-direction: column; align-items: flex-start; justify-content: center; min-height: 76px; padding: 10px 18px; text-align: left; }
+.print-list .print-name { font-size: 1.2rem; font-weight: 700; }
+.print-list .print-where { font-size: 0.85rem; font-weight: 400; color: var(--text-muted); min-height: 1em; }
+.print-list .print-printer.last { border-color: var(--accent); }
+.print-list .print-airprint { background: transparent; border-style: dashed; }
+.print-status { min-height: 1.4em; margin: 12px 0 0; font-weight: 600; }
+.print-status.error { color: var(--danger); }

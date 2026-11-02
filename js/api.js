@@ -135,6 +135,20 @@ async function request(path, { method = 'GET', body, blob = false, admin = false
   return data;
 }
 
+// ---- Printing through the server (server docs/PRINTING.md) ----------------
+
+// The printers the admin board lets the iPads use: [{ id, name, location, kind, paper }].
+export async function listPrinters() {
+  const reply = await request('/api/printers');
+  return Array.isArray(reply?.printers) ? reply.printers : [];
+}
+
+// Prints a ticket (js/export.js ticketModel) on one of them. Resolves
+// { ok, printer, pages, copies, jobId }; throws an ApiError saying why not.
+export function printTicket(printerId, copies, ticket) {
+  return request('/api/print', { method: 'POST', body: { printerId, copies, ticket } });
+}
+
 export function health() {
   return request('/health');
 }

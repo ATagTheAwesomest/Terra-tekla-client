@@ -35,6 +35,7 @@ const PRECACHE = [
   './js/camera.js',
   './js/photos.js',
   './js/photos-ui.js',
+  './js/print-ui.js',
   './js/pf-loads.js',
   './js/scanner.js',
   './js/server-ui.js',
