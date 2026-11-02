@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TERRA">
   <meta name="format-detection" content="telephone=no">
-  <meta name="terra-version" content="0.16.0">
+  <meta name="terra-version" content="0.16.1">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -277,6 +277,7 @@
       <label class="btn btn-lg camera-fallback" id="camera-fallback" hidden>&#128247; iPad camera
         <input id="camera-input" type="file" accept="image/*" capture="environment" class="photos-input">
       </label>
+      <button class="btn btn-lg" type="button" id="btn-camera-undo" disabled>Undo</button>
       <button class="camera-shutter" type="button" id="btn-camera-shutter" aria-label="Take a photo (hold for several)"></button>
       <button class="btn btn-lg btn-primary" type="button" id="btn-camera-done">Done</button>
     </div>
