@@ -39,7 +39,7 @@ import * as stacks from './stack-store.js';
 import { MAX_PALLET, pieceDetails } from './stack-ops.js';
 import { initStacks, renderStacks } from './stacks-ui.js';
 import { initPhotos, openPhotos, photoButton, photoOfButton, photosOn } from './photos-ui.js';
-import { openCamera } from './camera.js';
+import { askPhotos } from './camera.js';
 import { queuePhotos } from './photos.js';
 import { claimsText, cleanMark, findLoad, formatWeight, lastLoaded, leftToLoad, loadSequences, loadTotals, pickRemaining, takeRemaining, toLoad } from './shipping.js';
 
@@ -49,7 +49,7 @@ const SHIP_HOLD_MS = 3000;
 const DELETE_HOLD_MS = 10000;
 const ROW_HOLD_MS = 1500;
 // A pallet needs at least this many photos of the whole stack (while photos are on).
-export const PALLET_MIN_PHOTOS = 3;
+export const PALLET_MIN_PHOTOS = 2;
 
 // Everything Shipping knows, all of it read from PowerFab for the open job.
 export const ship = {
@@ -297,10 +297,10 @@ async function startPallet(raw, { manual = false } = {}) {
   if (!count || !(qty >= 1)) return null;
   let shots = [];
   if (photosOn()) {
-    shots = await openCamera({
+    shots = await askPhotos({
       title: `Pallet: ${qty} × ${mark}`,
-      note: `A pallet needs at least ${PALLET_MIN_PHOTOS} photos of the whole stack: each side and the top, with the tag in view. Take them, then Done.`,
-      required: PALLET_MIN_PHOTOS,
+      note: `A pallet needs ${PALLET_MIN_PHOTOS} photos of the whole stack, with the tag in view.`,
+      min: PALLET_MIN_PHOTOS,
     });
     focusScanner();
     if (!shots || shots.length < PALLET_MIN_PHOTOS) {
@@ -449,7 +449,7 @@ async function palletCount(stackId) {
   }, { remaining: true });
 }
 
-// The camera opens for the typed mark and the entry only goes ahead with at
+// The iPad camera opens for the typed mark and the entry only goes ahead with at
 // least one photo. The photos are kept (and sent) once the entry is made; if
 // PowerFab refuses it they are dropped, since the piece isn't on the load.
 async function manualWithPhoto(raw) {
@@ -457,10 +457,10 @@ async function manualWithPhoto(raw) {
   const open = selectedLoad();
   // No load, or a shipped one (outside truck check): refused straight away, no photo needed.
   if (!mark || !open || (open.shipped && !checking)) return scanNow(raw, { manual: true });
-  const shots = await openCamera({
+  const shots = await askPhotos({
     title: `Photo of ${mark}`,
-    note: 'Typed in by hand, so it needs a photo of the piece (its mark or tag). Take one or more, then Done.',
-    required: true,
+    note: 'Typed in by hand, so it needs a photo of the piece (its mark or tag).',
+    min: 1,
   });
   focusScanner();
   if (!shots?.length) {

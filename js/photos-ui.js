@@ -5,7 +5,7 @@
 
 import { escapeHtml, toast } from './app.js';
 import * as api from './api.js';
-import { initCamera, openCamera } from './camera.js';
+import { initCamera } from './camera.js';
 import { bindHold } from './hold.js';
 import * as live from './live.js';
 import * as photos from './photos.js';
@@ -269,21 +269,6 @@ async function addFiles(input) {
   queue(files);
 }
 
-// The rapid-fire camera: each photo is saved on the iPad as it is taken, so
-// closing the app mid-run loses nothing. Done closes it.
-async function takePhotos() {
-  if (!open) return;
-  const { job, load } = open;
-  const mark = $('#photos-of').value;
-  const n = await openCamera({
-    title: `Photos of ${mark || `load ${load}`}`,
-    note: 'Each photo is saved as it is taken.',
-    keep: (blob) => photos.queuePhotos({ job, load, mark, files: [blob] }),
-  });
-  if (n) toast(`${n} photo${n === 1 ? '' : 's'} of ${mark || `load ${load}`} saved, sending to the server`);
-  if (open?.job === job && open?.load === load) photos.sendQueued().then(readServer);
-}
-
 async function queue(files, mark = $('#photos-of').value) {
   if (!files.length || !open) return;
   const { job, load } = open;
@@ -336,7 +321,8 @@ export function initPhotos(context) {
     if (dialog().open) draw();
   });
 
-  $('#btn-photos-camera').addEventListener('click', takePhotos);
+  // The iPad's own camera: one photo per tap, saved as soon as it is taken.
+  $('#photos-camera').addEventListener('change', (e) => addFiles(e.target));
   $('#photos-library').addEventListener('change', (e) => addFiles(e.target));
   $('#photos-of').addEventListener('change', (e) => { if (open) open.mark = e.target.value; });
   $('#btn-photos-refresh').addEventListener('click', () => { photos.sendQueued(); readServer(); });
