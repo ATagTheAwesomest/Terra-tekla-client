@@ -240,16 +240,19 @@ or in the viewer) to delete it. The server moves a deleted photo to the load's
 `.deleted` folder rather than erasing it.
 
 **Take photos** opens the app's own camera: a live view with a big shutter.
-Each tap is a photo (or **hold** the shutter for one every half second); they
-line up along the bottom (✕ takes one back out) until **Done** queues them all.
+Each tap is a photo (or **hold** the shutter for one every half second), and
+each one is saved on the iPad the moment it is taken, so closing the app mid-run
+loses nothing; **Done** closes it. If iOS stops the camera while the app is in
+the background, it starts again when you come back.
 It needs the camera permission and the `https://` address (or localhost);
 without them it says why and offers the iPad's own camera, one photo per tap,
 into the same list.
 
 **Manual entries need a photo.** While photos are on, a mark typed on the
 keypad (in Shipping or in the truck check) opens that camera first, titled with
-the mark; Done stays off until there is at least one photo, and Cancel drops
-the entry. The photos are queued with the mark once the entry is made; if
+the mark. Those photos are held until the entry is made: **Undo** takes the last
+one back, ✕ removes any one, Done stays off until there is at least one photo,
+and Cancel drops the entry. The photos are queued with the mark once the entry is made; if
 PowerFab refuses it they are dropped. Scanned marks never ask.
 
 Photos go to terra-tekla-server (`POST /api/photos/<job>/<load>`, with the

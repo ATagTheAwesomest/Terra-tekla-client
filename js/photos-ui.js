@@ -263,13 +263,19 @@ async function addFiles(input) {
   queue(files);
 }
 
-// The rapid-fire camera: as many as wanted, then Done.
+// The rapid-fire camera: each photo is saved on the iPad as it is taken, so
+// closing the app mid-run loses nothing. Done closes it.
 async function takePhotos() {
   if (!open) return;
   const { job, load } = open;
   const mark = $('#photos-of').value;
-  const shots = await openCamera({ title: `Photos of ${mark || `load ${load}`}` });
-  if (open?.job === job && open?.load === load) queue(shots ?? [], mark);
+  const n = await openCamera({
+    title: `Photos of ${mark || `load ${load}`}`,
+    note: 'Each photo is saved as it is taken.',
+    keep: (blob) => photos.queuePhotos({ job, load, mark, files: [blob] }),
+  });
+  if (n) toast(`${n} photo${n === 1 ? '' : 's'} of ${mark || `load ${load}`} saved, sending to the server`);
+  if (open?.job === job && open?.load === load) photos.sendQueued().then(readServer);
 }
 
 async function queue(files, mark = $('#photos-of').value) {
