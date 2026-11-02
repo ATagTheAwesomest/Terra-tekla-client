@@ -236,6 +236,20 @@ line per piece, never collapsed, as terra-loads-web writes them. Pieces on the
 load but not loaded follow under `{NOT LOADED}`. **Print shipping ticket**
 prints the load stack by stack with each stack's pieces and weight.
 
+**Printing through the server** (server v0.7.0+): when the admin board
+(Settings › Printers) has ticked printers for the iPads, Print shipping ticket
+opens a printer list: those printers (the last one used first), a copies
+counter (1 to 10), and **This iPad (AirPrint)** at the bottom. A tap on a
+printer sends the ticket to the server, which prints it on that printer, so an
+iPad in another building prints on the shop's printers. The app says whether it
+printed; if it didn't (printer off, taken off the list), it says why and
+AirPrint is still there. With no printers ticked, no server, or no connection,
+Print goes straight to AirPrint as before. The ticket is the same either way:
+`ticketModel()` in `js/export.js` describes it, the AirPrint page is drawn from
+it, and the server draws the same model (server `docs/PRINTING.md`). The list
+is read in the background (app start, menu, reconnect, and when the admin board
+saves it), so Print never waits on the network before AirPrint.
+
 ### Photos
 
 On unless **Server settings → Send photos to the server** is turned off (per
@@ -389,7 +403,8 @@ iPads.
 | `js/check.js` / `js/check-ui.js` | Truck check: matching scans to stacked pieces, and its screen (`css/check.css`) |
 | `js/photo-browser.js` | Photos explorer (home tile): jobs › loads › photos from the server's `/api/browse` |
 | `js/lookup.js` / `js/lookup-ui.js` | Piece lookup data and screen (`css/lookup.css`) |
-| `js/export.js` | Text export, share sheet and print ticket |
+| `js/export.js` | Text export, share sheet, and the print ticket (`ticketModel()`, used by AirPrint and the server) |
+| `js/print-ui.js` | Print shipping ticket: printer picker (the server's printers or AirPrint), copies, result |
 | `js/scanner.js` | Always-focused scan field and on-screen keypad |
 | `js/hold.js` | Press-and-hold buttons for changes that are hard to undo |
 | `js/mobile.js` | Phone layout toggle (`css/mobile.css`) |
