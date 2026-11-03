@@ -1,0 +1,370 @@
+# How the TERRA app works
+
+How each part of the app works, for anyone changing it. Setup is in the
+[README](../README.md).
+
+## Server settings / Admin (address, key, name, admin)
+
+Open the app from the server's own address (for example
+`https://terra.example.com/`): the app is served by terra-tekla-server, so
+there is nothing else to host. Nothing about the server is in this repo. Each
+device stores the access key (and, only if the app is loaded from somewhere
+else, the server address) in its own localStorage, entered under **Server
+settings / Admin** (the one menu entry for it; also a home screen tile until
+the first setup) in one of three ways:
+
+- type the key (**Server address** is already filled in with the site the
+  app was opened from), then **Save & test**;
+- scan a setup QR code with the camera (**Scan QR with camera**): the admin
+  board shows one under Settings > Set up an iPad;
+- scan the same code with the Bluetooth barcode scanner into the setup field.
+
+A device that's already set up can show the same code with **Show setup QR**
+(or run `node tools/setup-qr.mjs` with `.env` filled in from `.env.example`).
+The code holds the API key, so treat a printout like a key.
+
+**Save & test** only saves a connection once that address has answered as a
+TERRA server (`/health`) and taken the key (`/api/status`); otherwise it says
+why and keeps the old one, so a typo can't tie the iPad to a server that
+can't check the admin code.
+
+The same dialog shows this iPad's fixed number ("User 3", given by the server
+the first time it sees the iPad and never changed), its **name** and
+**colour**. Those are set on the server's admin board only, never here. They
+tag every piece it scans, every truck-check tick and every photo it takes. It
+also has the **Sounds** switch, **Test sounds** and **Send photos** (on unless
+turned off).
+
+The **Admin** part of the dialog shows only **Unlock admin** until the
+server's admin code is typed on the 9-pin keypad (no soft keyboard). The
+server makes the code up itself and it is changed on the admin board. Once
+entered, the admin buttons appear and this iPad stays unlocked for 30 minutes, the server's admin board
+included (they share the unlock in localStorage, `terra.admin.unlock`). In it:
+
+- **Open admin board**: the server's `/admin/`, using this app's key.
+- **Change server settings**: address, key and setup QR. Open without the code
+  until the first save; after that the code is needed, unless the saved server
+  can't check it (unreachable, refuses the key, isn't a TERRA server or has no
+  code: then **Unlock admin** opens the connection, so it can be fixed).
+- **Update the app on the server**: the server runs its `update-client.ps1`
+  to get the newest version of this repo; then **Update** here loads it. The
+  Update dialog's **Get newest from GitHub first** does both.
+- **Update the server**: the server runs its `deploy.ps1` and restarts.
+
+The server checks the code itself; see terra-tekla-server's SETUP.md.
+
+The conversion layer must have `POWERFAB_ALLOW_WRITES` on for Shipping's
+changes to go through. Its key lives only on terra-tekla-server
+(`CONVERSION_KEY`), never on an iPad. The app can still be loaded from another
+origin (a local dev server) if terra-tekla-server lists it in `CORS_ORIGINS`.
+
+## Live sync between iPads
+
+Every change to the stacks (scan, move, rename, new or deleted stack, truck
+check tick) shows on screen at once and is sent to the server
+(`POST /api/loads/<loadId>/ops`), which sends it to every other iPad over a
+WebSocket (`/ws`). A scan shows on the other iPads straight away as "waiting
+on PowerFab", then as a normal row once PowerFab loads it (or disappears if
+PowerFab refuses). Rows have a stripe in the colour of the iPad that scanned
+them, and their details say who. The status bar shows this iPad's name and
+"Live with N other iPads".
+
+If the server can't be reached, stack changes wait in order on the iPad
+(`terra.stack-queue.v2`, "n changes waiting to send") and go when it's back.
+Scanning itself needs the server, because PowerFab is reached through it.
+Code: `js/stack-ops.js` (the operations, the same as the server's),
+`js/stack-store.js` (send, queue, cache), `js/live.js` (the live connection).
+
+## Sounds
+
+A scan that goes on the load plays a short high double beep; one that is
+refused (too many of that piece, not on the job, shipped load, PowerFab said
+no) plays a low buzz, with the red "Not added" card as always. In a truck
+check, finishing a stack plays a quick ringing run and finishing the whole
+load plays a full fanfare (about 2.5 s). Everything goes through a limiter so
+it can play loud without crackling. **Test sounds** plays all four. Sounds need the iPad's volume up and silent mode
+off; **Server settings → Sounds** turns them off. Code: `js/sounds.js`.
+
+## Current job
+
+The app is job-first. A bar along the top of every screen shows the current
+job; tap it to pick another. The picker lists every job the API user can
+reach, open or closed (`ProductionControlJob_Get`; **Refresh jobs** re-reads
+them). A job can also be typed into **Or type a job number**; it is checked
+with `MaxTruck` before it is used.
+Which job is picked is the one thing kept on the tablet (`terra.currentJob`).
+`js/current-job.js` owns this; other modules use `getCurrentJob()`,
+`isCurrentJob(job)`, `onCurrentJobChange(fn)` and `requireCurrentJob()`.
+
+## Shipping
+
+Opening Shipping reads every load (truck) on the current job. The **Loads**
+button in the top bar opens a Loads window listing them, with open or shipped,
+pieces and weight, so the main screen keeps its room. Tap a load to
+work on it (the window closes); **+ New** creates one in PowerFab (the number defaults to the next load number PowerFab suggests) and **&#8635;**
+reads the loads again.
+
+Scanning works the way terra-loads-web does. A scan (or a mark typed on the
+keypad) puts the piece on the open load: it is assigned to the load in
+PowerFab and loaded in the same step, then added to the bottom of the active
+stack. There is no separate assign step. A piece that is already on the load
+but not loaded (put there in PowerFab itself) is simply loaded.
+
+A piece is picked from PowerFab's remaining list
+(`ProductionControlLoadRemaining_Get`): one row per piece and sequence with
+how many are still not on any load, so a scan can never add more of a piece
+than the job has. With several sequences the lowest one with pieces left is
+used. A mark with none left shows a red "Not added" card saying why (not on
+the job, already shipped, or on which loads it is) and nothing changes.
+
+### Stacks
+
+The load's pieces are shown in stacks, exactly as in terra-loads-web:
+
+- every scan is its own row, in scan order, never collapsed;
+- each stack shows its piece count and weight; the active stack is
+  highlighted ("Scanning here"), and **Scan here** makes another one active;
+- **+ New Stack** (scan bar) adds a stack directly below the active one,
+  named `Stack <load> - <n>`; the pencil renames a stack inline;
+- rows move with ▲/▼ (crossing into the next stack at the edges) or by
+  dragging the ⠿ handle; tap a row for its details;
+- the bin on a row (hold 1.5 s) takes that piece off the truck and off the
+  load in PowerFab; the bin on a stack (hold 4 s) deletes the stack and takes
+  all its pieces off the load. A load always keeps one stack.
+- pieces typed on the keypad are orange;
+- each row shows "n of m" (which of this mark's pieces on the load it is) and,
+  in blue, how many of the mark the job has; each stack's header lists its own
+  sequences.
+
+Stacks are kept on terra-tekla-server and shared live by every iPad;
+moving pieces between stacks or renaming one never touches PowerFab. Which
+stack is "Scanning here" is per iPad, so two people can load into different
+stacks of the same truck. There are no separate assign, load or unload
+buttons. If PowerFab refuses to load a scanned piece, the assign is undone and
+a warning says why; a mark whose pieces are all on other loads gets a warning
+naming those loads. Pieces put on the load in PowerFab itself are
+loaded when the load is opened and put in a new stack at the bottom, so every
+piece on the load is always in a stack.
+
+### Truck check
+
+**Truck check** (load header) works as in terra-loads-web: the stacks become a
+checklist and each scan ticks off one piece of that mark, in stack order. A
+scan not on the load, or one more than the load has, is listed red as an
+extra. **Show missing only**, hold to undo a check (1.5 s) or **Start over**
+(4 s), and **Done checking** goes back to loading. When every piece is
+checked with no extras, the iPad plays the fanfare, and each stack that gets
+fully checked plays the stack sound (sound needs the iPad's volume up and
+silent mode off); every other check plays the good or bad scan sound.
+The check never changes PowerFab; the Loads window shows how far each load's
+check got.
+
+**Shared / Solo** (Truck check screen) picks where the check is kept. Shared,
+the default, keeps it on the server: every iPad on the load works the same
+check and each tick shows who made it. Solo keeps a private check on this iPad
+only (`terra.solo-check`), which also works offline. Switching doesn't erase
+either.
+
+**Draft check** (load header, next to Truck check) is a throwaway practice
+check. It works like a truck check, but nothing is saved or sent to the
+server, typed marks need no photo, nothing goes in the load's history, and the
+load's real check (shared or solo) is untouched. It is thrown away when you
+tap **End draft**, open another load or close the app.
+
+The load has **Hold to ship** (3 s), which PowerFab only allows once every
+piece is loaded, and once shipped **Hold to unship**. Shipped loads going
+somewhere other than the jobsite also list their pieces for **Return** /
+**Undo return**; PowerFab refuses returns from the jobsite. An empty load can
+be deleted (hold 10 s). New loads go to the jobsite: on EPM-001 a load to the
+galvanizer group refused every piece.
+
+A scanner types like a keyboard, so keys typed with no text field focused (an
+installed iPad app starts and resumes that way) are collected and sent on Enter
+as a scan.
+
+Scans are sent one at a time in order, and after every change the loads are
+read again, so the screen always shows what PowerFab has. If PowerFab refuses
+a change, its reason is shown and nothing changes on screen.
+
+### PowerFab commands used
+
+All through `POST /api/powerfab/<Command>` (`js/pf-loads.js`). The newer
+commands take `ProductionControlID`, not `JobNumber`; `MaxTruck` turns the job
+number into it. Their numbers have no unit and are metric, so weights are
+converted from kg to lbs.
+
+| Command | Use |
+| --- | --- |
+| `MaxTruck` | Job number to `ProductionControlID` |
+| `ProductionControlLoad_Get` (`IncludeMaterial`) | Every load and its pieces: truck item ID, mark, sequence, quantity, loaded |
+| `ProductionControlLoadRemaining_Get` | Pieces not on any load yet, per item and sequence |
+| `ProductionControlJob_Get` | Every job the API user can reach |
+| `ProductionControlLoad_InputOptions_Get` | Next load number, default capacity |
+| `ProductionControlLoad_IsDuplicateLoadNumber` | Load number check before creating |
+| `ProductionControlLoad_Insert` / `_Delete` | Create (needs `Capacity`; empty `ShippingDestinationGroupID` = jobsite) / delete a load |
+| `ProductionControlLoadMaterial_Add` / `_Remove` | Assign pieces (item ID + sequence ID) / take them off |
+| `ProductionControlLoadMaterial_Load` / `_Unload` | Put pieces on the truck (by truck item ID) / take them off (by the `Loaded` entry's ID) |
+| `ProductionControlLoad_Ship` / `_Unship` | Ship the load / undo |
+| `ProductionControlLoadMaterial_Return` / `_Unreturn` | Return shipped pieces (needs `DateReturned`) / undo (by the return entry's ID) |
+
+The older `Load`, `Ship` and `Return` commands (by job and truck number, with
+`CommitType`) are not used: on EPM-001 `Ship` rejected every `CommitType` and
+`Return` refuses loads shipped to the jobsite.
+
+### Export and shipping ticket
+
+Menu → **Share load file** sends the open load as text through the iPad share
+sheet: a `{}` header block (load, job, totals, shipped date) that Tekla scripts
+ignore, then the pieces stack by stack under `{STACK: name}` lines, one mark per
+line per piece, never collapsed, as terra-loads-web writes them. Pieces on the
+load but not loaded follow under `{NOT LOADED}`. **Print shipping ticket**
+prints the load stack by stack with each stack's pieces and weight.
+
+### Photos
+
+On unless **Server settings → Send photos to the server** is turned off (per
+device, `terra.photos`). Then each load gets a **📷 Photos** button, each stack
+header a 📷 button, and each piece's details a **Photo of this piece** button.
+The Photos window takes a photo with the camera or picks some from the
+library, for the whole load, a stack or a piece ("Photo of"), and shows the
+photos the server already has for the load as a library: tap one to view it
+full size (◀ ▶ step through them), and **hold Delete for 1.5 s** (on the tile
+or in the viewer) to delete it. The server moves a deleted photo to the load's
+`.deleted` folder rather than erasing it.
+
+**Take a photo** opens the iPad's own camera screen (the same one as the
+Camera app, with zoom, focus and flash). Each photo is saved on the iPad as
+soon as you tap **Use Photo**, so closing the app loses nothing. It needs no
+camera permission, so iOS never asks. Only the setup QR scanner uses a live
+camera inside the app, and only while it is open.
+
+**Manual entries need a photo.** While photos are on, a mark typed on the
+keypad (in Shipping or in the truck check) opens the iPad camera first, in a
+small window titled with the mark. The iPad camera pops up straight away when
+iOS allows it; otherwise tap the big **Take photo** button (iOS only opens the
+camera from a tap). Once the photo is taken the window closes and the entry goes
+ahead; Cancel drops the entry. The photos are queued with the mark once the entry is made; if
+PowerFab refuses it they are dropped. Scanned marks never ask.
+
+**Pallets.** **+ Pallet** in the scan bar makes a stack of one mark that is
+scanned once instead of piece by piece (bolts, clips, plates on a pallet).
+Tap it, scan the mark of one piece (or type it on the Keypad), type how many
+are on the pallet on the 9-pin keypad (it says how many the job has left),
+then, while photos are on, take **2 photos of the whole pallet**: the iPad
+camera opens for the first, then **Take photo 2 of 2** opens it for the second,
+and the pallet is made once both are taken (✕ on the first one's thumbnail drops it to take again).
+Cancel at any step and nothing is sent. PowerFab then gets that many assigned
+and loaded in a few writes (one per sequence, lowest sequence first). The
+pallet goes in below the stack you are scanning into, which stays the active
+one; a pallet is never the active stack and pieces can't be dragged into it.
+It shows as one line, "CL-1 × 40", with the weight of one and of all (unit
+weight × count), who made it and how many photos it has. Tap the line to open the piece's
+details (like any stack row), with the pallet's count, sequences and photos
+and the **Photo of this piece** button. **Change count** adds
+more (loaded the same way) or takes the last ones off the load; holding the
+pallet's 🗑 for 4 seconds deletes it and takes all its pieces off. If PowerFab
+refuses part of it, the pallet keeps the pieces that did load and the warning
+says why; if it refuses all of it, the pallet and its photos are dropped.
+Underneath it is still one row per piece (kept on the server), so totals, the
+export (one line per piece, after a `{PALLET: CL-1 x 40}` line Tekla ignores),
+the printed ticket (one row "CL-1 × 40") and the sync with PowerFab all work as
+for any stack. In the truck check one scan of the mark checks the whole pallet
+off (when the next unchecked piece of that mark is on a pallet); hold ↶ to
+undo it. With photos off on this iPad a pallet asks for no photos, the same as
+a manual entry.
+
+Photos go to terra-tekla-server (`POST /api/photos/<job>/<load>`, with the
+stack name or piece mark as `mark`, and when it was taken as `takenAt`), which saves them in a folder for the job,
+then one per load, named with the date, the piece and this iPad's name, and
+writes who took it ("User 3 (Yard iPad)") into each JPEG: see
+its `docs/PHOTOS.md` (also on its admin page) for the `PHOTOS_*` settings and
+the regex rules that pick a job's folder. The server has to have
+`PHOTOS_ENABLED` on too; the switch's note says whether it does. Each photo in
+the library and the explorer shows who took it: the iPad's name and its fixed
+"User N", "probably …" for an older photo the server only knows from its file
+name, or "unknown".
+
+Each photo is shrunk to a JPEG of at most 2048 px and kept on the iPad
+(IndexedDB `terra-photos`) until the server has it, so going offline loses
+nothing: the button shows "n to send", and they are sent when the iPad is back
+online (and every two minutes while any wait). One the server refuses (too
+big, bad name) stays with the reason, to send again or hold to discard.
+Code: `js/photos.js` (queue, sending), `js/photos-ui.js` (window, switch),
+`js/camera.js` (needed photos with the iPad camera, and the QR scanner's camera).
+
+## Photos explorer
+
+The **Photos** home tile looks through every job's photos on the server: jobs › loads › the photos,
+newest first, tap one for the big picture (◀ ▶ to step through). It needs no job picked and no access
+key (the server allows that unless `PHOTOS_PUBLIC` is off); with the key saved it also shows where each
+job, load and photo is stored. It's look only: deleting is on the admin board, or in Shipping's Photos
+window while this iPad is unlocked with the admin code (`js/photo-browser.js`, `css/photos.css`).
+
+## Piece lookup
+
+**Piece lookup** (home tile, or the menu inside Shipping) answers "what is
+this piece?" for any mark on the current job: description, weight per piece,
+quantity, size, length, grade, sequence and drawing from the job's part list
+(`GetAssemblies`), and every PowerFab load that holds it with how many are
+assigned, on the truck and shipped. Tap a load to open it in Shipping. The
+**Job** view lists every mark with those counts. Both are read live when the
+screen opens; **Refresh** reads again. It never changes anything.
+
+## Layout
+
+| Path | What it is |
+| --- | --- |
+| `index.html` | App shell: header stats, scan bar, loads panel, workspace, dialogs |
+| `css/app.css` | Dark industrial theme, 48px+ tap targets, print base |
+| `css/shipping.css` | Loads window, stacks and rows, "Not added" card |
+| `js/app.js` | Boot, home screen, menus, status bar, update UI |
+| `js/api.js` | API client: settings, device id, setup codes, jobs and assemblies, value units |
+| `js/server-ui.js` | Server settings / Admin dialog (device number, name and colour shown, sounds, admin code, server connection, updates), setup QR, job list |
+| `js/current-job.js` | Current job state, the top bar and job picker every module follows |
+| `js/pf-loads.js` | PowerFab loads: reads, parsers and every shipping write command |
+| `js/shipping.js` | Pure helpers: which remaining row a scan takes, totals, sequences |
+| `js/shipping-ui.js` | Shipping screen: loads window, scan handling, write queue, new load |
+| `js/stacks-ui.js` | Stack rows: active stack, rename, move, drag and drop, hold to delete |
+| `js/drag.js` | Dragging a row: the floating copy under the finger, and always cleaning it up |
+| `js/stack-ops.js` | Stack operations (same as the server's): scan, move, rename, sync with PowerFab, truck check |
+| `js/stack-store.js` | Server-backed stacks: applies ops at once, sends them in order, queues offline, takes live updates |
+| `js/live.js` | Live connection to the server: other iPads' changes, devices, photos |
+| `js/sounds.js` | Good / bad / complete sounds |
+| `js/check.js` / `js/check-ui.js` | Truck check: matching scans to stacked pieces, and its screen (`css/check.css`) |
+| `js/photo-browser.js` | Photos explorer (home tile): jobs › loads › photos from the server's `/api/browse` |
+| `js/lookup.js` / `js/lookup-ui.js` | Piece lookup data and screen (`css/lookup.css`) |
+| `js/export.js` | Text export, share sheet and print ticket |
+| `js/scanner.js` | Always-focused scan field and on-screen keypad |
+| `js/hold.js` | Press-and-hold buttons for changes that are hard to undo |
+| `js/mobile.js` | Phone layout toggle (`css/mobile.css`) |
+| `js/parts.js` | Job and mark spelling |
+| `js/updater.js` | Service worker registration, version check, Force Update |
+| `js/vendor/` | `qrcode.js` (QR generator, MIT) and `jsQR.js` (QR reader, Apache-2.0) |
+| `tools/setup-qr.mjs` | Makes a setup QR from `.env` |
+| `sw.js` | Precaches the app shell; API calls always go to the network |
+| `version.js` | The app version (single source of truth) |
+
+## What the device keeps
+
+The server address and key (`terra.api`), this iPad's id (`terra.device-id`;
+its name and colour are on the server), the current job (`terra.currentJob`),
+the phone layout (`terra.layout`), recent lookups (`terra.lookup.recent`), the
+photos switch (`terra.photos`), the sounds switch (`terra.sounds`), which stack
+is active per load (`terra.active-stack`), the truck check mode and solo check
+(`terra.check-mode`, `terra.solo-check`), a copy of the server's stacks for a
+quick start (`terra.stack-cache.v2`), stack changes not sent yet
+(`terra.stack-queue.v2`) and photos not sent yet (IndexedDB `terra-photos`)
+are kept on this iPad. The stacks themselves are the server's. They only
+keep how loaded pieces are grouped (names, order, who scanned them and when,
+which were typed on the keypad); the pieces themselves are always PowerFab's.
+Every time the loads are read, the stacks are brought in line with
+what PowerFab has loaded on the load: pieces loaded elsewhere go into a stack
+of their own at the bottom (the last stack if it is empty, else a new
+`Stack <load> - <n>`), and one unloaded or returned elsewhere comes off the
+most recently scanned stack. Pieces assigned to an open load in PowerFab but
+not loaded are loaded automatically when the load is opened, so they land in
+that stack too; one PowerFab refuses gets a warning and a note, and scanning
+it tries again. No stack or manual-entry metadata is
+sent to Tekla/PowerFab. Once a server is configured, Server settings remain available from the home
+hamburger menu and the setup tile is hidden.
+

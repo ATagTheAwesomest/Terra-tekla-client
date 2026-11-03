@@ -25,6 +25,7 @@ const PRECACHE = [
   './js/current-job.js',
   './js/error-banner.js',
   './js/export.js',
+  './js/drag.js',
   './js/hold.js',
   './js/lookup.js',
   './js/live.js',

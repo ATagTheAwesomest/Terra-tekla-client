@@ -3,6 +3,7 @@
 
 import { getCurrentJob, initCurrentJob, jobsChanged, requireCurrentJob } from './current-job.js';
 import { getConfig } from './api.js';
+import { cancelDrag } from './drag.js';
 import { shareLoadFile, printLoad } from './export.js';
 import { readJob } from './pf-loads.js';
 import * as live from './live.js';
@@ -17,17 +18,6 @@ const $ = (sel) => document.querySelector(sel);
 
 function syncHomeServerTile() {
   $('#home-server-tile').hidden = Boolean(getConfig());
-}
-
-// Caches older versions kept on the device. Job data is read live now, so
-// they are dropped once. (The loads database is left alone: GitHub Pages
-// shares it with terra-loads-web on the same iPad.)
-const OLD_CACHES = [/^terra\.jobs$/, /^terra\.parts\./, /^terra\.pfloads\./, /^terra\.step$/, /^terra\.load-view$/];
-
-function dropOldCaches() {
-  try {
-    for (const key of Object.keys(localStorage)) if (OLD_CACHES.some((re) => re.test(key))) localStorage.removeItem(key);
-  } catch { /* storage blocked: nothing to drop */ }
 }
 
 export function escapeHtml(s) {
@@ -50,6 +40,7 @@ export function toast(message, ms = 2500) {
 // ---- Home ------------------------------------------------------------------
 
 export function setHome(open) {
+  cancelDrag();
   syncHomeServerTile();
   document.body.classList.toggle('at-home', open);
   $('#home').hidden = !open;
@@ -220,7 +211,6 @@ function bindEvents() {
 async function boot() {
   // A stale cached page can't run these scripts: clear the cache and reload.
   if (recoverStalePage()) return;
-  dropOldCaches();
   bindEvents();
   initCurrentJob({ refresh: () => refreshJobs(), check: async (number) => (await readJob(number)).number });
   renderShipping();
