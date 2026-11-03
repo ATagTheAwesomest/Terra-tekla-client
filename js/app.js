@@ -3,6 +3,7 @@
 
 import { getCurrentJob, initCurrentJob, jobsChanged, requireCurrentJob } from './current-job.js';
 import { getConfig } from './api.js';
+import { cancelDrag } from './drag.js';
 import { shareLoadFile, printLoad } from './export.js';
 import { readJob } from './pf-loads.js';
 import * as live from './live.js';
@@ -50,6 +51,7 @@ export function toast(message, ms = 2500) {
 // ---- Home ------------------------------------------------------------------
 
 export function setHome(open) {
+  cancelDrag();
   syncHomeServerTile();
   document.body.classList.toggle('at-home', open);
   $('#home').hidden = !open;
