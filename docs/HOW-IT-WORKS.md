@@ -104,7 +104,7 @@ pieces and weight, so the main screen keeps its room. Tap a load to
 work on it (the window closes); **+ New** creates one in PowerFab (the number defaults to the next load number PowerFab suggests) and **&#8635;**
 reads the loads again.
 
-Scanning works the way terra-loads-web does. A scan (or a mark typed on the
+A scan (or a mark typed on the
 keypad) puts the piece on the open load: it is assigned to the load in
 PowerFab and loaded in the same step, then added to the bottom of the active
 stack. There is no separate assign step. A piece that is already on the load
@@ -119,7 +119,7 @@ the job, already shipped, or on which loads it is) and nothing changes.
 
 ### Stacks
 
-The load's pieces are shown in stacks, exactly as in terra-loads-web:
+The load's pieces are shown in stacks:
 
 - every scan is its own row, in scan order, never collapsed;
 - each stack shows its piece count and weight; the active stack is
@@ -148,7 +148,7 @@ piece on the load is always in a stack.
 
 ### Truck check
 
-**Truck check** (load header) works as in terra-loads-web: the stacks become a
+**Truck check** (load header): the stacks become a
 checklist and each scan ticks off one piece of that mark, in stack order. A
 scan not on the load, or one more than the load has, is listed red as an
 extra. **Show missing only**, hold to undo a check (1.5 s) or **Start over**
@@ -216,7 +216,7 @@ The older `Load`, `Ship` and `Return` commands (by job and truck number, with
 Menu → **Share load file** sends the open load as text through the iPad share
 sheet: a `{}` header block (load, job, totals, shipped date) that Tekla scripts
 ignore, then the pieces stack by stack under `{STACK: name}` lines, one mark per
-line per piece, never collapsed, as terra-loads-web writes them. Pieces on the
+line per piece, never collapsed. Pieces on the
 load but not loaded follow under `{NOT LOADED}`. **Print shipping ticket**
 prints the load stack by stack with each stack's pieces and weight.
 
@@ -281,8 +281,8 @@ its `docs/PHOTOS.md` (also on its admin page) for the `PHOTOS_*` settings and
 the regex rules that pick a job's folder. The server has to have
 `PHOTOS_ENABLED` on too; the switch's note says whether it does. Each photo in
 the library and the explorer shows who took it: the iPad's name and its fixed
-"User N", "probably …" for an older photo the server only knows from its file
-name, or "unknown".
+"User N", "probably …" for a photo the server only knows from its file name,
+or "unknown".
 
 Each photo is shrunk to a JPEG of at most 2048 px and kept on the iPad
 (IndexedDB `terra-photos`) until the server has it, so going offline loses
