@@ -10,7 +10,7 @@ import { escapeHtml, toast } from './app.js';
 import * as api from './api.js';
 import { JOB_NUMBERS, setJobNumbers } from './current-job.js';
 import * as live from './live.js';
-import { acquireCamera, releaseCamera } from './camera.js';
+import { startCamera as cameraOn, stopCamera as cameraOff } from './camera.js';
 import { drawPhotoSetting } from './photos-ui.js';
 import { openKeypad } from './scanner.js';
 import { playBad, playComplete, playGood, playStackComplete, primeSound, setSoundsOn, soundsOn } from './sounds.js';
@@ -295,12 +295,17 @@ async function startCamera() {
   const video = $('#server-video');
   try {
     await loadScript('js/vendor/jsQR.js');
-    // The same camera stream as the photo window, so it asks for the camera once.
-    const stream = await acquireCamera();
+    // Its own camera stream, fully stopped when scanning ends (battery).
+    const stream = await cameraOn();
+    // Closed (or a second tap) while iOS was asking: don't leave it running.
+    if (!dialog().open || scanStop) {
+      cameraOff(stream);
+      return;
+    }
     let running = true;
     scanStop = () => {
       running = false;
-      releaseCamera(); // never stop the shared stream's tracks here
+      cameraOff(stream);
       video.pause();
       video.hidden = true;
       video.srcObject = null;
@@ -383,4 +388,7 @@ function bindDialog() {
   });
   live.on('devices', () => { if (dialog().open) drawDevice(); });
   dialog().addEventListener('close', stopCamera);
+  // The app going to the background ends the scan, so the camera is off.
+  document.addEventListener('visibilitychange', () => { if (document.hidden) stopCamera(); });
+  window.addEventListener('pagehide', stopCamera);
 }
