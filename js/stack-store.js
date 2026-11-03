@@ -53,9 +53,6 @@ function write(key, value) {
 function restore() {
   for (const s of Object.values(read(CACHE_KEY, {}))) if (s?.loadId && Array.isArray(s.stacks)) servers.set(s.loadId, s);
   queue = read(QUEUE_KEY, []).filter((q) => q?.loadId && q.op);
-  // The local-only stacks of v0.12 and older are not used any more: the server keeps them now,
-  // and every piece PowerFab has loaded is put back in a stack on the first read.
-  try { localStorage.removeItem('terra.local-stacks.v1'); } catch { /* blocked */ }
 }
 
 let saveTimer = null;
