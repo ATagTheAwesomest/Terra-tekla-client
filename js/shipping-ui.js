@@ -123,7 +123,7 @@ async function read({ remaining = false } = {}) {
 }
 
 // Pieces on the open load in PowerFab that aren't on the truck (assigned in
-// PowerFab itself, or by an older version of this app) aren't in any stack.
+// PowerFab itself) aren't in any stack.
 // On this app being on a load means loaded, so they are loaded in PowerFab
 // and the next read puts them in a stack of their own (js/stack-store.js
 // sync). Each piece is tried once per session: one PowerFab refuses gets the
