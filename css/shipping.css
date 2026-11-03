@@ -264,6 +264,9 @@ body.load-shipped .topbar { border-bottom-color: var(--accent); }
 .pallet-row.flagged { background: var(--flag-bg); }
 .pallet-row.flagged .pallet-mark { color: var(--flag); }
 .pallet-row.pending { opacity: 0.7; }
+.pallet-row { cursor: pointer; }
+.pallet-row.expanded, .stack.pallet .pallet-detail { background: var(--surface-2); }
+.pallet-detail { padding: 0 var(--item-pad) 8px; border-bottom: 1px solid var(--border); }
 .pallet-mark { font-family: var(--mono); font-weight: 700; font-size: 1.15rem; }
 .pallet-qty { font-weight: 800; font-size: 1.3rem; color: var(--accent); font-variant-numeric: tabular-nums; }
 .pallet-row .item-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

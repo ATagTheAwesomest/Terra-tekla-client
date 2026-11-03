@@ -248,59 +248,35 @@ full size (◀ ▶ step through them), and **hold Delete for 1.5 s** (on the til
 or in the viewer) to delete it. The server moves a deleted photo to the load's
 `.deleted` folder rather than erasing it.
 
-**Take photos** opens the app's own camera: a live view with a big shutter.
-Each tap is a photo (or **hold** the shutter for one every half second), and
-each one is saved on the iPad the moment it is taken, so closing the app mid-run
-loses nothing; **Done** closes it. If iOS stops the camera while the app is in
-the background, it starts again when you come back.
-It needs the camera permission and the `https://` address (or localhost);
-without them it says why and offers the iPad's own camera, one photo per tap,
-into the same list.
-
-#### Camera keeps asking
-
-The camera only runs while a camera window (or the QR scanner) is open. It
-starts when the window opens and is fully stopped when it closes or the app
-goes to the background, so it never drains the battery in the background.
-Because each start is a new request, iOS may ask again.
-
-A web app can't make iOS stop asking; only the iPad's settings can:
-
-1. **Settings > Apps > Safari**, under **Settings for Websites** tap **Camera**
-   (older iPadOS: **Settings > Safari >
-   Camera**) and choose **Allow**. This is for every website in Safari.
-2. Or just for this site: open the app's address in **Safari**, tap the page
-   menu in the address bar (**aA** or the icon at its left), **Website
-   Settings**, **Camera: Allow**.
-3. Use the one https:// address every time (the same one the Home Screen icon
-   was added from). Permissions belong to an address, so `http://`, an IP, or a
-   different host name each count as a new site that asks again.
-4. The Home Screen app is its own copy of Safari: iOS may still ask once each
-   time the app is started fresh, whatever Safari's setting says. With **Keep
-   the camera ready** on, that is once per start, not once per photo.
-
-The setting's note shows what the iPad currently says about the camera
-(allowed / asks / blocked) when iOS reports it.
+**Take a photo** opens the iPad's own camera screen (the same one as the
+Camera app, with zoom, focus and flash). Each photo is saved on the iPad as
+soon as you tap **Use Photo**, so closing the app loses nothing. It needs no
+camera permission, so iOS never asks. Only the setup QR scanner uses a live
+camera inside the app, and only while it is open.
 
 **Manual entries need a photo.** While photos are on, a mark typed on the
-keypad (in Shipping or in the truck check) opens that camera first, titled with
-the mark. Those photos are held until the entry is made: **Undo** takes the last
-one back, ✕ removes any one, Done stays off until there is at least one photo,
-and Cancel drops the entry. The photos are queued with the mark once the entry is made; if
+keypad (in Shipping or in the truck check) opens the iPad camera first, in a
+small window titled with the mark. The iPad camera pops up straight away when
+iOS allows it; otherwise tap the big **Take photo** button (iOS only opens the
+camera from a tap). Once the photo is taken the window closes and the entry goes
+ahead; Cancel drops the entry. The photos are queued with the mark once the entry is made; if
 PowerFab refuses it they are dropped. Scanned marks never ask.
 
 **Pallets.** **+ Pallet** in the scan bar makes a stack of one mark that is
 scanned once instead of piece by piece (bolts, clips, plates on a pallet).
 Tap it, scan the mark of one piece (or type it on the Keypad), type how many
 are on the pallet on the 9-pin keypad (it says how many the job has left),
-then, while photos are on, take **at least 3 photos of the whole pallet**:
-the camera says "n of 3 photos needed" and Done stays off until there are 3.
+then, while photos are on, take **2 photos of the whole pallet**: the iPad
+camera opens for the first, then **Take photo 2 of 2** opens it for the second,
+and the pallet is made once both are taken (✕ on the first one's thumbnail drops it to take again).
 Cancel at any step and nothing is sent. PowerFab then gets that many assigned
 and loaded in a few writes (one per sequence, lowest sequence first). The
 pallet goes in below the stack you are scanning into, which stays the active
 one; a pallet is never the active stack and pieces can't be dragged into it.
 It shows as one line, "CL-1 × 40", with the weight of one and of all (unit
-weight × count), who made it and how many photos it has. **Change count** adds
+weight × count), who made it and how many photos it has. Tap the line to open the piece's
+details (like any stack row), with the pallet's count, sequences and photos
+and the **Photo of this piece** button. **Change count** adds
 more (loaded the same way) or takes the last ones off the load; holding the
 pallet's 🗑 for 4 seconds deletes it and takes all its pieces off. If PowerFab
 refuses part of it, the pallet keeps the pieces that did load and the warning
@@ -330,7 +306,7 @@ nothing: the button shows "n to send", and they are sent when the iPad is back
 online (and every two minutes while any wait). One the server refuses (too
 big, bad name) stays with the reason, to send again or hold to discard.
 Code: `js/photos.js` (queue, sending), `js/photos-ui.js` (window, switch),
-`js/camera.js` (the rapid-fire camera).
+`js/camera.js` (needed photos with the iPad camera, and the QR scanner's camera).
 
 ## Photos explorer
 

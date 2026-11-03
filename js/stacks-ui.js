@@ -49,8 +49,9 @@ function formatLength(mm) {
   return `${Math.round(n)} mm (${(n / 304.8).toFixed(2)} ft)`;
 }
 
-function renderDetail(entry) {
+function renderDetail(entry, extra = []) {
   const rows = [
+    ...extra,
     ['Scanned', entry.scannedAt ? formatScanTime(entry.scannedAt) : 'Loaded in PowerFab, not scanned in the app'],
     ['Scanned by', entry.scannedBy ? deviceInfo(entry.scannedBy)?.name ?? 'Another iPad' : ''],
     ['Piece weight', formatWeight(entry.weight)],
@@ -109,19 +110,35 @@ function renderPallet(stack, locked) {
   const t = stackTotals(stack);
   const each = Number(first?.weight) || 0;
   const busy = pending || removing;
+  const open = expanded.has(palletKey(stack.id));
   const status = pending ? `Sending ${pending} to PowerFab…` : removing ? `Taking ${removing} off the load…` : '';
   const color = first ? whoColor(first) : '';
   const desc = [first?.description, each ? `${formatWeight(each)} each` : ''].filter(Boolean).join(' · ');
   return `
-      <div class="pallet-row${stack.pallet.manual ? ' flagged' : ''}${busy ? ' pending' : ''}${color ? ' by-device' : ''}"${color ? ` style="--who:${escapeHtml(color)}"` : ''}>
+      <div class="pallet-row${stack.pallet.manual ? ' flagged' : ''}${busy ? ' pending' : ''}${color ? ' by-device' : ''}${open ? ' expanded' : ''}" data-pallet-row${color ? ` style="--who:${escapeHtml(color)}"` : ''}>
         <span class="pallet-mark">${escapeHtml(stack.pallet.mark)}</span>
         <span class="pallet-qty">&times; ${items.length}</span>
         <span class="item-desc">${escapeHtml(status || desc)} ${first ? whoBadge(first.scannedBy) : ''}</span>
         <span class="item-weight">${formatWeight(t.weight)}</span>
         <span class="item-actions">${locked || busy ? '' : '<button class="btn" type="button" data-action="pallet-count">Change count</button>'}</span>
       </div>
-      <p class="pallet-note">&#128247; ${stack.pallet.photos} photo${stack.pallet.photos === 1 ? '' : 's'} of this pallet${stack.pallet.manual ? ' &middot; mark typed on keypad' : ''}</p>`;
+      <p class="pallet-note">&#128247; ${stack.pallet.photos} photo${stack.pallet.photos === 1 ? '' : 's'} of this pallet${stack.pallet.manual ? ' &middot; mark typed on keypad' : ''}</p>
+      ${open && first ? `<div class="pallet-detail">${renderDetail(first, palletRows(stack))}</div>` : ''}`;
 }
+
+// What the pallet's details add above the piece's own: the count, the
+// sequences its pieces came from and the pallet's photos.
+function palletRows(stack) {
+  const seqs = [...new Set(stack.items.map((e) => e.sequence).filter(Boolean))].sort();
+  return [
+    ['Pieces on pallet', String(stack.items.length)],
+    ['Sequences', seqs.join(', ')],
+    ['Pallet photos', String(stack.pallet.photos ?? 0)],
+  ];
+}
+
+// The pallet's details are open: keyed by stack, since its rows come and go.
+const palletKey = (stackId) => `pallet:${stackId}`;
 
 function renderStack(stack, state, locked, counts) {
   const t = stackTotals(stack);
@@ -311,9 +328,9 @@ export function initStacks(context) {
     if (!stackEl) return;
     if (!btn) {
       // Tapping a row anywhere but its controls opens or closes its details.
-      const row = e.target.closest('[data-item-id]');
+      const row = e.target.closest('[data-item-id], [data-pallet-row]');
       if (!row || e.target.closest('button, [data-drag]')) return;
-      const id = row.dataset.itemId;
+      const id = row.hasAttribute('data-pallet-row') ? palletKey(stackEl.dataset.stackId) : row.dataset.itemId;
       if (!expanded.delete(id)) expanded.add(id);
       ctx.render();
       return;
