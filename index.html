@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TERRA">
   <meta name="format-detection" content="telephone=no">
-  <meta name="terra-version" content="0.21.3">
+  <meta name="terra-version" content="0.22.0">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -191,6 +191,7 @@
         <legend>This iPad</legend>
         <p class="device-who" id="device-who"></p>
         <p class="muted" id="device-result" role="status">Its name and colour are set on the admin board (Devices), with the admin code.</p>
+        <button class="btn" type="button" id="btn-device-pick">Wrong iPad? Pick which one this is</button>
       </fieldset>
       <button class="btn btn-block menu-toggle sounds-toggle" id="btn-sounds-toggle" type="button" aria-pressed="true">
         <span class="icon" aria-hidden="true">&#128264;</span><span>Sounds when a scan is added or refused</span><span class="toggle-state" id="sounds-toggle-state">On</span>
@@ -241,6 +242,16 @@
         </div>
       </fieldset>
     </form>
+  </dialog>
+
+  <dialog class="modal device-pick" id="dlg-device-pick" aria-labelledby="device-pick-title">
+    <h2 id="device-pick-title">Which iPad is this?</h2>
+    <p class="muted" id="device-pick-note">The app on the home screen, Safari and a reinstall each start fresh. Pick this iPad so it stays one entry on the server, with its name, colour and history.</p>
+    <ul class="device-pick-list" id="device-pick-list"></ul>
+    <p class="field-error" id="device-pick-error" role="alert"></p>
+    <div class="modal-actions">
+      <button class="btn" type="button" id="btn-device-pick-new">It’s a new iPad</button>
+    </div>
   </dialog>
 
   <dialog class="modal photos" id="dlg-photos">

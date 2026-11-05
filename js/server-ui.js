@@ -227,6 +227,81 @@ function drawSounds() {
   $('#sounds-toggle-state').textContent = on ? 'On' : 'Off';
 }
 
+// ---- Which iPad is this? ------------------------------------------------------------
+
+function seenAgo(iso) {
+  const t = new Date(iso).getTime();
+  if (!t) return '';
+  const mins = Math.round((Date.now() - t) / 60000);
+  if (mins < 2) return 'seen just now';
+  if (mins < 90) return `seen ${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 36) return `seen ${hours} h ago`;
+  return `seen ${Math.round(hours / 24)} days ago`;
+}
+
+// Lists the iPads the server knows and makes this app the one picked, or a new one. Resolves once
+// a choice is made (closing the window counts as "a new iPad" only when nothing is saved yet).
+export async function pickDevice(config = api.getConfig()) {
+  const dlg = $('#dlg-device-pick');
+  const list = $('#device-pick-list');
+  $('#device-pick-error').textContent = '';
+  let devices = [];
+  try {
+    devices = await api.knownDevices(config);
+  } catch (err) {
+    $('#device-pick-error').textContent = err.message;
+  }
+  // Nothing to pick from: this is the first iPad.
+  if (!devices.length && !api.hasDeviceId()) return null;
+  const current = api.hasDeviceId() ? api.deviceId() : null;
+  list.innerHTML = devices.map((d) => `<li><button class="btn${d.id === current ? ' device-pick-current' : ''}" type="button" data-device="${escapeHtml(d.id)}">
+      <span class="who-dot" style="--who:${escapeHtml(d.color ?? '#777')}" aria-hidden="true"></span>
+      <span class="device-pick-name">${escapeHtml(d.name ?? d.user ?? 'iPad')}${d.user && d.user !== d.name ? ` <span class="muted">${escapeHtml(d.user)}</span>` : ''}</span>
+      <span class="device-pick-meta">${d.id === current ? 'this app now · ' : ''}${escapeHtml(seenAgo(d.lastSeenAt))}${d.appVersion ? ` · v${escapeHtml(d.appVersion)}` : ''}</span>
+    </button></li>`).join('');
+  return new Promise((resolve) => {
+    const done = (id) => {
+      list.removeEventListener('click', onPick);
+      $('#btn-device-pick-new').removeEventListener('click', onNew);
+      dlg.removeEventListener('close', onClose);
+      if (dlg.open) dlg.close();
+      resolve(id);
+    };
+    const onPick = (e) => {
+      const id = e.target.closest('[data-device]')?.dataset.device;
+      if (!id) return;
+      try {
+        api.setDeviceId(id);
+      } catch (err) {
+        $('#device-pick-error').textContent = err.message;
+        return;
+      }
+      done(id);
+    };
+    const onNew = () => done(api.deviceId()); // keeps this app's id, or makes a new one
+    const onClose = () => done(null);
+    list.addEventListener('click', onPick);
+    $('#btn-device-pick-new').addEventListener('click', onNew);
+    dlg.addEventListener('close', onClose);
+    dlg.showModal();
+  });
+}
+
+async function changeDevice() {
+  if (!api.getConfig()) {
+    $('#device-result').textContent = 'Save the server first.';
+    return;
+  }
+  const before = api.hasDeviceId() ? api.deviceId() : null;
+  const id = await pickDevice();
+  if (id && id !== before) {
+    live.reconnect();
+    $('#device-result').textContent = 'Done. This app is now that iPad.';
+  }
+  drawDevice();
+}
+
 // Saves a connection only once that server has answered as a TERRA server and taken the key, so a
 // mistyped address can't leave this iPad tied to a server that can't check the admin code.
 async function saveAndTest(config) {
@@ -252,6 +327,9 @@ async function saveAndTest(config) {
     }
   }
   api.setConfig({ url: checked.url, key: config.key });
+  // A fresh app (home screen app, Safari, reinstall) is asked which iPad it is before it first
+  // talks to the server as a device, so it doesn't turn up as another new user.
+  if (!api.hasDeviceId()) await pickDevice({ url: checked.url, key: config.key });
   onConfigChanged(true);
   fillForm();
   live.reconnect();
@@ -424,6 +502,7 @@ function bindDialog() {
     input.type = input.type === 'password' ? 'text' : 'password';
   });
   $('#btn-server-close').addEventListener('click', () => dialog().close());
+  $('#btn-device-pick').addEventListener('click', changeDevice);
   $('#btn-admin-unlock').addEventListener('click', unlockAdmin);
   $('#btn-admin-board').addEventListener('click', openAdminBoard);
   $('#btn-admin-connection').addEventListener('click', openConnection);
