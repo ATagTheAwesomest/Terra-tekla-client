@@ -330,12 +330,51 @@ async function startCamera() {
     tick();
   } catch (err) {
     stopCamera();
-    $('#server-result').textContent = `Camera unavailable: ${err.message}`;
+    $('#server-result').textContent = `The live camera isn’t available here (${err?.message || err?.name || 'no camera'}). Use Take a photo of the QR instead.`;
   }
 }
 
 function stopCamera() {
   scanStop?.();
+}
+
+// Reads a setup QR code from a photo taken with the iPad's own camera screen. This needs no camera
+// permission and works the same in the home screen app, where iOS is strictest about the live
+// camera (it can refuse it, or ask again on every launch).
+async function readQrPhoto(file) {
+  const result = $('#server-result');
+  if (!file) return;
+  stopCamera();
+  result.textContent = 'Reading the QR code…';
+  const url = URL.createObjectURL(file);
+  try {
+    await loadScript('js/vendor/jsQR.js');
+    const img = new Image();
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error('That photo couldn’t be opened.'));
+      img.src = url;
+    });
+    // A full-size iPad photo is far bigger than jsQR needs and slow to read: try it smaller first.
+    const canvas = document.createElement('canvas');
+    const g = canvas.getContext('2d', { willReadFrequently: true });
+    for (const max of [1200, 2000, 800]) {
+      const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      g.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const hit = self.jsQR(g.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height, { inversionAttempts: 'attemptBoth' });
+      if (hit?.data) {
+        if (!applySetupCode(hit.data)) result.textContent = 'That QR code isn’t a TERRA setup code.';
+        return;
+      }
+    }
+    result.textContent = 'No QR code found in that photo. Fill the screen with the code and try again.';
+  } catch (err) {
+    result.textContent = `Couldn’t read the photo: ${err.message}`;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 function bindDialog() {
@@ -351,6 +390,11 @@ function bindDialog() {
     applySetupCode(e.target.value);
   });
   $('#btn-server-camera').addEventListener('click', () => (scanStop ? stopCamera() : startCamera()));
+  $('#server-qr-photo').addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    readQrPhoto(file);
+  });
   $('#btn-server-qr').addEventListener('click', showQr);
   $('#btn-server-key-show').addEventListener('click', () => {
     const input = $('#server-key');

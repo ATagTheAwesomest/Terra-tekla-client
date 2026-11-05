@@ -16,6 +16,7 @@ const $ = (sel) => document.querySelector(sel);
 // A new camera stream (iOS may ask for permission). Whoever starts it must
 // stop it with stopCamera() when done: nothing keeps it running.
 export function startCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) return Promise.reject(new Error('this app can’t open the live camera'));
   return navigator.mediaDevices.getUserMedia({
     video: { facingMode: 'environment', width: { ideal: 2560 }, height: { ideal: 1920 } },
     audio: false,
