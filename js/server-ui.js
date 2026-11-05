@@ -236,8 +236,20 @@ async function saveAndTest(config) {
   try {
     checked = await api.checkServer(config);
   } catch (err) {
-    result.textContent = `Not saved: ${err.message}`;
-    return false;
+    // A setup QR made on the admin board holds the address that computer used (often localhost
+    // or its own name), which this iPad may not reach. When this app came from a TERRA server,
+    // try the key on that one before giving up.
+    const own = /^https?:/.test(location.origin) ? location.origin : '';
+    const tried = api.cleanUrl(config.url) || own;
+    if (own && tried !== own && err.status !== 401) {
+      try {
+        checked = await api.checkServer({ url: own, key: config.key });
+      } catch { /* report the first error */ }
+    }
+    if (!checked) {
+      result.textContent = `Not saved: ${err.message}`;
+      return false;
+    }
   }
   api.setConfig({ url: checked.url, key: config.key });
   onConfigChanged(true);
@@ -316,13 +328,18 @@ async function startCamera() {
     await video.play();
     const canvas = document.createElement('canvas');
     const g = canvas.getContext('2d', { willReadFrequently: true });
-    const tick = () => {
+    // Each look is shrunk to at most 800 px and taken about 6 times a second, so the iPad keeps up
+    // and the picture stays smooth.
+    let last = 0;
+    const tick = (now = 0) => {
       if (!running) return;
-      if (video.readyState >= 2 && video.videoWidth) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        g.drawImage(video, 0, 0);
-        const hit = self.jsQR(g.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
+      if (now - last >= 150 && video.readyState >= 2 && video.videoWidth) {
+        last = now;
+        const scale = Math.min(1, 800 / Math.max(video.videoWidth, video.videoHeight));
+        canvas.width = Math.round(video.videoWidth * scale);
+        canvas.height = Math.round(video.videoHeight * scale);
+        g.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const hit = self.jsQR(g.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height, { inversionAttempts: 'dontInvert' });
         if (hit?.data && applySetupCode(hit.data)) return;
       }
       requestAnimationFrame(tick);
@@ -381,13 +398,19 @@ function bindDialog() {
   $('#btn-server').addEventListener('click', openServerSettings);
   $('#form-server').addEventListener('submit', (e) => {
     e.preventDefault();
-    saveAndTest({ url: $('#server-url').value, key: $('#server-key').value });
+    // A setup code in its box wins over the address and key fields.
+    if ($('#server-setup').value.trim()) applySetupCode($('#server-setup').value);
+    else saveAndTest({ url: $('#server-url').value, key: $('#server-key').value });
   });
-  // A keyboard-wedge scanner types the setup code and presses Enter.
+  // A keyboard-wedge scanner types the setup code and presses Enter. A pasted code is used as
+  // soon as it is complete, with no Enter needed.
   $('#server-setup').addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     e.preventDefault();
     applySetupCode(e.target.value);
+  });
+  $('#server-setup').addEventListener('input', (e) => {
+    if (api.decodeSetup(e.target.value)) applySetupCode(e.target.value);
   });
   $('#btn-server-camera').addEventListener('click', () => (scanStop ? stopCamera() : startCamera()));
   $('#server-qr-photo').addEventListener('change', (e) => {

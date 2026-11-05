@@ -13,12 +13,14 @@
 
 const $ = (sel) => document.querySelector(sel);
 
-// A new camera stream (iOS may ask for permission). Whoever starts it must
-// stop it with stopCamera() when done: nothing keeps it running.
+// A new back-camera stream (iOS may ask for permission), at a size that is
+// quick to read a QR code from: a full photo-size stream made every frame far
+// too slow to scan. Whoever starts it must stop it with stopCamera() when
+// done: nothing keeps it running.
 export function startCamera() {
   if (!navigator.mediaDevices?.getUserMedia) return Promise.reject(new Error('this app can’t open the live camera'));
   return navigator.mediaDevices.getUserMedia({
-    video: { facingMode: 'environment', width: { ideal: 2560 }, height: { ideal: 1920 } },
+    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
     audio: false,
   });
 }

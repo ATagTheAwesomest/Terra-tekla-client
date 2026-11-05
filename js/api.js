@@ -82,10 +82,13 @@ export function encodeSetup({ url, key }) {
 }
 
 export function decodeSetup(text) {
-  const s = String(text ?? '').trim();
-  if (!s.toUpperCase().startsWith(SETUP_PREFIX)) return null;
+  // Pasted or sent text can carry spaces, line breaks or invisible characters: keep only what a
+  // code can hold, from where "TERRACFG:" starts.
+  const s = String(text ?? '').replace(/[^A-Za-z0-9:_\-+/=]/g, '');
+  const at = s.toUpperCase().indexOf(SETUP_PREFIX);
+  if (at < 0) return null;
   try {
-    const b64 = s.slice(SETUP_PREFIX.length).replace(/-/g, '+').replace(/_/g, '/');
+    const b64 = s.slice(at + SETUP_PREFIX.length).replace(/=+$/, '').replace(/-/g, '+').replace(/_/g, '/');
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
     const { u, k } = JSON.parse(new TextDecoder().decode(bytes));
     return u || k ? { url: u ? cleanUrl(u) : '', key: k ?? '' } : null;
