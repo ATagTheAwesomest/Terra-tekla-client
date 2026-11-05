@@ -57,6 +57,42 @@ export function deviceId() {
   }
 }
 
+// True once this app (this storage) has a device id. The home screen app and Safari keep separate
+// storage, so a new install starts without one and is asked which iPad it is.
+export function hasDeviceId() {
+  try {
+    return Boolean(localStorage.getItem(DEVICE_KEY));
+  } catch {
+    return false;
+  }
+}
+
+// Makes this app the given device (one the server already knows), so a reinstall or the home
+// screen app carries on as the same iPad instead of turning up as a new user.
+export function setDeviceId(id) {
+  const clean = String(id ?? '').trim().toLowerCase();
+  if (!/^[a-z0-9-]{8,64}$/.test(clean)) throw new Error('Not a device id.');
+  localStorage.setItem(DEVICE_KEY, clean);
+  return clean;
+}
+
+// The iPads the server knows, read without this app's device header so reading the list can't
+// add this app as a new device. Newest seen first.
+export async function knownDevices({ url, key }) {
+  const base = cleanUrl(url) || pageOrigin();
+  let res;
+  try {
+    res = await fetch(`${base}/api/devices`, { headers: { Authorization: `Bearer ${String(key ?? '').trim()}` }, cache: 'no-store' });
+  } catch {
+    throw new ApiError('Can’t reach the server.');
+  }
+  if (!res.ok) throw new ApiError(`The iPad list couldn’t be read (error ${res.status}).`, res.status);
+  const list = await res.json().catch(() => []);
+  return (Array.isArray(list) ? list : [])
+    .filter((d) => d?.id)
+    .sort((a, b) => String(b.lastSeenAt ?? '').localeCompare(String(a.lastSeenAt ?? '')));
+}
+
 export function cleanUrl(url) {
   let u = String(url ?? '').trim().replace(/\/+$/, '');
   if (u && !/^https?:\/\//i.test(u)) u = `https://${u}`;
