@@ -478,6 +478,7 @@ body.at-home .topbar, body.at-home .scanbar, body.at-home .ship-body { visibilit
 .server-key-row input { flex: 1; }
 .server-result { min-height: 1.4em; margin: 12px 0 0; font-weight: 600; }
 .server-actions { flex-wrap: wrap; }
+.modal label#btn-server-qr-photo { position: relative; overflow: hidden; display: inline-flex; margin: 0; color: var(--text); font-size: inherit; }
 #server-video { width: 100%; max-height: 40vh; margin-top: 12px; border-radius: var(--radius); background: #000; }
 .server-qr { margin-top: 12px; text-align: center; }
 .server-qr svg { width: min(320px, 80vw); height: auto; background: #fff; border-radius: var(--radius); }

@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TERRA">
   <meta name="format-detection" content="telephone=no">
-  <meta name="terra-version" content="0.21.1">
+  <meta name="terra-version" content="0.21.3">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -233,6 +233,9 @@
         <p class="server-result" id="server-result" role="status"></p>
         <div class="modal-actions server-actions">
           <button class="btn" type="button" id="btn-server-camera">Scan QR with camera</button>
+          <label class="btn" id="btn-server-qr-photo">&#128247; Take a photo of the QR
+            <input id="server-qr-photo" type="file" accept="image/*" capture="environment" class="photos-input">
+          </label>
           <button class="btn" type="button" id="btn-server-qr">Show setup QR</button>
           <button class="btn btn-primary" type="submit">Save &amp; test</button>
         </div>
