@@ -33,6 +33,7 @@ import { bindHold } from './hold.js';
 import * as live from './live.js';
 import { clearResult, shortCode, showResult, stayAwake } from './handheld.js';
 import { isMobile } from './mobile.js';
+import * as bom from './job-bom.js';
 import * as codes from './piece-codes.js';
 import { jobKey } from './parts.js';
 import * as pf from './pf-loads.js';
@@ -179,11 +180,13 @@ export function openJob(job) {
   clearResult();
   render();
   if (number) codes.refresh(number).then(() => render());
+  if (number) bom.refresh(number);
   return number ? read({ remaining: true }) : null;
 }
 
 export function refresh() {
   if (ship.job) codes.refresh(ship.job);
+  if (ship.job) bom.refresh(ship.job);
   return read({ remaining: true });
 }
 
@@ -633,7 +636,8 @@ function showLoaded(load, mark, code, sequence) {
   const of = jobTotal(mark);
   showResult({
     kind: 'ok', mark, code,
-    text: `Loaded on load ${load.number}${sequence ? ` · seq ${sequence}` : ''}`,
+    // The transmittal from the job's BOM (js/job-bom.js), when it has one: information only.
+    text: `Loaded on load ${load.number}${sequence ? ` · seq ${sequence}` : ''}${bom.transmittalText(ship.job, mark) ? ` · ${bom.transmittalText(ship.job, mark)}` : ''}`,
     progress: of ? { n: Math.min(onLoad, of), of, label: `on this load, of the job’s ${mark}` } : null,
   });
 }
@@ -825,7 +829,9 @@ function detailRows(entry) {
   const shipped = same.reduce((n, { it, l }) => n + (l.shipped ? it.loaded : 0), 0);
   const onOpen = same.reduce((n, { it, l }) => n + (l.shipped ? 0 : it.qty), 0);
   const rest = ship.remaining.find((r) => r.mark === entry.mark && r.sequence === entry.sequence);
+  const tl = bom.rowsFor(ship.job, entry.mark)[0];
   return [
+    ...(tl ? [['Transmittal', bom.transmittalText(ship.job, entry.mark)], ['Due (BOM)', tl.due ?? ''], ['Paint / notes (BOM)', tl.notes ?? '']] : []),
     ['Made', rest?.total || ''],
     ['Left to ship, not on a load', rest?.remaining ?? 0],
     ['On open loads', onOpen],

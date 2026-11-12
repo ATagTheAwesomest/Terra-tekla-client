@@ -144,6 +144,3 @@ body.layout-mobile .check-row > :last-child { grid-area: undo; }
 
 /* Toasts sit near the top on phones, clear of the big bottom buttons. */
 body.layout-mobile .toast { bottom: auto; top: calc(72px + env(safe-area-inset-top)); }
-
-.last-scan-status { margin-top: 6px; font-size: 0.85rem; color: var(--text-muted); }
-.last-scan-status.warn { color: var(--flag); font-weight: 700; }

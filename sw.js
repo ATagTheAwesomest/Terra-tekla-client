@@ -27,6 +27,7 @@ const PRECACHE = [
   './js/export.js',
   './js/drag.js',
   './js/handheld.js',
+  './js/job-bom.js',
   './js/hold.js',
   './js/lookup.js',
   './js/live.js',

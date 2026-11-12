@@ -8,8 +8,6 @@
 // - the screen kept on while Shipping is open (screen wake lock), so a pause
 //   between trucks doesn't lock the handheld mid-load.
 
-import { statusOf } from './piece-codes.js';
-
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // A long piece code, shortened to its end (where codes usually differ).
@@ -26,9 +24,6 @@ const $ = (sel) => document.querySelector(sel);
 export function showResult({ kind = 'ok', mark = '', code = '', title = '', text = '', progress = null } = {}) {
   const el = $('#last-scan');
   if (!el) return;
-  // The piece's status in its job's code list (an export from the facility portal, say): shown so
-  // a piece the list says already went out (e.g. "Shipped to treatment") is noticed. It never blocks.
-  const status = code && kind !== 'ask' ? statusOf(code) : null;
   const pct = progress?.of ? Math.min(100, Math.round((progress.n / progress.of) * 100)) : 0;
   el.className = `last-scan ${kind}`;
   el.hidden = false;
@@ -39,7 +34,6 @@ export function showResult({ kind = 'ok', mark = '', code = '', title = '', text
       ${code ? `<span class="last-scan-code" title="${escapeHtml(code)}">${escapeHtml(shortCode(code))}</span>` : ''}
     </div>
     ${mark && title ? `<div class="last-scan-title">${escapeHtml(title)}</div>` : ''}
-    ${status ? `<div class="last-scan-status${/ship/i.test(status) ? ' warn' : ''}">List status: ${escapeHtml(status)}</div>` : ''}
     ${text ? `<div class="last-scan-text">${escapeHtml(text)}</div>` : ''}
     ${progress ? `<div class="last-scan-progress"><span class="bar"><span style="width:${pct}%"></span></span><b>${progress.n} / ${progress.of}</b>${progress.label ? ` <span>${escapeHtml(progress.label)}</span>` : ''}</div>` : ''}`;
 }

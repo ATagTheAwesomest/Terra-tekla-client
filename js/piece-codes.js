@@ -76,7 +76,8 @@ function add(job, codes) {
 }
 
 // The status a code's list gave its piece (for example "Fabrication Complete"), from any job open
-// on this device; null when the list had none.
+// on this device; null when the list had none. Kept, but not shown anywhere for now: an export's
+// status isn't live, so it would go stale.
 export function statusOf(code) {
   const k = upper(code);
   if (!k) return null;

@@ -8,6 +8,7 @@ import { initHandheld, stayAwake } from './handheld.js';
 import { shareLoadFile, printLoad } from './export.js';
 import { readJob } from './pf-loads.js';
 import * as live from './live.js';
+import { initJobBom } from './job-bom.js';
 import { initPieceCodes } from './piece-codes.js';
 import { initLayout } from './mobile.js';
 import { focusScanner, initScanner } from './scanner.js';
@@ -165,6 +166,7 @@ function bindEvents() {
   initScanner({ scan, canScan });
   initHandheld();
   initPieceCodes();
+  initJobBom();
   initStackStore();
   initShipping();
   live.on('status', renderStatus);
