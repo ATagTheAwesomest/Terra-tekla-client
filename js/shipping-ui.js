@@ -25,13 +25,15 @@
 // fast scanner can't race two writes.
 
 import { escapeHtml, toast } from './app.js';
-import { getConfig } from './api.js';
+import { findCode as lookupCode, getConfig } from './api.js';
 import { getCurrentJob, onCurrentJobChange, openJobPicker } from './current-job.js';
 import { checkSummary } from './check.js';
 import { initCheck, primeSound, renderCheck, submitCheck } from './check-ui.js';
 import { bindHold } from './hold.js';
 import * as live from './live.js';
+import { clearResult, shortCode, showResult, stayAwake } from './handheld.js';
 import { isMobile } from './mobile.js';
+import * as codes from './piece-codes.js';
 import { jobKey } from './parts.js';
 import * as pf from './pf-loads.js';
 import { flashFeedback, focusScanner, openKeypad } from './scanner.js';
@@ -69,6 +71,8 @@ export const ship = {
 let checking = false;
 // "+ Pallet" tapped: the next scan (or keypad entry) is the pallet's mark.
 let palletArmed = false;
+// A piece code not on the job's list was scanned: { code, manual } waits for its piece's mark.
+let pairing = null;
 let queue = Promise.resolve();
 let readSeq = 0;
 
@@ -171,11 +175,15 @@ export function openJob(job) {
   const number = job ? jobKey(job) : null;
   if (number === ship.job && ship.readAt) return read();
   Object.assign(ship, { job: number, pcid: null, loads: [], remaining: [], selectedId: null, readAt: null, error: '' });
+  pairing = null;
+  clearResult();
   render();
+  if (number) codes.refresh(number).then(() => render());
   return number ? read({ remaining: true }) : null;
 }
 
 export function refresh() {
+  if (ship.job) codes.refresh(ship.job);
   return read({ remaining: true });
 }
 
@@ -220,10 +228,11 @@ function openLoadFor(jobThen, mark = '') {
 // Puts one piece of `mark` on `load` and returns the PowerFab piece to load:
 // one already on the load and not loaded yet, or else one assigned now from
 // what the job has left (lowest sequence first).
-async function assignOne(load, mark) {
-  const waiting = toLoad(load, mark);
+// A piece code's list may say which sequence the piece is: that one is taken first.
+async function assignOne(load, mark, sequence = null) {
+  const waiting = (sequence && toLoad(load, mark, sequence)) || toLoad(load, mark);
   if (waiting) return waiting;
-  const pick = pickRemaining(mark, ship.remaining, ship.loads);
+  const pick = pickRemaining(mark, ship.remaining, ship.loads, sequence);
   if (!pick.row) throw blocked(mark, pick.reason);
   await pf.addMaterial(load.id, pick.row);
   ship.remaining = takeRemaining(ship.remaining, pick.row);
@@ -244,8 +253,70 @@ export function scan(raw, { manual = false } = {}) {
     return startPallet(raw, { manual });
   }
   // A draft check is a throwaway practice run: typed marks need no photo there.
-  if (manual && photosOn() && !(checking && stacks.isDraft(selectedLoad()))) return manualWithPhoto(raw);
+  const needsPhoto = manual && photosOn() && !(checking && stacks.isDraft(selectedLoad()));
+  // Jobs with piece codes (js/piece-codes.js): a code stands for one piece of its mark.
+  if (codes.codesOn(ship.job)) {
+    const c = codes.classify(ship.job, raw, { isMark: isJobMark });
+    if (pairing && c.kind === 'mark') return pairWith(raw, { manual });
+    if (pairing) setPairing(null);
+    if (c.kind === 'new-code') return newCode(c.code, { manual });
+    if (c.kind === 'code') {
+      const opts = { manual, code: c.code, sequence: c.sequence };
+      return needsPhoto ? manualWithPhoto(c.mark, opts) : scanNow(c.mark, opts);
+    }
+  }
+  if (needsPhoto) return manualWithPhoto(raw);
   return scanNow(raw, { manual });
+}
+
+// Whether the open job has this mark (on a load, or left to ship).
+function isJobMark(mark) {
+  return ship.remaining.some((r) => r.mark === mark) || ship.loads.some((l) => l.items.some((it) => it.mark === mark));
+}
+
+// ---- Piece codes -------------------------------------------------------------
+// A code the job's list doesn't have: while the job pairs new codes, the next
+// scan of a mark pairs them (kept on the server for every device) and then
+// loads, or checks, that piece. Otherwise it is refused.
+
+function setPairing(p) {
+  pairing = p;
+  renderScanbar();
+}
+
+function newCode(code, { manual = false } = {}) {
+  if (!selectedLoad()) return scanNow(code, { manual });
+  if (!codes.settings(ship.job).learn) {
+    flashFeedback('bad');
+    showBlock({ title: 'Code not on the list', mark: code, message: `${code} isn’t on job ${ship.job}’s piece code list, and this job doesn’t pair new codes on the devices. Add it on the admin board (Jobs › ${ship.job} › Piece codes).` });
+    return null;
+  }
+  setPairing({ code, manual });
+  flashFeedback('flag');
+  showResult({ kind: 'ask', title: 'New code', code, text: 'Scan the piece’s mark tag (or type the mark on the Keypad) to pair this code with it.' });
+  toast(`New code ${shortCode(code)}: scan its mark to pair it`, 4000);
+  return null;
+}
+
+async function pairWith(raw, { manual = false } = {}) {
+  const mark = cleanMark(raw);
+  const { code, manual: typedCode } = pairing;
+  if (!isJobMark(mark)) {
+    flashFeedback('bad');
+    showResult({ kind: 'bad', mark, title: 'Not a mark on this job', text: `Code ${shortCode(code)} is still waiting: scan its piece’s mark, or Cancel.` });
+    return null;
+  }
+  setPairing(null);
+  try {
+    await codes.pair(ship.job, code, mark);
+  } catch (err) {
+    flashFeedback('bad');
+    showBlock({ title: 'Code not paired', mark: code, message: err.message });
+    return null;
+  }
+  toast(`Paired ${shortCode(code)} with ${mark}`);
+  const opts = { manual: typedCode || manual, code };
+  return checking ? submitCheck(mark, opts) : scanNow(mark, opts);
 }
 
 // ---- Pallets -----------------------------------------------------------------
@@ -452,11 +523,11 @@ async function palletCount(stackId) {
 // The iPad camera opens for the typed mark and the entry only goes ahead with at
 // least one photo. The photos are kept (and sent) once the entry is made; if
 // PowerFab refuses it they are dropped, since the piece isn't on the load.
-async function manualWithPhoto(raw) {
+async function manualWithPhoto(raw, opts = {}) {
   const mark = cleanMark(raw);
   const open = selectedLoad();
   // No load, or a shipped one (outside truck check): refused straight away, no photo needed.
-  if (!mark || !open || (open.shipped && !checking)) return scanNow(raw, { manual: true });
+  if (!mark || !open || (open.shipped && !checking)) return scanNow(raw, { ...opts, manual: true });
   const shots = await askPhotos({
     title: `Photo of ${mark}`,
     note: 'Typed in by hand, so it needs a photo of the piece (its mark or tag).',
@@ -468,7 +539,7 @@ async function manualWithPhoto(raw) {
     return null;
   }
   const job = ship.job;
-  const result = await scanNow(raw, { manual: true });
+  const result = await scanNow(raw, { ...opts, manual: true });
   if (!result) {
     toast(`${mark} wasn’t added, so its photo${shots.length === 1 ? ' wasn’t' : 's weren’t'} kept`, 5000);
     return result;
@@ -481,8 +552,11 @@ async function manualWithPhoto(raw) {
   return result;
 }
 
-function scanNow(raw, { manual = false } = {}) {
-  if (checking) return submitCheck(raw, { manual });
+// `code` (jobs with piece codes): the piece's own code, kept on its row; one
+// already on this load or another is refused before anything goes to PowerFab.
+// `sequence`: the sequence the code's list gives, taken first.
+function scanNow(raw, { manual = false, code = null, sequence = null } = {}) {
+  if (checking) return submitCheck(raw, { manual, code });
   const mark = cleanMark(raw);
   if (!mark) return null;
   // A shipped load is view and truck check only: refuse straight away,
@@ -500,17 +574,27 @@ function scanNow(raw, { manual = false } = {}) {
     showBlock({ title: 'No load open', mark, message: 'Pick or create a load first.' });
     return null;
   }
+  if (code) {
+    const where = stacks.codeOnLoads(ship.job, code);
+    if (where) {
+      flashFeedback('bad');
+      showBlock({ title: 'Piece already loaded', mark: code, message: `This ${where.entry.mark} (code ${code}) is already on ${where.loadId === open.id ? 'this load' : `load ${where.loadNumber}`}, in ${where.stack.name}.` });
+      return null;
+    }
+  }
   const jobThen = ship.job;
   // The row shows (as "sending") on every iPad straight away, in this iPad's
   // active stack; it waits its turn behind any scans still going to PowerFab.
-  const entryId = safely(() => stacks.beginScan(open, mark, { manual }));
+  const entryId = safely(() => stacks.beginScan(open, mark, { manual, code }));
+  showResult({ kind: 'wait', mark, code, text: ship.busy ? 'Waiting for the scans before it…' : 'Sending to PowerFab…' });
   render();
   return change(async () => {
     try {
       const load = openLoadFor(jobThen, mark);
       if (load.id !== open.id) throw Object.assign(new Error(`The open load changed before ${mark} was sent. Scan it again.`), { title: 'Load changed', mark });
+      if (code) await codeNotElsewhere(code, load, mark);
       const wasWaiting = Boolean(toLoad(load, mark));
-      const item = await assignOne(load, mark);
+      const item = await assignOne(load, mark, sequence);
       try {
         await pf.loadMaterial(load.id, item);
       } catch (err) {
@@ -520,11 +604,38 @@ function scanNow(raw, { manual = false } = {}) {
       }
       if (entryId) stacks.finishScan(load, entryId, pieceDetails(item));
       done(`${mark} loaded on load ${load.number}${item.sequence ? ` (seq ${item.sequence})` : ''}`);
+      showLoaded(load, mark, code, item.sequence);
     } catch (err) {
       if (entryId) stacks.failScan(open, entryId, { mark, title: err.title ?? 'PowerFab refused that', message: err.message });
       throw err;
     }
   }, { remaining: true });
+}
+
+// The server's word on where a piece code is (another device may have loaded it
+// a moment ago). Not reachable: the scan goes ahead, and the server still
+// refuses a code twice when the row arrives.
+async function codeNotElsewhere(code, load, mark) {
+  let found = null;
+  try {
+    found = await Promise.race([lookupCode(ship.job, code), new Promise((resolve) => { setTimeout(() => resolve(null), 2000); })]);
+  } catch { /* 404: on no load; offline: go ahead */ }
+  if (found?.load && found.load.loadId !== load.id) {
+    throw Object.assign(new Error(`This ${found.mark ?? mark} (code ${code}) is already on load ${found.load.loadNumber}.`), { title: 'Piece already loaded', mark: code });
+  }
+}
+
+// The last scan's card after a piece loaded: how many of its mark are on this
+// load now, out of what the job has.
+function showLoaded(load, mark, code, sequence) {
+  let onLoad = 0;
+  try { onLoad = stacks.get(load).stacks.reduce((n, st) => n + st.items.filter((e) => e.mark === mark && !e.pending).length, 0); } catch { /* storage blocked */ }
+  const of = jobTotal(mark);
+  showResult({
+    kind: 'ok', mark, code,
+    text: `Loaded on load ${load.number}${sequence ? ` · seq ${sequence}` : ''}`,
+    progress: of ? { n: Math.min(onLoad, of), of, label: `on this load, of the job’s ${mark}` } : null,
+  });
 }
 
 // Takes the piece a stack row stands for off the truck and off the load, then
@@ -636,6 +747,7 @@ function blocked(mark, reason) {
 // ---- "Not added" dialog ----------------------------------------------------
 
 export function showBlock({ title, mark, message }) {
+  showResult({ kind: 'bad', mark: mark ?? '', title, text: message });
   $('#ship-block-title').textContent = title;
   $('#ship-block-mark').textContent = mark ?? '';
   $('#ship-block-msg').textContent = message;
@@ -791,7 +903,7 @@ function renderLoad(load) {
   const locked = load.shipped
     ? '<p class="ship-locked">Shipped: view and truck check only. Pieces and stacks can’t be scanned on, moved, renamed or taken off. Hold to unship to change this load.</p>'
     : '';
-  return head + locked + refusedNote(load) + renderStacks(state, { locked: load.shipped }) + returnsSection(load);
+  return head + locked + refusedNote(load) + renderStacks(state, { locked: load.shipped, compact: isMobile() }) + returnsSection(load);
 }
 
 function renderWorkspace() {
@@ -840,10 +952,12 @@ function renderScanbar() {
   $('#scanbar').classList.toggle('view-only', viewOnly);
   if (palletArmed && (checking || load.shipped)) palletArmed = false;
   $('#scanbar').classList.toggle('pallet-armed', palletArmed);
-  $('#scan-label').textContent = ship.busy ? 'Sending to PowerFab…' : checking ? 'Truck check' : viewOnly ? 'Shipped, view only' : palletArmed ? 'New pallet' : 'Scanning into';
-  $('#scan-stack').textContent = checking ? `Load ${load.number}` : viewOnly ? 'Tap Truck check to scan' : palletArmed ? 'Scan the mark (or Keypad)' : stackName;
-  $('#btn-new-stack').hidden = checking || load.shipped || palletArmed;
-  $('#btn-pallet').hidden = checking || load.shipped;
+  $('#scanbar').classList.toggle('pairing', Boolean(pairing));
+  $('#scan-label').textContent = pairing ? `New code ${shortCode(pairing.code)}` : ship.busy ? 'Sending to PowerFab…' : checking ? 'Truck check' : viewOnly ? 'Shipped, view only' : palletArmed ? 'New pallet' : 'Scanning into';
+  $('#scan-stack').textContent = pairing ? 'Scan its mark' : checking ? `Load ${load.number}` : viewOnly ? 'Tap Truck check to scan' : palletArmed ? 'Scan the mark (or Keypad)' : stackName;
+  $('#btn-pair-cancel').hidden = !pairing;
+  $('#btn-new-stack').hidden = checking || load.shipped || palletArmed || Boolean(pairing);
+  $('#btn-pallet').hidden = checking || load.shipped || Boolean(pairing);
   $('#btn-pallet').textContent = palletArmed ? 'Cancel pallet' : '+ Pallet';
   $('#btn-pallet').classList.toggle('btn-primary', !palletArmed);
   $('#btn-check-done').hidden = !checking;
@@ -975,6 +1089,8 @@ function setChecking(on, { draft = false } = {}) {
   }
   const wasDraft = stacks.isDraft(load);
   checking = on;
+  pairing = null;
+  clearResult();
   if (!on || !draft) stacks.endDraft();
   if (on) {
     primeSound();
@@ -1089,6 +1205,8 @@ export function initShipping() {
     if (!id) return;
     ship.selectedId = id;
     palletArmed = false;
+    pairing = null;
+    clearResult();
     setPanel(false);
     render();
     focusScanner();
@@ -1111,10 +1229,18 @@ export function initShipping() {
   $('#btn-new-stack').addEventListener('click', newStack);
   $('#btn-pallet').addEventListener('click', armPallet);
   $('#btn-check-done').addEventListener('click', () => setChecking(false));
+  $('#btn-pair-cancel').addEventListener('click', () => {
+    if (pairing) toast(`Code ${shortCode(pairing.code)} not paired`);
+    setPairing(null);
+    clearResult();
+    focusScanner();
+  });
+  codes.onChange((job) => { if (job && String(job).toUpperCase() === String(ship.job ?? '').toUpperCase()) renderSoon(); });
   onCurrentJobChange((job) => openJob(job));
 }
 
 // Opens Shipping on the current job (from the home tile).
 export function enterShipping() {
+  if (!document.body.classList.contains('at-home')) stayAwake(true);
   openJob(getCurrentJob());
 }

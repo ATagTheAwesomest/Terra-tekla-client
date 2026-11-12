@@ -17,7 +17,7 @@ let retry = 1000;
 let retryTimer = null;
 let pingTimer = null;
 let everLive = false;
-const handlers = { load: [], devices: [], status: [], photos: [], reconnect: [], 'client-updated': [] };
+const handlers = { load: [], devices: [], status: [], photos: [], reconnect: [], 'client-updated': [], codes: [], 'codes-settings': [], 'codes-cleared': [] };
 
 export function on(type, fn) {
   handlers[type].push(fn);
@@ -114,6 +114,8 @@ export function connect() {
       setDevices(msg.devices);
     } else if (msg.type === 'load' && msg.state) {
       emit('load', msg.state, { by: msg.by, op: msg.op, mine: msg.by === deviceId() });
+    } else if (msg.type === 'codes' || msg.type === 'codes-settings' || msg.type === 'codes-cleared') {
+      emit(msg.type, msg);
     } else if (msg.type === 'photos') {
       emit('photos', msg.job, msg.load);
     } else if (msg.type === 'client-updated') {

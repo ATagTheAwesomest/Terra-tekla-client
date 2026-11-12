@@ -293,6 +293,28 @@ export function sendOp(loadId, op) {
   return request(`/api/loads/${encodeURIComponent(loadId)}/ops`, { method: 'POST', body: op });
 }
 
+// Several queued changes to one load, in order, in one request. Resolves
+// { state, changed, results: [{ opId, changed, error }] }.
+export function sendOps(loadId, { job, loadNumber, ops }) {
+  return request(`/api/loads/${encodeURIComponent(loadId)}/ops/batch`, { method: 'POST', body: { job, loadNumber, ops } });
+}
+
+// ---- Piece codes (js/piece-codes.js) --------------------------------------------------
+
+// { settings, count, codes: [{ id, code, mark, sequence }], last }: codes added after `since`.
+export function jobCodes(job, since = 0) {
+  return request(`/api/jobs/${encodeURIComponent(job)}/codes?since=${encodeURIComponent(since)}`);
+}
+
+// { code, mark, sequence, load: { loadId, loadNumber } | null }; 404 when the job has no such code.
+export function findCode(job, code) {
+  return request(`/api/jobs/${encodeURIComponent(job)}/codes/${encodeURIComponent(code)}`);
+}
+
+export function pairCode(job, { code, mark, sequence = null }) {
+  return request(`/api/jobs/${encodeURIComponent(job)}/codes`, { method: 'POST', body: { code, mark, sequence } });
+}
+
 // ---- Photos -------------------------------------------------------------------------
 // terra-tekla-server keeps them in a folder per job, then per load (its
 // docs/PHOTOS.md), tagged with the device that took them. Off on the server
