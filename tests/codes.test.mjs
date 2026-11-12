@@ -32,12 +32,14 @@ test('a job without piece codes scans as it always did', () => {
 
 test('a scan is a known code, a new code, or a mark', async () => {
   reply = { settings: { enabled: true, pattern: '', learn: true }, count: 2, last: 2, codes: [
-    { id: 1, code: 'ABC123456789', mark: '1001-c1', sequence: '1001' },
+    { id: 1, code: 'ABC123456789', mark: '1001-c1', sequence: '1001', status: 'Shipped to treatment' },
     { id: 2, code: 'DEF123456789', mark: '1001-C1', sequence: null },
   ] };
   assert.equal(await codes.refresh('J1'), true);
   assert.equal(codes.codesOn('J1'), true);
-  assert.deepEqual(codes.classify('J1', ' abc123456789 '), { kind: 'code', code: 'ABC123456789', mark: '1001-C1', sequence: '1001' });
+  assert.deepEqual(codes.classify('J1', ' abc123456789 '), { kind: 'code', code: 'ABC123456789', mark: '1001-C1', sequence: '1001', status: 'Shipped to treatment' });
+  assert.equal(codes.statusOf('abc123456789'), 'Shipped to treatment');
+  assert.equal(codes.statusOf('DEF123456789'), null);
   assert.deepEqual(codes.classify('J1', 'ZZZ999999999'), { kind: 'new-code', code: 'ZZZ999999999' });
   assert.deepEqual(codes.classify('J1', '1001-C1'), { kind: 'mark' });
   // A known mark is never a new code, even when it looks like one.
@@ -45,7 +47,7 @@ test('a scan is a known code, a new code, or a mark', async () => {
 
   // Pairing remembers it here at once and tells the server.
   await codes.pair('J1', 'ZZZ999999999', '1001-c2');
-  assert.deepEqual(codes.classify('J1', 'zzz999999999'), { kind: 'code', code: 'ZZZ999999999', mark: '1001-C2', sequence: null });
+  assert.deepEqual(codes.classify('J1', 'zzz999999999'), { kind: 'code', code: 'ZZZ999999999', mark: '1001-C2', sequence: null, status: null });
   assert.deepEqual(posted.at(-1), { code: 'ZZZ999999999', mark: '1001-c2', sequence: null });
 });
 

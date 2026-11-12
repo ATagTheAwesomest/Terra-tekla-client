@@ -19,7 +19,7 @@ const PENDING_KEY = 'terra.codes.pending';
 export const DEFAULT_PATTERN = '^[A-Za-z0-9]{12,}$';
 const OFF = { enabled: false, pattern: DEFAULT_PATTERN, learn: true };
 
-const jobs = new Map(); // JOB -> { settings, codes: Map(CODE -> { code, mark, sequence }), last, count }
+const jobs = new Map(); // JOB -> { settings, codes: Map(CODE -> { code, mark, sequence, status }), last, count }
 const listeners = new Set();
 
 function read(key, fallback) {
@@ -50,7 +50,7 @@ function save(job) {
   clearTimeout(saveTimers.get(upper(job)));
   saveTimers.set(upper(job), setTimeout(() => {
     const e = entry(job);
-    write(KEY(job), { settings: e.settings, last: e.last, codes: [...e.codes.values()].map(({ code, mark, sequence }) => ({ code, mark, sequence })) });
+    write(KEY(job), { settings: e.settings, last: e.last, codes: [...e.codes.values()].map(({ code, mark, sequence, status }) => ({ code, mark, sequence, status })) });
   }, 300));
 }
 
@@ -70,9 +70,21 @@ function add(job, codes) {
   const e = entry(job);
   for (const c of codes ?? []) {
     if (!c?.code) continue;
-    e.codes.set(upper(c.code), { code: c.code, mark: normalizeMark(c.mark).replace(/-+$/, ''), sequence: c.sequence ?? null });
+    e.codes.set(upper(c.code), { code: c.code, mark: normalizeMark(c.mark).replace(/-+$/, ''), sequence: c.sequence ?? null, status: c.status ?? null });
     if (Number(c.id) > e.last) e.last = Number(c.id);
   }
+}
+
+// The status a code's list gave its piece (for example "Fabrication Complete"), from any job open
+// on this device; null when the list had none.
+export function statusOf(code) {
+  const k = upper(code);
+  if (!k) return null;
+  for (const e of jobs.values()) {
+    const hit = e.codes.get(k);
+    if (hit) return hit.status ?? null;
+  }
+  return null;
 }
 
 export function settings(job) {
@@ -126,7 +138,7 @@ export function classify(job, raw, { isMark = () => false } = {}) {
   const picked = m?.groups?.code?.trim() || text;
   for (const c of new Set([text, picked])) {
     const hit = e.codes.get(upper(c));
-    if (hit) return { kind: 'code', code: hit.code, mark: hit.mark, sequence: hit.sequence ?? null };
+    if (hit) return { kind: 'code', code: hit.code, mark: hit.mark, sequence: hit.sequence ?? null, status: hit.status ?? null };
   }
   if (isMark(normalizeMark(text).replace(/-+$/, ''))) return { kind: 'mark' };
   if (m) return { kind: 'new-code', code: picked };
