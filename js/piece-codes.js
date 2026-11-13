@@ -88,6 +88,20 @@ export function statusOf(code) {
   return null;
 }
 
+// A code on the job's list on this device, whether or not piece codes are switched on
+// (Piece lookup finds a barcode either way): { code, mark, sequence } or null.
+export function knownCode(job, raw) {
+  if (!job) return null;
+  return entry(job).codes.get(upper(raw)) ?? null;
+}
+
+// The codes this device has for a mark of the job, sorted: [{ code, mark, sequence }].
+export function codesForMark(job, mark) {
+  if (!job) return [];
+  const m = normalizeMark(mark).replace(/-+$/, '');
+  return [...entry(job).codes.values()].filter((c) => c.mark === m).sort((a, b) => a.code.localeCompare(b.code));
+}
+
 export function settings(job) {
   return job ? entry(job).settings : OFF;
 }

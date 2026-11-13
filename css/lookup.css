@@ -232,3 +232,6 @@ dialog.lookup::backdrop { background: var(--bg); }
   .lk-code-list { grid-template-columns: 1fr; }
   .lk-tl b { font-size: 1.3rem; }
 }
+
+.lk-head-code { margin-top: 4px; }
+.lk-head-code .lk-code { color: var(--ok); }

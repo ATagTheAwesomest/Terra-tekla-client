@@ -146,10 +146,13 @@ function renderBom(mark) {
 
 // The piece code scanned (if any) and every code of the mark, with the load that has each.
 function renderCodes(mark) {
-  if (!codes.codesOn(data.job) && !view.code) return '';
-  const mc = view.markCodes?.mark === mark ? view.markCodes : null;
+  const local = codes.codesForMark(data.job, mark);
+  if (!jobHasCodes() && !view.code && !local.length) return '';
+  // The server's list (with loads) once read; until then, or offline, the copy on this device.
+  let mc = view.markCodes?.mark === mark ? view.markCodes : null;
+  if ((!mc || mc.error || !mc.list) && local.length) mc = { mark, list: local.map((c) => ({ code: c.code, loadId: null, local: true })), error: '' };
   const scanned = view.code ? `<div class="lk-code-hit">
-      <span class="stat-label">Scanned code</span><b class="lk-code">${escapeHtml(view.code)}</b>
+      <span class="stat-label">Scanned barcode</span><b class="lk-code">${escapeHtml(view.code)}</b>
       ${view.codeInfo?.load ? `<button class="btn lk-pill ok" type="button" data-open-load="${escapeHtml(view.codeInfo.load.loadId)}">On load ${escapeHtml(view.codeInfo.load.loadNumber)}</button>`
         : view.codeInfo?.error ? `<span class="muted">${escapeHtml(view.codeInfo.error)}</span>`
         : view.codeInfo ? '<span class="lk-pill muted">Not on a load</span>' : '<span class="muted">Checking…</span>'}
@@ -157,12 +160,24 @@ function renderCodes(mark) {
   const list = !mc ? '' : mc.error ? `<p class="muted">${escapeHtml(mc.error)}</p>`
     : !mc.list ? '<p class="muted">Reading the codes…</p>'
     : !mc.list.length ? '<p class="muted">No codes for this mark yet.</p>'
-    : `<p class="muted">${mc.list.filter((c) => c.loadId).length} of ${mc.list.length} code${mc.list.length === 1 ? '' : 's'} on a load</p>
+    : `<p class="muted">${mc.list[0]?.local ? `${mc.list.length} barcode${mc.list.length === 1 ? '' : 's'}` : `${mc.list.filter((c) => c.loadId).length} of ${mc.list.length} barcode${mc.list.length === 1 ? '' : 's'} on a load`}</p>
       <ul class="lk-code-list">${mc.list.map((c) => `<li class="${c.code.toUpperCase() === (view.code ?? '').toUpperCase() ? 'this' : ''}">
         <span class="lk-code">${escapeHtml(c.code)}</span>
-        ${c.loadId ? `<button class="btn lk-pill ok" type="button" data-open-load="${escapeHtml(c.loadId)}">Load ${escapeHtml(c.loadNumber)}</button>` : '<span class="lk-pill muted">Not loaded</span>'}
+        ${c.loadId ? `<button class="btn lk-pill ok" type="button" data-open-load="${escapeHtml(c.loadId)}">Load ${escapeHtml(c.loadNumber)}</button>` : c.local ? '' : '<span class="lk-pill muted">Not loaded</span>'}
       </li>`).join('')}</ul>`;
-  return `<section class="lk-codes"><h3>Piece codes</h3>${scanned}${list}</section>`;
+  return `<section class="lk-codes"><h3>Barcodes</h3>${scanned}${list}</section>`;
+}
+
+// Whether the job has piece codes (switched on, or a list on file even while off).
+function jobHasCodes() {
+  return codes.codesOn(data.job) || codes.codeCount(data.job) > 0;
+}
+
+// The barcode shown under the mark: the one scanned, or the mark's only one.
+function headCode(mark) {
+  if (view.code && view.mark === mark) return view.code;
+  const list = view.markCodes?.mark === mark && view.markCodes.list ? view.markCodes.list : codes.codesForMark(data.job, mark);
+  return list.length === 1 ? list[0].code : '';
 }
 
 // Reads the scanned code's load and the mark's codes from the server, then draws again.
@@ -200,6 +215,7 @@ function renderHit(hit) {
         <div>
           <div class="lk-mark">${escapeHtml(part?.mark ?? hit.mark)}</div>
           <div class="lk-job">${escapeHtml(data.job ?? '')}</div>
+          ${headCode(hit.mark) ? `<div class="lk-head-code"><span class="stat-label">Barcode</span> <b class="lk-code">${escapeHtml(headCode(hit.mark))}</b></div>` : ''}
         </div>
         <span class="lk-pill lg ${state.cls}">${escapeHtml(state.text)}</span>
       </header>
@@ -338,7 +354,9 @@ export function lookup(raw) {
   let mark = String(raw ?? '').trim().toUpperCase().replace(/-+$/, '');
   if (!mark) return;
   // A piece code: look up its mark, and show where that one piece is.
-  const c = codes.classify(data.job, raw, { isMark: (m) => lookupMark(m, data).found || bom.rowsFor(data.job, m).length > 0 });
+  const known = codes.knownCode(data.job, raw);
+  const c = known ? { kind: 'code', code: known.code, mark: known.mark }
+    : codes.classify(data.job, raw, { isMark: (m) => lookupMark(m, data).found || bom.rowsFor(data.job, m).length > 0 });
   view.code = c.kind === 'code' || c.kind === 'new-code' ? c.code : null;
   if (c.kind === 'code') mark = c.mark;
   view.tab = 'piece';
@@ -349,7 +367,7 @@ export function lookup(raw) {
     flash('flag');
     return;
   }
-  if (codes.codesOn(data.job) || view.code) readCodes(mark, view.code);
+  if (jobHasCodes() || view.code) readCodes(mark, view.code);
   const hit = render();
   if (!hit) return;
   if (hit.found) remember(hit.mark);
