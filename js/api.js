@@ -41,27 +41,42 @@ export function getConfig() {
   }
 }
 
-// This device's id, made up the first time and kept: the server knows the
-// device (its name, colour, what it scanned) by it.
+// This device's id: the server knows the device (its name, colour, what it scanned) by it. Kept in
+// this app's storage; when that is empty (Safari and the home screen app each have their own, and a
+// new install starts empty) it is taken from the server's terra_device cookie, which adding the app
+// to the home screen copies over from Safari, so the same iPad stays the same device. Only when
+// neither has one is a new id made up.
 export function deviceId() {
   try {
     let id = localStorage.getItem(DEVICE_KEY);
     if (!id) {
-      id = (crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`).toLowerCase();
+      id = cookieDeviceId() ?? (crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`).toLowerCase();
       localStorage.setItem(DEVICE_KEY, id);
     }
     return id;
   } catch {
-    deviceId.memo ??= `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    deviceId.memo ??= cookieDeviceId() ?? `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     return deviceId.memo;
+  }
+}
+
+// The id in the server's terra_device cookie (set on every request with a device id), or null.
+function cookieDeviceId() {
+  try {
+    const m = String(globalThis.document?.cookie ?? '').match(/(?:^|;\s*)terra_device=([^;]*)/);
+    const id = m ? decodeURIComponent(m[1]).toLowerCase() : '';
+    return /^[a-z0-9-]{8,64}$/.test(id) ? id : null;
+  } catch {
+    return null;
   }
 }
 
 // True once this app (this storage) has a device id. The home screen app and Safari keep separate
 // storage, so a new install starts without one and is asked which iPad it is.
+// The server's cookie (copied from Safari) counts: this app then is that iPad without asking.
 export function hasDeviceId() {
   try {
-    return Boolean(localStorage.getItem(DEVICE_KEY));
+    return Boolean(localStorage.getItem(DEVICE_KEY) || cookieDeviceId());
   } catch {
     return false;
   }

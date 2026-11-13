@@ -7,7 +7,7 @@
 // iPad comes back online or to the front). While it is down, changes still go to the server by
 // plain requests; js/stack-store.js keeps any it can't send yet and sends them when it can.
 
-import { deviceId, getConfig } from './api.js';
+import { deviceId, getConfig, setDeviceId } from './api.js';
 
 let socket = null;
 let state = 'off';     // 'off' | 'connecting' | 'live' | 'down' | 'refused'
@@ -44,7 +44,8 @@ export function getDevices() {
 // { name, color } of a device by id, or null (PowerFab itself, or one the server never named).
 export function deviceInfo(id) {
   if (!id) return null;
-  return devices.find((d) => d.id === id) ?? (me?.id === id ? me : null);
+  // An old id (an install of the same iPad merged into this device) is that device.
+  return devices.find((d) => d.id === id) ?? devices.find((d) => d.aliases?.includes(id)) ?? (me?.id === id ? me : null);
 }
 
 export function onlineCount() {
@@ -69,6 +70,10 @@ export function setMe(device) {
   const i = devices.findIndex((d) => d.id === device.id);
   if (i >= 0) devices[i] = { ...devices[i], ...device };
   emit('devices', devices);
+}
+
+function follow(id) {
+  try { setDeviceId(id); } catch (err) { console.warn('device id not switched:', err); }
 }
 
 function wsUrl(config) {
@@ -102,7 +107,11 @@ export function connect() {
     try { msg = JSON.parse(e.data); } catch { return; }
     if (msg.type === 'welcome') {
       retry = 1000;
-      if (msg.device) me = msg.device;
+      if (msg.device) {
+        me = msg.device;
+        // The id this app sent was merged into another device (the same iPad): be that one now.
+        if (me.id && me.id !== deviceId()) follow(me.id);
+      }
       setDevices(msg.devices);
       setState('live');
       clearInterval(pingTimer);
@@ -112,6 +121,10 @@ export function connect() {
       everLive = true;
     } else if (msg.type === 'devices') {
       setDevices(msg.devices);
+    } else if (msg.type === 'device-merged' && msg.from === deviceId() && msg.device) {
+      // This app's device was merged into another on the admin board: carry on as that one.
+      follow(msg.into);
+      setMe(msg.device);
     } else if (msg.type === 'load' && msg.state) {
       emit('load', msg.state, { by: msg.by, op: msg.op, mine: msg.by === deviceId() });
     } else if (msg.type === 'codes' || msg.type === 'codes-settings' || msg.type === 'codes-cleared' || msg.type === 'bom') {
