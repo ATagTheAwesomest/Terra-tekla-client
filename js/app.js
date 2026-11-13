@@ -4,9 +4,12 @@
 import { getCurrentJob, initCurrentJob, jobsChanged, requireCurrentJob } from './current-job.js';
 import { getConfig } from './api.js';
 import { cancelDrag } from './drag.js';
+import { initHandheld, stayAwake } from './handheld.js';
 import { shareLoadFile, printLoad } from './export.js';
 import { readJob } from './pf-loads.js';
 import * as live from './live.js';
+import { initJobBom } from './job-bom.js';
+import { initPieceCodes } from './piece-codes.js';
 import { initLayout } from './mobile.js';
 import { focusScanner, initScanner } from './scanner.js';
 import { initServer, openServerSettings, refreshJobs, serverStatus, updateServerCopy } from './server-ui.js';
@@ -41,6 +44,8 @@ export function toast(message, ms = 2500) {
 
 export function setHome(open) {
   cancelDrag();
+  // The screen stays on in Shipping (a handheld between trucks), not on the home screen.
+  stayAwake(!open);
   syncHomeServerTile();
   document.body.classList.toggle('at-home', open);
   $('#home').hidden = !open;
@@ -159,6 +164,9 @@ function bindEvents() {
   syncHomeServerTile();
   initLayout(renderShipping);
   initScanner({ scan, canScan });
+  initHandheld();
+  initPieceCodes();
+  initJobBom();
   initStackStore();
   initShipping();
   live.on('status', renderStatus);

@@ -198,3 +198,37 @@ dialog.lookup::backdrop { background: var(--bg); }
   .lookup-scope { flex-wrap: wrap; }
   .lookup-scope .stat-label { display: none; }
 }
+
+/* From the job's BOM (js/job-bom.js) and piece codes (js/piece-codes.js). */
+.lk-bom { margin: 12px 0; padding: 12px; border: 2px solid var(--border); border-radius: var(--radius); background: var(--surface-1); }
+.lk-bom .lk-facts { margin: 8px 0 0; }
+.lk-tl { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.lk-tl b { font-size: 1.5rem; color: var(--accent); font-family: var(--mono); }
+.lk-exception { margin: 8px 0 0; color: var(--flag); font-weight: 600; }
+.lk-bom-none { margin: 12px 0; }
+.lk-codes { margin: 12px 0; }
+.lk-codes h3 { margin: 0 0 6px; font-size: 1rem; }
+.lk-code { font-family: var(--mono); font-size: 1.05rem; }
+.lk-code-hit { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 12px; margin-bottom: 8px;
+  border: 2px solid var(--ok); border-radius: var(--radius); }
+.lk-code-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px; }
+.lk-code-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px;
+  border: 1px solid var(--border); border-radius: var(--radius); }
+.lk-code-list li.this { border-color: var(--ok); }
+.lk-code-list .btn.lk-pill, .lk-code-hit .btn.lk-pill { min-height: 36px; }
+.lk-warn { margin: 0 0 12px; padding: 10px 12px; border: 2px solid var(--flag); border-radius: var(--radius); color: var(--flag); background: var(--flag-bg); }
+.lk-tls { align-items: center; }
+.lk-tls .stat-label { margin-right: 4px; }
+
+@media (max-width: 600px) {
+  /* With a TL column the columns move one along: keep TL, hide the same ones as without it. */
+  .lk-marks.has-tl th:nth-child(2), .lk-marks.has-tl td:nth-child(2) { display: table-cell; }
+  .lk-marks.has-tl th:nth-child(6), .lk-marks.has-tl td:nth-child(6) { display: table-cell; }
+  .lk-marks.has-tl th:nth-child(4), .lk-marks.has-tl td:nth-child(4),
+  .lk-marks.has-tl th:nth-child(7), .lk-marks.has-tl td:nth-child(7) { display: none; }
+  .lk-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #lookup-read { display: none; }
+  .lk-refresh-label, .lookup-job .muted { display: none; }
+  .lk-code-list { grid-template-columns: 1fr; }
+  .lk-tl b { font-size: 1.3rem; }
+}

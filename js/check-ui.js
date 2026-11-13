@@ -10,7 +10,9 @@
 // or logged, typed marks need no photo, and it is gone once you leave it.
 
 import { escapeHtml } from './app.js';
-import { checkStatus, extraReason } from './check.js';
+import { checkStatus, codeChecked, extraReason } from './check.js';
+import { shortCode, showResult } from './handheld.js';
+import { isMobile } from './mobile.js';
 import { bindHold } from './hold.js';
 import { flashFeedback } from './scanner.js';
 import { cleanMark, formatWeight } from './shipping.js';
@@ -25,6 +27,8 @@ const RESET_HOLD_MS = 4000;
 
 let ctx = null;
 let missingOnly = false;
+// Phone layout: marks whose pieces are shown under their line.
+const openMarks = new Set();
 
 function formatTime(iso) {
   const d = new Date(iso);
@@ -71,7 +75,7 @@ function renderExtras(s) {
     <li class="check-row extra" data-scan-id="${escapeHtml(x.scan.id)}">
       <span class="check-tick" aria-hidden="true">!</span>
       <span class="check-mark">${escapeHtml(x.scan.mark)}</span>
-      <span class="check-desc">${escapeHtml(extraReason(x))}${x.scan.manual ? ' &middot; typed' : ''} ${whoBadge(x.scan.scannedBy)}</span>
+      <span class="check-desc">${x.scan.code ? `<span class="item-code" title="${escapeHtml(x.scan.code)}">${escapeHtml(shortCode(x.scan.code))}</span> ` : ''}${escapeHtml(extraReason(x))}${x.scan.manual ? ' &middot; typed' : ''} ${whoBadge(x.scan.scannedBy)}</span>
       <span class="check-time">${formatTime(x.scan.scannedAt)}</span>
       <button class="btn btn-icon btn-hold" type="button" data-hold="check-undo" data-hold-ms="${UNDO_HOLD_MS}" aria-label="Hold to remove this scan" title="Hold to remove this scan">&#10005;</button>
     </li>`).join('');
@@ -85,10 +89,11 @@ function renderExtras(s) {
 function renderRow({ entry, scan }) {
   const done = Boolean(scan);
   const desc = [entry.sequence ? `Seq ${entry.sequence}` : '', entry.description].filter(Boolean).join(' · ');
+  const code = entry.code ?? scan?.code;
   return `
     <li class="check-row${done ? ' done' : ''}${entry.manual ? ' flagged' : ''}" data-check-item="${escapeHtml(entry.id)}"${scan ? ` data-scan-id="${escapeHtml(scan.id)}"` : ''}>
       <span class="check-tick" aria-label="${done ? 'Checked' : 'Not checked'}">${done ? '&#10003;' : ''}</span>
-      <span class="check-mark">${escapeHtml(entry.mark)}</span>
+      <span class="check-mark">${escapeHtml(entry.mark)}${code ? `<span class="item-code" title="Piece code ${escapeHtml(code)}">${escapeHtml(shortCode(code))}</span>` : ''}</span>
       <span class="check-desc">${escapeHtml(desc)}${done ? ` ${whoBadge(scan.scannedBy)}` : ''}</span>
       <span class="check-time">${done ? formatTime(scan.scannedAt) : formatWeight(entry.weight)}</span>
       ${done
@@ -140,6 +145,40 @@ function renderStacks(state, s) {
   }).join('');
 }
 
+// Phone layout: one line per mark, "12 / 40", the marks not done first; a tap
+// shows that mark's pieces. A truck of hundreds of pieces fits on a few screens.
+function renderMarks(s) {
+  const groups = new Map();
+  for (const row of s.rows) {
+    const mark = row.entry.mark;
+    if (!groups.has(mark)) groups.set(mark, []);
+    groups.get(mark).push(row);
+  }
+  const marks = [...groups.entries()].map(([mark, rows]) => ({ mark, rows, checked: rows.filter((r) => r.scan).length }));
+  const todo = marks.filter((m) => m.checked < m.rows.length);
+  const done = marks.filter((m) => m.checked === m.rows.length);
+  const line = (m) => {
+    const complete = m.checked === m.rows.length;
+    const open = openMarks.has(m.mark);
+    const shown = missingOnly ? m.rows.filter((r) => !r.scan) : m.rows;
+    return `
+      <li class="mark-line${complete ? ' done' : ''}${open ? ' open' : ''}" data-mark-line="${escapeHtml(m.mark)}">
+        <button class="mark-line-head" type="button" data-action="mark-open" aria-expanded="${open}">
+          <span class="check-tick" aria-hidden="true">${complete ? '&#10003;' : ''}</span>
+          <span class="check-mark">${escapeHtml(m.mark)}</span>
+          <span class="mark-line-count"><b>${m.checked}</b> / ${m.rows.length}</span>
+          <span class="mark-line-bar"><span style="width:${Math.round((m.checked / m.rows.length) * 100)}%"></span></span>
+        </button>
+        ${open && shown.length ? `<ol class="check-rows">${shown.map(renderRow).join('')}</ol>` : ''}
+      </li>`;
+  };
+  return `
+    <section class="check-stack check-marks">
+      <header class="check-head"><span class="stack-name">By mark</span><span class="stack-stats"><b>${done.length}</b> of <b>${marks.length}</b> marks done</span></header>
+      <ol class="mark-lines">${todo.map(line).join('')}${missingOnly ? '' : done.map(line).join('')}</ol>
+    </section>`;
+}
+
 export function renderCheck(state, load) {
   const s = checkStatus(state);
   if (!s.total) {
@@ -149,20 +188,27 @@ export function renderCheck(state, load) {
   }
   const body = missingOnly && !s.missing
     ? '<p class="check-banner ok">No missing pieces.</p>'
-    : renderStacks(state, s);
+    : isMobile() ? renderMarks(s) : renderStacks(state, s);
   return renderSummary(s, load) + renderExtras(s) + body;
 }
 
 // ---- Scanning ------------------------------------------------------------
 
 // Checks one scanned or typed mark against the open load's stacks.
-export function submitCheck(raw, { manual = false } = {}) {
+// `code`: a piece code (jobs with piece codes), which checks off that one piece.
+export function submitCheck(raw, { manual = false, code = null } = {}) {
   const load = ctx.load();
   if (!load || !cleanMark(raw)) return null;
   const before = checkStatus(stacks.get(load));
   const wasComplete = before.complete;
+  if (code && codeChecked(stacks.get(load), code)) {
+    flashFeedback('bad');
+    showResult({ kind: 'bad', mark: cleanMark(raw), code, title: 'Already checked', text: 'This piece’s code was checked already.' });
+    ctx.toast(`${cleanMark(raw)} (code ${shortCode(code)}) was checked already`, 4000);
+    return null;
+  }
   let scan;
-  try { scan = stacks.addCheck(load, raw, { manual }); } catch (err) {
+  try { scan = stacks.addCheck(load, raw, { manual, code }); } catch (err) {
     flashFeedback('bad');
     ctx.toast(err.message, 5000);
     return null;
@@ -181,6 +227,12 @@ export function submitCheck(raw, { manual = false } = {}) {
     // The stack this scan finished (every piece in it checked now, not before), if any.
     const stackDone = stack && !finished && stackComplete(s, stack.id) && !stackComplete(before, stack.id);
     flashFeedback('ok', row, { sound: !finished && !stackDone });
+    const m = s.byMark.get(cleanMark(scan.mark));
+    showResult({
+      kind: 'ok', mark: scan.mark, code: scan.code,
+      text: s.complete ? `All ${s.total} pieces checked` : `Checked${Number(scan.qty) > 1 ? ` (pallet of ${scan.qty})` : ''} · ${s.checked} of ${s.total} on the load`,
+      progress: m ? { n: m.checked, of: m.total, label: 'of this mark checked' } : null,
+    });
     if (s.complete) ctx.toast(`All ${s.total} pieces checked`, 4000);
     else if (stackDone) ctx.toast(`${stack.name} checked: all ${s.rows.filter((r) => r.stack.id === stack.id).length} pieces`, 3000);
     if (stackDone) playStackComplete();
@@ -192,7 +244,9 @@ export function submitCheck(raw, { manual = false } = {}) {
     const row = document.querySelector(`[data-scan-id="${CSS.escape(scan.id)}"]`);
     row?.scrollIntoView({ block: 'nearest' });
     flashFeedback('bad', row);
-    ctx.toast(`${scan.mark}: ${extraReason(s.extras.find((x) => x.scan.id === scan.id))}`, 4000);
+    const why = extraReason(s.extras.find((x) => x.scan.id === scan.id));
+    showResult({ kind: 'bad', mark: scan.mark, code: scan.code, title: 'Extra', text: why });
+    ctx.toast(`${scan.mark}: ${why}`, 4000);
   }
   return scan;
 }
@@ -232,7 +286,11 @@ export function initCheck(context) {
   ws.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-action]');
     if (!btn || !ctx.checking()) return;
-    if (btn.dataset.action === 'check-filter') {
+    if (btn.dataset.action === 'mark-open') {
+      const mark = btn.closest('[data-mark-line]')?.dataset.markLine;
+      if (mark && !openMarks.delete(mark)) openMarks.add(mark);
+      ctx.render();
+    } else if (btn.dataset.action === 'check-filter') {
       missingOnly = !missingOnly;
       ctx.render();
     } else if (btn.dataset.action === 'check-exit') {
