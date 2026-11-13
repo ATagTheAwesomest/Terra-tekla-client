@@ -278,3 +278,27 @@ body.load-shipped .topbar { border-bottom-color: var(--accent); }
   .pallet-row { grid-template-columns: auto auto 1fr; }
   .pallet-row .item-desc { grid-column: 1 / -1; order: 5; }
 }
+
+/* Piece codes (js/piece-codes.js): a row's code, shortened to its end */
+.item-code {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.7em;
+  font-weight: 600;
+  vertical-align: 2px;
+}
+/* A new piece code waiting for its mark */
+.scanbar.pairing .scan-field { border-color: #4da3ff; }
+.scanbar.pairing .scan-stack, .scanbar.pairing .stat-label { color: #4da3ff; }
+
+/* Compact stacks (phone layout): a closed stack, and "show more" */
+.stack.closed .stack-head { border-bottom: 0; }
+.stack-more { width: 100%; min-height: 44px; margin: 6px 0; border-style: dashed; color: var(--text-muted); }
+
+/* The last scan, as a big card (phone layout only, see css/mobile.css) */
+.last-scan { display: none; }

@@ -293,6 +293,43 @@ export function sendOp(loadId, op) {
   return request(`/api/loads/${encodeURIComponent(loadId)}/ops`, { method: 'POST', body: op });
 }
 
+// Several queued changes to one load, in order, in one request. Resolves
+// { state, changed, results: [{ opId, changed, error }] }.
+export function sendOps(loadId, { job, loadNumber, ops }) {
+  return request(`/api/loads/${encodeURIComponent(loadId)}/ops/batch`, { method: 'POST', body: { job, loadNumber, ops } });
+}
+
+// ---- Piece codes (js/piece-codes.js) --------------------------------------------------
+
+// { settings, count, codes: [{ id, code, mark, sequence }], last }: codes added after `since`.
+export function jobCodes(job, since = 0) {
+  return request(`/api/jobs/${encodeURIComponent(job)}/codes?since=${encodeURIComponent(since)}`);
+}
+
+// { code, mark, sequence, load: { loadId, loadNumber } | null }; 404 when the job has no such code.
+export function findCode(job, code) {
+  return request(`/api/jobs/${encodeURIComponent(job)}/codes/${encodeURIComponent(code)}`);
+}
+
+// A mark's piece codes and the load each is on: { job, mark, codes: [{ code, sequence, loadId, loadNumber }] }.
+export function markCodes(job, mark) {
+  return request(`/api/jobs/${encodeURIComponent(job)}/marks/${encodeURIComponent(mark)}/codes`);
+}
+
+// The job's BOM (terra-tekla-server docs/JOB-BOM.md): { job, info, rows }. 404 when it has none.
+export function jobBom(job) {
+  return request(`/api/jobs/${encodeURIComponent(job)}/bom`);
+}
+
+// Just what the job's BOM is ({ job, info }), to tell whether the copy here is the newest.
+export function jobBomInfo(job) {
+  return request(`/api/jobs/${encodeURIComponent(job)}/bom/info`);
+}
+
+export function pairCode(job, { code, mark, sequence = null }) {
+  return request(`/api/jobs/${encodeURIComponent(job)}/codes`, { method: 'POST', body: { code, mark, sequence } });
+}
+
 // ---- Photos -------------------------------------------------------------------------
 // terra-tekla-server keeps them in a folder per job, then per load (its
 // docs/PHOTOS.md), tagged with the device that took them. Off on the server

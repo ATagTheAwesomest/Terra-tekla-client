@@ -11,6 +11,7 @@
 
 import { escapeHtml } from './app.js';
 import { startDrag } from './drag.js';
+import { shortCode } from './handheld.js';
 import { bindHold } from './hold.js';
 import { deviceInfo } from './live.js';
 import { focusScanner } from './scanner.js';
@@ -23,6 +24,11 @@ export const STACK_HOLD_MS = 4000;
 let ctx = null;
 // Entry ids showing their detail panel.
 const expanded = new Set();
+// Compact (phone and handheld) layout: stacks opened by a tap, and those showing every row.
+const openStacks = new Set();
+const allRows = new Set();
+// How many of the active stack's newest rows the compact layout shows.
+export const COMPACT_ROWS = 5;
 
 // ---- Rendering -----------------------------------------------------------
 
@@ -53,6 +59,7 @@ function formatLength(mm) {
 function renderDetail(entry, extra = []) {
   const rows = [
     ...extra,
+    ['Piece code', entry.code ?? ''],
     ['Scanned', entry.scannedAt ? formatScanTime(entry.scannedAt) : 'Loaded in PowerFab, not scanned in the app'],
     ['Scanned by', entry.scannedBy ? deviceInfo(entry.scannedBy)?.name ?? 'Another iPad' : ''],
     ['Piece weight', formatWeight(entry.weight)],
@@ -88,7 +95,7 @@ function renderItem(entry, i, locked, count) {
     <li class="item${entry.manual ? ' flagged' : ''}${expanded.has(entry.id) ? ' expanded' : ''}${entry.pending ? ' pending' : ''}${entry.removing ? ' removing' : ''}${color ? ' by-device' : ''}" data-item-id="${escapeHtml(entry.id)}"${color ? ` style="--who:${escapeHtml(color)}"` : ''}>
       ${locked || busy ? '<span class="item-drag"></span>' : '<span class="item-drag" data-drag aria-label="Drag to move" title="Drag to move">&#10303;</span>'}
       <span class="item-index">${i + 1}</span>
-      <span class="item-mark">${escapeHtml(entry.mark)}</span>
+      <span class="item-mark">${escapeHtml(entry.mark)}${entry.code ? `<span class="item-code" title="Piece code ${escapeHtml(entry.code)}">${escapeHtml(shortCode(entry.code))}</span>` : ''}</span>
       <span class="item-desc">${busy ? '' : countBadge(entry, count)}${escapeHtml(desc)} ${whoBadge(entry.scannedBy)}</span>
       <span class="item-weight">${formatWeight(entry.weight)}</span>
       <span class="item-actions">
@@ -141,14 +148,30 @@ function palletRows(stack) {
 // The pallet's details are open: keyed by stack, since its rows come and go.
 const palletKey = (stackId) => `pallet:${stackId}`;
 
-function renderStack(stack, state, locked, counts) {
+// The rows a stack shows. In the compact layout a stack other than the one being scanned into is
+// closed until tapped, and the one being scanned into shows its newest rows only, so a long load
+// doesn't have to be scrolled (or drawn) on a small screen.
+function shownRows(stack, active, compact) {
+  const all = stack.items.map((entry, i) => [entry, i]);
+  if (!compact) return { rows: all, closed: false, hidden: 0 };
+  if (!active && !openStacks.has(stack.id)) return { rows: [], closed: true, hidden: all.length };
+  if (allRows.has(stack.id) || all.length <= COMPACT_ROWS) return { rows: all, closed: false, hidden: 0 };
+  return { rows: all.slice(-COMPACT_ROWS), closed: false, hidden: all.length - COMPACT_ROWS };
+}
+
+function renderStack(stack, state, locked, counts, compact) {
   const t = stackTotals(stack);
   const seqs = stackSequences(stack);
   const manual = stack.items.filter((entry) => entry.manual).length;
   const active = stacks.activeStack(state) === stack;
   const pallet = Boolean(stack.pallet);
+  const { rows, closed, hidden } = shownRows(stack, active, compact && !pallet);
+  const more = !compact || pallet || !stack.items.length ? ''
+    : closed ? `<button class="btn stack-more" type="button" data-action="open-stack">Show ${t.pieces} piece${t.pieces === 1 ? '' : 's'}</button>`
+    : hidden ? `<button class="btn stack-more" type="button" data-action="all-rows">Show all ${t.pieces} (${hidden} older)</button>`
+    : !active || allRows.has(stack.id) ? `<button class="btn stack-more" type="button" data-action="close-stack">Show less</button>` : '';
   return `
-    <section class="stack${active ? ' active' : ''}${pallet ? ' pallet' : ''}" data-stack-id="${escapeHtml(stack.id)}"${pallet ? ' data-pallet' : ''}>
+    <section class="stack${active ? ' active' : ''}${pallet ? ' pallet' : ''}${closed ? ' closed' : ''}" data-stack-id="${escapeHtml(stack.id)}"${pallet ? ' data-pallet' : ''}>
       <header class="stack-head">
         <div class="stack-title">
           ${pallet ? '<span class="badge badge-pallet">Pallet</span>' : ''}
@@ -163,7 +186,7 @@ function renderStack(stack, state, locked, counts) {
         ${locked ? '' : `<button class="btn btn-icon btn-hold" type="button" data-hold="stack" data-hold-ms="${STACK_HOLD_MS}" aria-label="Hold 4 seconds to delete stack" title="Hold 4 seconds to delete stack">&#128465;</button>`}
       </header>
       ${pallet ? renderPallet(stack, locked) : stack.items.length
-        ? `<ol class="items">${stack.items.map((entry, i) => renderItem(entry, i, locked, counts.get(entry.id))).join('')}</ol>`
+        ? (hidden && !closed ? more : '') + (rows.length ? `<ol class="items">${rows.map(([entry, i]) => renderItem(entry, i, locked, counts.get(entry.id))).join('')}</ol>` : '') + (hidden && !closed ? '' : more)
         : `<p class="stack-empty">${locked ? 'No pieces.' : 'No pieces yet. Scan, or drag pieces here.'}</p>`}
     </section>`;
 }
@@ -171,9 +194,10 @@ function renderStack(stack, state, locked, counts) {
 // Every stack of the load. `locked` (a shipped load) leaves only viewing: no
 // drag, move, rename, scan-here or delete. js/stack-store.js refuses those
 // changes on a shipped load too.
-export function renderStacks(state, { locked = false } = {}) {
+// `compact` (the phone and handheld layout) closes the stacks not being scanned into.
+export function renderStacks(state, { locked = false, compact = false } = {}) {
   const counts = pieceCounts(state);
-  return state.stacks.map((stack) => renderStack(stack, state, locked, counts)).join('');
+  return state.stacks.map((stack) => renderStack(stack, state, locked, counts, compact)).join('');
 }
 
 // ---- Rename --------------------------------------------------------------
@@ -318,6 +342,20 @@ export function initStacks(context) {
         break;
       case 'pallet-count':
         ctx.palletCount?.(stackEl.dataset.stackId);
+        break;
+      case 'open-stack':
+        openStacks.add(stackEl.dataset.stackId);
+        ctx.render();
+        break;
+      case 'all-rows':
+        allRows.add(stackEl.dataset.stackId);
+        openStacks.add(stackEl.dataset.stackId);
+        ctx.render();
+        break;
+      case 'close-stack':
+        allRows.delete(stackEl.dataset.stackId);
+        openStacks.delete(stackEl.dataset.stackId);
+        ctx.render();
         break;
     }
   });

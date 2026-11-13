@@ -3,6 +3,13 @@
 // truck, shipped), plus a Job view listing every mark with those counts.
 // Read-only: it never changes PowerFab.
 //
+// On a job with piece codes (js/piece-codes.js) a scanned code finds its
+// mark, and the card shows where that one piece is and every code of the
+// mark. With a BOM in the job's slot (js/job-bom.js) it also shows the
+// transmittal, due date, paint / notes and revision, and the Job view can be
+// narrowed to one transmittal. Both work when PowerFab can't be read (a job
+// set up ahead of PowerFab access).
+//
 // Data is read live when the screen opens (the job's part list and loads) and
 // kept in memory only; Refresh reads it again.
 //
@@ -13,7 +20,9 @@
 import { escapeHtml, openShipping, toast } from './app.js';
 import * as api from './api.js';
 import { getCurrentJob, onCurrentJobChange, openJobPicker, requireCurrentJob } from './current-job.js';
+import * as bom from './job-bom.js';
 import { jobMarks, jobSummary, lookupMark } from './lookup.js';
+import * as codes from './piece-codes.js';
 import { jobKey } from './parts.js';
 import * as pf from './pf-loads.js';
 import { openKeypad } from './scanner.js';
@@ -29,6 +38,10 @@ const view = {
   tab: 'piece', // 'piece' | 'job'
   mark: '',
   filter: 'all', // job marks filter: 'all' | 'left' | 'over' | 'extra'
+  transmittal: '', // job marks narrowed to one transmittal (from the BOM); '' = all
+  code: null, // the piece code scanned for this mark, if any
+  codeInfo: null, // the server's answer for that code: { load } | { error }
+  markCodes: null, // { mark, list | null (reading), error } every code of the mark
 };
 
 // The current job's live data: { job, parts, loads, readAt, error, reading }.
@@ -43,6 +56,8 @@ async function readData() {
   data = { job, parts: [], loads: [], readAt: null, error: '', reading: Boolean(job) };
   render();
   if (!job) return;
+  // The BOM and piece codes come from this server (not PowerFab): read them alongside.
+  Promise.all([bom.refresh(job), codes.refresh(job)]).then(() => { if (data.job === job) render(); });
   try {
     const sameAsShipping = ship.job === job && ship.readAt;
     const [entry, loads] = await Promise.all([
@@ -82,6 +97,7 @@ function fact(label, value) {
 // Where the piece stands, most advanced first.
 function pieceState(hit) {
   const c = hit.counts;
+  if (!hit.part && bom.rowsFor(data.job, hit.mark).length) return { cls: 'info', text: data.error ? 'In the BOM' : 'In the BOM, not on part list' };
   if (!hit.part) return { cls: 'flag', text: 'Not on part list' };
   if (c.over) return { cls: 'bad', text: `${c.onLoads - c.qty} over quantity` };
   if (c.qty && c.shipped >= c.qty) return { cls: 'ok', text: 'All shipped' };
@@ -114,11 +130,63 @@ function renderPlacements(hit) {
   <p class="muted lk-hint">Tap a load to open it in Shipping.</p>`;
 }
 
+// What the job's BOM says about the mark: transmittal, due, paint / notes, revision.
+function renderBom(mark) {
+  const rows = bom.rowsFor(data.job, mark);
+  if (!rows.length) return bom.hasBom(data.job) ? '<p class="muted lk-bom-none">Not in the job’s BOM.</p>' : '';
+  return rows.map((r) => `<div class="lk-bom">
+    <div class="lk-tl"><span class="stat-label">Transmittal</span><b>${escapeHtml(r.transmittal ?? '—')}</b>${r.rev ? ` <span class="lk-pill info">${escapeHtml(r.rev)}${r.revises ? ` of ${escapeHtml(r.revises)}` : ''}</span>` : ''}</div>
+    <dl class="lk-facts">
+      ${[['Due', r.due], ['Paint / notes', r.notes], ['Asm qty (BOM)', r.qty != null ? String(r.qty) : ''], ['Drawing', r.drawing]]
+        .filter(([, v]) => v).map(([k, v]) => fact(k, v)).join('')}
+    </dl>
+    ${r.exception ? '<p class="lk-exception">Assembly exception in the BOM (paint or due date differs from its sequence).</p>' : ''}
+  </div>`).join('');
+}
+
+// The piece code scanned (if any) and every code of the mark, with the load that has each.
+function renderCodes(mark) {
+  if (!codes.codesOn(data.job) && !view.code) return '';
+  const mc = view.markCodes?.mark === mark ? view.markCodes : null;
+  const scanned = view.code ? `<div class="lk-code-hit">
+      <span class="stat-label">Scanned code</span><b class="lk-code">${escapeHtml(view.code)}</b>
+      ${view.codeInfo?.load ? `<button class="btn lk-pill ok" type="button" data-open-load="${escapeHtml(view.codeInfo.load.loadId)}">On load ${escapeHtml(view.codeInfo.load.loadNumber)}</button>`
+        : view.codeInfo?.error ? `<span class="muted">${escapeHtml(view.codeInfo.error)}</span>`
+        : view.codeInfo ? '<span class="lk-pill muted">Not on a load</span>' : '<span class="muted">Checking…</span>'}
+    </div>` : '';
+  const list = !mc ? '' : mc.error ? `<p class="muted">${escapeHtml(mc.error)}</p>`
+    : !mc.list ? '<p class="muted">Reading the codes…</p>'
+    : !mc.list.length ? '<p class="muted">No codes for this mark yet.</p>'
+    : `<p class="muted">${mc.list.filter((c) => c.loadId).length} of ${mc.list.length} code${mc.list.length === 1 ? '' : 's'} on a load</p>
+      <ul class="lk-code-list">${mc.list.map((c) => `<li class="${c.code.toUpperCase() === (view.code ?? '').toUpperCase() ? 'this' : ''}">
+        <span class="lk-code">${escapeHtml(c.code)}</span>
+        ${c.loadId ? `<button class="btn lk-pill ok" type="button" data-open-load="${escapeHtml(c.loadId)}">Load ${escapeHtml(c.loadNumber)}</button>` : '<span class="lk-pill muted">Not loaded</span>'}
+      </li>`).join('')}</ul>`;
+  return `<section class="lk-codes"><h3>Piece codes</h3>${scanned}${list}</section>`;
+}
+
+// Reads the scanned code's load and the mark's codes from the server, then draws again.
+async function readCodes(mark, code) {
+  const job = data.job;
+  view.markCodes = { mark, list: null, error: '' };
+  if (code) view.codeInfo = null;
+  const tasks = [
+    api.markCodes(job, mark).then((r) => { if (view.mark === mark) view.markCodes = { mark, list: r.codes, error: '' }; })
+      .catch((err) => { if (view.mark === mark) view.markCodes = { mark, list: [], error: err.message }; }),
+  ];
+  if (code) {
+    tasks.push(api.findCode(job, code).then((r) => { if (view.code === code) view.codeInfo = { load: r.load }; })
+      .catch((err) => { if (view.code === code) view.codeInfo = { error: err.status === 404 ? 'Not on the job’s code list' : err.message }; }));
+  }
+  await Promise.all(tasks);
+  if (view.mark === mark && data.job === job && view.tab === 'piece') render();
+}
+
 function renderHit(hit) {
   const { part, details: d, counts: c } = hit;
   const state = pieceState(hit);
   const first = hit.placements[0]?.item;
-  const desc = part?.description || first?.description || '';
+  const desc = part?.description || first?.description || bom.rowsFor(data.job, hit.mark)[0]?.description || '';
   const weight = part ? part.weight : first?.weightEach ?? 0;
   const seqs = d.sequences.length ? d.sequences : [...new Set(hit.placements.map((p) => p.item.sequence).filter(Boolean))];
   const qtyBar = c.qty ? Math.min(100, Math.round((c.onLoads / c.qty) * 100)) : 0;
@@ -127,7 +195,7 @@ function renderHit(hit) {
       part.fields.map(([k, v]) => `<div><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd></div>`).join('')}</dl></details>`
     : '';
   return `
-    <article class="lk-card${part ? '' : ' flagged'}">
+    <article class="lk-card${part || bom.rowsFor(data.job, hit.mark).length ? '' : ' flagged'}">
       <header class="lk-card-head">
         <div>
           <div class="lk-mark">${escapeHtml(part?.mark ?? hit.mark)}</div>
@@ -136,6 +204,8 @@ function renderHit(hit) {
         <span class="lk-pill lg ${state.cls}">${escapeHtml(state.text)}</span>
       </header>
       <p class="lk-desc">${desc ? escapeHtml(desc) : '<span class="muted">No description</span>'}</p>
+      ${renderBom(hit.mark)}
+      ${renderCodes(hit.mark)}
       <dl class="lk-facts">
         ${fact('Weight / piece', weight ? formatWeight(weight) : '')}
         ${fact('Qty on job', c.qty ? n(c.qty) : '')}
@@ -163,7 +233,7 @@ function renderStart() {
   const recent = recentMarks();
   return `<div class="lk-empty">
     <h2>Scan any piece</h2>
-    <p class="muted">Scan a mark, or tap Keypad to type one. Shows its size, weight and every PowerFab load that has it.</p>
+    <p class="muted">Scan a mark${codes.codesOn(data.job) ? ' or a piece code' : ''}, or tap Keypad to type one. Shows its size, weight and every PowerFab load that has it${bom.hasBom(data.job) ? ', and its transmittal, due date and paint from the job’s BOM' : ''}.</p>
     ${recent.length ? `<p class="stat-label">Recent</p><div class="lk-chips">${recent.map((m) => `<button class="btn lk-chip" type="button" data-mark="${escapeHtml(m)}"><span class="lk-strong">${escapeHtml(m)}</span></button>`).join('')}</div>` : ''}
   </div>`;
 }
@@ -175,6 +245,8 @@ function renderPiece() {
     return null;
   }
   const hit = lookupMark(view.mark, data);
+  // A mark only the BOM or the code list has (PowerFab can't be read for the job, or not yet).
+  if (!hit.found && (bom.rowsFor(data.job, hit.mark).length || view.code)) hit.found = true;
   if (hit.found) {
     body.innerHTML = renderHit(hit);
     return hit;
@@ -193,21 +265,27 @@ const FILTERS = [['all', 'All'], ['left', 'Not on a load'], ['over', 'Over qty']
 const KEEP = { all: () => true, left: (m) => m.remaining > 0, over: (m) => m.over, extra: (m) => m.extra };
 
 function renderJob() {
-  const all = jobMarks(data);
+  const tls = bom.transmittals(data.job);
+  if (view.transmittal && !tls.includes(view.transmittal)) view.transmittal = '';
+  const inTl = (m) => !view.transmittal || bom.rowsFor(data.job, m.mark).some((r) => r.transmittal === view.transmittal);
+  const all = jobMarks(data).filter(inTl);
   const t = jobSummary(all);
   const marks = all.filter(KEEP[view.filter] ?? KEEP.all);
   $('#lookup-body').innerHTML = `
     <p class="lk-counts lk-job-sum"><span><b>${n(t.onLoads)}</b>${t.pieces ? ` of ${n(t.pieces)}` : ''} pcs on loads</span>
       <span><b>${n(t.onTruck)}</b> on truck</span><span><b>${n(t.shipped)}</b> shipped</span>
       <span><b>${n(data.loads.length)}</b> load${data.loads.length === 1 ? '' : 's'}</span>${t.pieces ? `<span>${formatWeight(t.weight)} on the job</span>` : ''}</p>
+    ${tls.length ? `<div class="lk-filters lk-tls" role="group" aria-label="Transmittal"><span class="stat-label">Transmittal</span>${[['', 'All'], ...tls.map((t) => [t, t])].map(([key, label]) =>
+      `<button class="btn${view.transmittal === key ? ' active' : ''}" type="button" data-tl="${escapeHtml(key)}" aria-pressed="${view.transmittal === key}">${escapeHtml(label)}</button>`).join('')}</div>` : ''}
     <div class="lk-filters" role="group" aria-label="Filter marks">${FILTERS.map(([key, label]) => {
       const count = all.filter(KEEP[key]).length;
       return `<button class="btn${view.filter === key ? ' active' : ''}" type="button" data-filter="${key}" aria-pressed="${view.filter === key}">${label} <span class="muted">${count}</span></button>`;
     }).join('')}</div>
-    ${marks.length ? `<table class="lk-table lk-marks">
-      <thead><tr><th>Mark</th><th>Description</th><th class="num">Wt / pc</th><th class="num">Qty</th><th class="num">On loads</th><th class="num">On truck</th><th class="num">Shipped</th><th class="num">Left</th></tr></thead>
+    ${marks.length ? `<table class="lk-table lk-marks${tls.length ? ' has-tl' : ''}">
+      <thead><tr><th>Mark</th>${tls.length ? '<th>TL</th>' : ''}<th>Description</th><th class="num">Wt / pc</th><th class="num">Qty</th><th class="num">On loads</th><th class="num">On truck</th><th class="num">Shipped</th><th class="num">Left</th></tr></thead>
       <tbody>${marks.map((m) => `<tr data-mark="${escapeHtml(m.mark)}" class="${m.extra ? 'flagged' : ''}${m.over ? ' over' : ''}">
         <td class="lk-strong">${escapeHtml(m.mark)}</td>
+        ${tls.length ? `<td>${escapeHtml(bom.rowsFor(data.job, m.mark).map((r) => r.transmittal).filter(Boolean).join(', '))}</td>` : ''}
         <td class="muted">${escapeHtml(m.description)}</td>
         <td class="num">${m.weight ? n(Math.round(m.weight)) : '—'}</td>
         <td class="num">${m.qty ? n(m.qty) : '—'}</td>
@@ -236,12 +314,16 @@ function render() {
     body.innerHTML = `<div class="lk-empty"><p class="muted">Reading ${escapeHtml(data.job)} from PowerFab…</p></div>`;
     return null;
   }
-  if (data.error) {
+  // PowerFab couldn't be read: a job set up ahead of PowerFab access still has its BOM and codes.
+  const offline = data.error && (bom.hasBom(data.job) || codes.codeCount(data.job));
+  if (data.error && !offline) {
     body.innerHTML = `<div class="lk-empty"><h2>Couldn’t read ${escapeHtml(data.job)}</h2><p class="muted">${escapeHtml(data.error)}</p>
       <button class="btn btn-primary" type="button" data-refresh>Try again</button></div>`;
     return null;
   }
-  return view.tab === 'job' ? renderJob() : renderPiece();
+  const out = view.tab === 'job' ? renderJob() : renderPiece();
+  if (offline) body.insertAdjacentHTML('afterbegin', `<p class="lk-warn">PowerFab couldn’t be read for ${escapeHtml(data.job)} (${escapeHtml(data.error)}). Showing what this server has: the BOM and piece codes.</p>`);
+  return out;
 }
 
 function flash(kind) {
@@ -253,10 +335,21 @@ function flash(kind) {
 }
 
 export function lookup(raw) {
-  const mark = String(raw ?? '').trim().toUpperCase().replace(/-+$/, '');
+  let mark = String(raw ?? '').trim().toUpperCase().replace(/-+$/, '');
   if (!mark) return;
+  // A piece code: look up its mark, and show where that one piece is.
+  const c = codes.classify(data.job, raw, { isMark: (m) => lookupMark(m, data).found || bom.rowsFor(data.job, m).length > 0 });
+  view.code = c.kind === 'code' || c.kind === 'new-code' ? c.code : null;
+  if (c.kind === 'code') mark = c.mark;
   view.tab = 'piece';
-  view.mark = mark;
+  view.mark = c.kind === 'new-code' ? '' : mark;
+  if (c.kind === 'new-code') {
+    $('#lookup-body').innerHTML = `<div class="lk-empty"><h2>Code ${escapeHtml(c.code)} isn’t on ${escapeHtml(data.job)}’s code list</h2>
+      <p class="muted">It gets paired with its mark the first time it is loaded in Shipping, or added on the admin board.</p></div>`;
+    flash('flag');
+    return;
+  }
+  if (codes.codesOn(data.job) || view.code) readCodes(mark, view.code);
   const hit = render();
   if (!hit) return;
   if (hit.found) remember(hit.mark);
@@ -295,7 +388,7 @@ function build() {
         <span class="stat-label">Job</span>
         <button class="btn btn-ghost lookup-job" type="button" data-pick-job><span id="lookup-job"></span> <span class="muted">Change &#9662;</span></button>
         <span class="muted" id="lookup-read"></span>
-        <button class="btn" type="button" data-refresh>&#8635; Refresh</button>
+        <button class="btn" type="button" data-refresh aria-label="Refresh"><span aria-hidden="true">&#8635;</span> <span class="lk-refresh-label">Refresh</span></button>
       </div>
       <div class="lookup-bar">
         <label class="lookup-field" for="lookup-input">
@@ -334,7 +427,7 @@ function build() {
       return render();
     }
     if (t.closest('[data-keypad]')) {
-      const value = await openKeypad({ mode: 'mark', title: 'Look up a mark', okLabel: 'Look up', note: 'Shows what PowerFab has on this mark.' });
+      const value = await openKeypad({ mode: 'mark', title: codes.codesOn(data.job) ? 'Look up a mark or code' : 'Look up a mark', okLabel: 'Look up', note: 'Shows what PowerFab has on this mark.' });
       if (value) lookup(value);
       return focusField();
     }
@@ -344,13 +437,21 @@ function build() {
       if (openShipping()) ship.selectedId = loadId;
       return;
     }
+    const tl = t.closest('[data-tl]');
+    if (tl) {
+      view.transmittal = tl.dataset.tl;
+      return render();
+    }
     const filter = t.closest('[data-filter]')?.dataset.filter;
     if (filter) {
       view.filter = filter;
       return render();
     }
     const mark = t.closest('[data-mark]')?.dataset.mark;
-    if (mark) lookup(mark);
+    if (mark) {
+      view.code = null;
+      lookup(mark);
+    }
   });
 }
 

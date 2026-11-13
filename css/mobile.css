@@ -4,20 +4,71 @@
 
 body.layout-mobile { font-size: 16px; }
 
-/* Top bar: icon-only buttons, stats in a 2 x 2 grid */
-body.layout-mobile .topbar { gap: 6px; padding: 6px 6px; align-items: flex-start; }
+/* Built for a small handheld scanner too (an Android phone with a scanner that
+   types each scan and presses Enter), held in one hand: the scan bar and its
+   big buttons sit at the bottom where the thumb is, the last scan's result is
+   a big card at the top, and the stack list shows the stack being scanned into
+   (closed stacks open with a tap). The body is a flex column, so `order` moves
+   the scan bar down without changing the page. */
+body.layout-mobile .topbar { order: 1; }
+body.layout-mobile .last-scan { order: 2; }
+body.layout-mobile .ship-body { order: 3; }
+body.layout-mobile .scanbar { order: 4; border-bottom: 0; border-top: 2px solid var(--border); }
+body.layout-mobile .statusbar { order: 5; }
+
+/* Top bar: icon-only buttons, just the load and its pieces */
+body.layout-mobile .topbar { gap: 6px; padding: 6px 6px; align-items: center; }
 body.layout-mobile #btn-loads { padding: 0 10px; }
 body.layout-mobile #btn-loads > span:not(.icon) { display: none; }
-body.layout-mobile .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 10px; }
+body.layout-mobile .stats { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 4px 10px; }
+body.layout-mobile .stats .stat:nth-child(2), body.layout-mobile .stats .stat:nth-child(4) { display: none; }
 body.layout-mobile .stat-value { font-size: 1rem; }
 body.layout-mobile .stat-label { font-size: 0.6rem; }
 
-/* Scan bar: input across the top, buttons in a row below */
-body.layout-mobile .scanbar { flex-wrap: wrap; gap: 8px; padding: 8px; }
-body.layout-mobile .scan-field { flex-basis: 100%; min-height: 60px; padding: 0 10px; }
-body.layout-mobile .scan-meta { max-width: 40%; }
-body.layout-mobile #scan-input { height: 48px; font-size: 1.3rem; }
-body.layout-mobile .scanbar .btn-lg { flex: 1; min-height: 56px; padding: 0 10px; font-size: 1.05rem; }
+/* Scan bar (at the bottom): the field across, big buttons in a row below */
+body.layout-mobile .scanbar { flex-wrap: wrap; gap: 8px; padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px)); }
+body.layout-mobile .scan-field { flex-basis: 100%; min-height: 52px; padding: 0 10px; }
+body.layout-mobile .scan-meta { max-width: 50%; }
+body.layout-mobile #scan-input { height: 44px; font-size: 1.2rem; }
+body.layout-mobile .scanbar .btn-lg { flex: 1 1 0; min-width: 0; min-height: 64px; padding: 0 6px; font-size: 1.05rem; }
+body.layout-mobile #btn-keypad > span:not(.icon) { display: none; }
+body.layout-mobile #btn-keypad { flex: 0 0 64px; font-size: 1.5rem; }
+
+/* The last scan: a big card a glance can read at arm's length */
+body.layout-mobile .last-scan {
+  display: block;
+  margin: 6px 8px 0;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 3px solid var(--border);
+  background: var(--surface-1);
+}
+body.layout-mobile .last-scan[hidden] { display: none; }
+body.layout-mobile .last-scan.ok { border-color: var(--ok); }
+body.layout-mobile .last-scan.bad { border-color: var(--danger); background: #2a1010; }
+body.layout-mobile .last-scan.flag { border-color: var(--flag); background: var(--flag-bg); }
+body.layout-mobile .last-scan.ask { border-color: #4da3ff; background: #0e2035; }
+body.layout-mobile .last-scan.wait { border-color: var(--border); border-style: dashed; }
+.last-scan-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.last-scan-icon { flex: 0 0 auto; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 1.4rem; font-weight: 800; background: var(--surface-3); }
+.last-scan.ok .last-scan-icon { background: var(--ok); color: #0b2a17; }
+.last-scan.bad .last-scan-icon { background: var(--danger); color: #2a0000; }
+.last-scan.ask .last-scan-icon { background: #4da3ff; color: #06182b; }
+.last-scan.flag .last-scan-icon { background: var(--flag); color: #2a1600; }
+.last-scan-mark { min-width: 0; font-family: var(--mono); font-size: 1.6rem; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.last-scan-code { flex: 0 0 auto; margin-left: auto; font-family: var(--mono); font-size: 0.85rem; color: var(--text-muted); }
+.last-scan-title { margin-top: 4px; font-weight: 700; }
+.last-scan-text { margin-top: 2px; font-size: 0.95rem; color: var(--text-muted); }
+.last-scan.bad .last-scan-text, .last-scan.ask .last-scan-text { color: var(--text); }
+.last-scan-progress { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 0.85rem; color: var(--text-muted); }
+.last-scan-progress b { color: var(--text); font-size: 1.15rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.last-scan-progress .bar { flex: 0 0 35%; height: 10px; border-radius: 5px; background: var(--surface-3); overflow: hidden; }
+.last-scan-progress .bar span { display: block; height: 100%; background: var(--ok); }
+
+/* Load header: its buttons in a grid */
+body.layout-mobile .ship-head { flex-direction: column; align-items: stretch; gap: 8px; }
+body.layout-mobile .ship-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+body.layout-mobile .ship-actions .btn { min-height: 52px; padding: 0 8px; }
 body.layout-mobile .colhead { display: none; }
 body.layout-mobile .workspace { padding: 8px; }
 
@@ -90,3 +141,6 @@ body.layout-mobile .check-mark { grid-area: mark; }
 body.layout-mobile .check-desc { grid-area: desc; font-size: 0.8rem; }
 body.layout-mobile .check-time { grid-area: time; font-size: 0.85rem; }
 body.layout-mobile .check-row > :last-child { grid-area: undo; }
+
+/* Toasts sit near the top on phones, clear of the big bottom buttons. */
+body.layout-mobile .toast { bottom: auto; top: calc(72px + env(safe-area-inset-top)); }
