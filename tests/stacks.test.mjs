@@ -91,19 +91,31 @@ let serverDown = false;
 globalThis.fetch = async (url, init) => {
   if (serverDown) throw new TypeError('Failed to fetch');
   const body = init?.body ? JSON.parse(init.body) : null;
-  sent.push({ url: String(url), body, headers: init?.headers });
   if (String(url).includes('/ops')) {
-    // A pretend server: applies the op to its own copy, as the real one does.
+    // A pretend server: applies the ops to its own copy, as the real one does. A batch is
+    // recorded as its ops, one by one, so the tests see what was sent whichever way it went.
     const loadId = decodeURIComponent(String(url).match(/loads\/([^/]+)\/ops/)[1]);
-    server.state ??= ops.newState(loadId, body.job, body.loadNumber);
-    const changed = ops.applyOp(server.state, body, { deviceId: 'dev-server', now: ctx.now });
-    if (changed) server.state.rev++;
-    if (body.opId) server.state.recentOps.push(body.opId);
-    return new Response(JSON.stringify({ state: structuredClone(server.state), changed }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const batch = String(url).endsWith('/ops/batch');
+    if (batch) batches.push(body.ops.length);
+    const list = batch ? body.ops.map((op) => ({ job: body.job, loadNumber: body.loadNumber, ...op })) : [body];
+    let changed = false;
+    const results = [];
+    for (const op of list) {
+      sent.push({ url: String(url).replace('/ops/batch', '/ops'), body: op, headers: init?.headers });
+      server.state ??= ops.newState(loadId, op.job, op.loadNumber);
+      const c = ops.applyOp(server.state, op, { deviceId: 'dev-server', now: ctx.now });
+      if (c) server.state.rev++;
+      if (op.opId) server.state.recentOps.push(op.opId);
+      changed ||= c;
+      results.push({ opId: op.opId, changed: c, error: null });
+    }
+    return new Response(JSON.stringify({ state: structuredClone(server.state), changed, ...(batch ? { results } : {}) }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   }
+  sent.push({ url: String(url), body, headers: init?.headers });
   return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
 };
 const server = { state: null };
+const batches = [];
 api.setConfig({ url: 'https://terra.example.com', key: 'k' });
 stacks.initStackStore();
 
@@ -154,6 +166,32 @@ test('changes made while the server is down wait on the iPad and go once it is b
   await stacks.flush();
   assert.equal(stacks.syncStatus().waiting, 0);
   assert.equal(server.state.stacks[1].name, 'Front of truck');
+});
+
+test('changes queued while offline go to the server together, in one request', async () => {
+  const l = load();
+  serverDown = true;
+  for (const name of ['One', 'Two', 'Three']) stacks.rename(l, stacks.get(l).stacks[0].id, name);
+  await stacks.flush();
+  assert.equal(stacks.syncStatus().waiting, 3);
+  batches.length = 0;
+  serverDown = false;
+  await stacks.flush();
+  assert.deepEqual(batches, [3]);
+  assert.equal(stacks.syncStatus().waiting, 0);
+  assert.equal(server.state.stacks[0].name, 'Three');
+});
+
+test('a piece code is one piece: kept on its row, refused twice, and found on any load of the job', async () => {
+  const l = load([], { id: 'L30', number: '30' });
+  const id = stacks.beginScan(l, 'A1', { code: 'CODE00000001' });
+  assert.equal(ops.findEntry(stacks.get(l), id).entry.code, 'CODE00000001');
+  const s = stacks.get(l);
+  assert.equal(ops.applyOp(s, { op: 'beginScan', entryId: 'again', mark: 'A1', code: 'code00000001' }, ctx), false);
+  assert.equal(stacks.codeOnLoads('J1', 'code00000001').loadNumber, '30');
+  assert.equal(stacks.codeOnLoads('J2', 'CODE00000001'), null);
+  await stacks.flush();
+  assert.equal(sent.filter((x) => x.body?.code === 'CODE00000001').length, 1);
 });
 
 test('another iPad’s change arriving on the live line replaces this iPad’s copy', () => {

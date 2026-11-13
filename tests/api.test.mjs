@@ -116,3 +116,10 @@ test('a blank address means the server the app was opened from; the setup code c
   assert.match(deviceId(), /^[0-9a-z-]{8,64}$/);
   delete globalThis.location;
 });
+
+test('a pasted or sent setup code with spaces, line breaks or invisible characters still reads', () => {
+  const code = encodeSetup({ url: 'https://terra.example.com', key: 'AbC+/9=' });
+  const messy = `  ${code.slice(0, 20)}\n${code.slice(20, 40)}​ ${code.slice(40)}\n`;
+  assert.deepEqual(decodeSetup(messy), { url: 'https://terra.example.com', key: 'AbC+/9=' });
+  assert.deepEqual(decodeSetup(`Setup: ${code}`), { url: 'https://terra.example.com', key: 'AbC+/9=' });
+});

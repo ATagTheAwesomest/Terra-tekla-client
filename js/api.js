@@ -41,20 +41,71 @@ export function getConfig() {
   }
 }
 
-// This device's id, made up the first time and kept: the server knows the
-// device (its name, colour, what it scanned) by it.
+// This device's id: the server knows the device (its name, colour, what it scanned) by it. Kept in
+// this app's storage; when that is empty (Safari and the home screen app each have their own, and a
+// new install starts empty) it is taken from the server's terra_device cookie, which adding the app
+// to the home screen copies over from Safari, so the same iPad stays the same device. Only when
+// neither has one is a new id made up.
 export function deviceId() {
   try {
     let id = localStorage.getItem(DEVICE_KEY);
     if (!id) {
-      id = (crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`).toLowerCase();
+      id = cookieDeviceId() ?? (crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`).toLowerCase();
       localStorage.setItem(DEVICE_KEY, id);
     }
     return id;
   } catch {
-    deviceId.memo ??= `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    deviceId.memo ??= cookieDeviceId() ?? `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     return deviceId.memo;
   }
+}
+
+// The id in the server's terra_device cookie (set on every request with a device id), or null.
+function cookieDeviceId() {
+  try {
+    const m = String(globalThis.document?.cookie ?? '').match(/(?:^|;\s*)terra_device=([^;]*)/);
+    const id = m ? decodeURIComponent(m[1]).toLowerCase() : '';
+    return /^[a-z0-9-]{8,64}$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+// True once this app (this storage) has a device id. The home screen app and Safari keep separate
+// storage, so a new install starts without one and is asked which iPad it is.
+// The server's cookie (copied from Safari) counts: this app then is that iPad without asking.
+export function hasDeviceId() {
+  try {
+    return Boolean(localStorage.getItem(DEVICE_KEY) || cookieDeviceId());
+  } catch {
+    return false;
+  }
+}
+
+// Makes this app the given device (one the server already knows), so a reinstall or the home
+// screen app carries on as the same iPad instead of turning up as a new user.
+export function setDeviceId(id) {
+  const clean = String(id ?? '').trim().toLowerCase();
+  if (!/^[a-z0-9-]{8,64}$/.test(clean)) throw new Error('Not a device id.');
+  localStorage.setItem(DEVICE_KEY, clean);
+  return clean;
+}
+
+// The iPads the server knows, read without this app's device header so reading the list can't
+// add this app as a new device. Newest seen first.
+export async function knownDevices({ url, key }) {
+  const base = cleanUrl(url) || pageOrigin();
+  let res;
+  try {
+    res = await fetch(`${base}/api/devices`, { headers: { Authorization: `Bearer ${String(key ?? '').trim()}` }, cache: 'no-store' });
+  } catch {
+    throw new ApiError('Can’t reach the server.');
+  }
+  if (!res.ok) throw new ApiError(`The iPad list couldn’t be read (error ${res.status}).`, res.status);
+  const list = await res.json().catch(() => []);
+  return (Array.isArray(list) ? list : [])
+    .filter((d) => d?.id)
+    .sort((a, b) => String(b.lastSeenAt ?? '').localeCompare(String(a.lastSeenAt ?? '')));
 }
 
 export function cleanUrl(url) {
@@ -82,10 +133,13 @@ export function encodeSetup({ url, key }) {
 }
 
 export function decodeSetup(text) {
-  const s = String(text ?? '').trim();
-  if (!s.toUpperCase().startsWith(SETUP_PREFIX)) return null;
+  // Pasted or sent text can carry spaces, line breaks or invisible characters: keep only what a
+  // code can hold, from where "TERRACFG:" starts.
+  const s = String(text ?? '').replace(/[^A-Za-z0-9:_\-+/=]/g, '');
+  const at = s.toUpperCase().indexOf(SETUP_PREFIX);
+  if (at < 0) return null;
   try {
-    const b64 = s.slice(SETUP_PREFIX.length).replace(/-/g, '+').replace(/_/g, '/');
+    const b64 = s.slice(at + SETUP_PREFIX.length).replace(/=+$/, '').replace(/-/g, '+').replace(/_/g, '/');
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
     const { u, k } = JSON.parse(new TextDecoder().decode(bytes));
     return u || k ? { url: u ? cleanUrl(u) : '', key: k ?? '' } : null;
@@ -266,6 +320,43 @@ export function loadState(loadId, job, number) {
 // One change to a load's stacks (js/stack-ops.js). Resolves { state, changed }.
 export function sendOp(loadId, op) {
   return request(`/api/loads/${encodeURIComponent(loadId)}/ops`, { method: 'POST', body: op });
+}
+
+// Several queued changes to one load, in order, in one request. Resolves
+// { state, changed, results: [{ opId, changed, error }] }.
+export function sendOps(loadId, { job, loadNumber, ops }) {
+  return request(`/api/loads/${encodeURIComponent(loadId)}/ops/batch`, { method: 'POST', body: { job, loadNumber, ops } });
+}
+
+// ---- Piece codes (js/piece-codes.js) --------------------------------------------------
+
+// { settings, count, codes: [{ id, code, mark, sequence }], last }: codes added after `since`.
+export function jobCodes(job, since = 0) {
+  return request(`/api/jobs/${encodeURIComponent(job)}/codes?since=${encodeURIComponent(since)}`);
+}
+
+// { code, mark, sequence, load: { loadId, loadNumber } | null }; 404 when the job has no such code.
+export function findCode(job, code) {
+  return request(`/api/jobs/${encodeURIComponent(job)}/codes/${encodeURIComponent(code)}`);
+}
+
+// A mark's piece codes and the load each is on: { job, mark, codes: [{ code, sequence, loadId, loadNumber }] }.
+export function markCodes(job, mark) {
+  return request(`/api/jobs/${encodeURIComponent(job)}/marks/${encodeURIComponent(mark)}/codes`);
+}
+
+// The job's BOM (terra-tekla-server docs/JOB-BOM.md): { job, info, rows }. 404 when it has none.
+export function jobBom(job) {
+  return request(`/api/jobs/${encodeURIComponent(job)}/bom`);
+}
+
+// Just what the job's BOM is ({ job, info }), to tell whether the copy here is the newest.
+export function jobBomInfo(job) {
+  return request(`/api/jobs/${encodeURIComponent(job)}/bom/info`);
+}
+
+export function pairCode(job, { code, mark, sequence = null }) {
+  return request(`/api/jobs/${encodeURIComponent(job)}/codes`, { method: 'POST', body: { code, mark, sequence } });
 }
 
 // ---- Photos -------------------------------------------------------------------------

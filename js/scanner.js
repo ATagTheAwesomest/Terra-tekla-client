@@ -6,6 +6,7 @@
 // dialog, which never focuses a text field either. What a scan does is up to
 // ctx.scan (js/shipping-ui.js).
 
+import { buzz } from './handheld.js';
 import { playBad, playGood, primeSound } from './sounds.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -51,13 +52,18 @@ function flash(el, kind) {
 export function flashFeedback(kind, row, { sound = true } = {}) {
   if (sound && kind === 'ok') playGood();
   else if (sound && kind === 'bad') playBad();
+  buzz(kind);
   flash(row, kind);
   flash($('#scanbar'), kind);
   flash($('#screen-flash'), kind);
 }
 
+// A scan ends with Enter. Some handheld scanners are set to end with Tab
+// instead; that counts too, as long as something was scanned.
+const isEnd = (e, value) => e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey && Boolean(value));
+
 function onScanKey(e) {
-  if (e.key !== 'Enter') return;
+  if (!isEnd(e, e.target.value)) return;
   e.preventDefault();
   // The scan's own key press lets the page play its sound when PowerFab answers.
   primeSound();
@@ -84,7 +90,7 @@ function onLooseKey(e) {
   const a = document.activeElement;
   if (a && a.matches('input, textarea, [contenteditable="true"]')) return; // that field handles its own keys
   const input = $('#scan-input');
-  if (e.key === 'Enter') {
+  if (isEnd(e, typed)) {
     if (!typed) return;
     e.preventDefault(); // also stops Enter pressing a focused button
     primeSound();

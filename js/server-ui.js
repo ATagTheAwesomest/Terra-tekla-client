@@ -10,7 +10,7 @@ import { escapeHtml, toast } from './app.js';
 import * as api from './api.js';
 import { JOB_NUMBERS, setJobNumbers } from './current-job.js';
 import * as live from './live.js';
-import { acquireCamera, releaseCamera } from './camera.js';
+import { startCamera as cameraOn, stopCamera as cameraOff } from './camera.js';
 import { drawPhotoSetting } from './photos-ui.js';
 import { openKeypad } from './scanner.js';
 import { playBad, playComplete, playGood, playStackComplete, primeSound, setSoundsOn, soundsOn } from './sounds.js';
@@ -227,6 +227,81 @@ function drawSounds() {
   $('#sounds-toggle-state').textContent = on ? 'On' : 'Off';
 }
 
+// ---- Which iPad is this? ------------------------------------------------------------
+
+function seenAgo(iso) {
+  const t = new Date(iso).getTime();
+  if (!t) return '';
+  const mins = Math.round((Date.now() - t) / 60000);
+  if (mins < 2) return 'seen just now';
+  if (mins < 90) return `seen ${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 36) return `seen ${hours} h ago`;
+  return `seen ${Math.round(hours / 24)} days ago`;
+}
+
+// Lists the iPads the server knows and makes this app the one picked, or a new one. Resolves once
+// a choice is made (closing the window counts as "a new iPad" only when nothing is saved yet).
+export async function pickDevice(config = api.getConfig()) {
+  const dlg = $('#dlg-device-pick');
+  const list = $('#device-pick-list');
+  $('#device-pick-error').textContent = '';
+  let devices = [];
+  try {
+    devices = await api.knownDevices(config);
+  } catch (err) {
+    $('#device-pick-error').textContent = err.message;
+  }
+  // Nothing to pick from: this is the first iPad.
+  if (!devices.length && !api.hasDeviceId()) return null;
+  const current = api.hasDeviceId() ? api.deviceId() : null;
+  list.innerHTML = devices.map((d) => `<li><button class="btn${d.id === current ? ' device-pick-current' : ''}" type="button" data-device="${escapeHtml(d.id)}">
+      <span class="who-dot" style="--who:${escapeHtml(d.color ?? '#777')}" aria-hidden="true"></span>
+      <span class="device-pick-name">${escapeHtml(d.name ?? d.user ?? 'iPad')}${d.user && d.user !== d.name ? ` <span class="muted">${escapeHtml(d.user)}</span>` : ''}</span>
+      <span class="device-pick-meta">${d.id === current ? 'this app now · ' : ''}${escapeHtml(seenAgo(d.lastSeenAt))}${d.appVersion ? ` · v${escapeHtml(d.appVersion)}` : ''}</span>
+    </button></li>`).join('');
+  return new Promise((resolve) => {
+    const done = (id) => {
+      list.removeEventListener('click', onPick);
+      $('#btn-device-pick-new').removeEventListener('click', onNew);
+      dlg.removeEventListener('close', onClose);
+      if (dlg.open) dlg.close();
+      resolve(id);
+    };
+    const onPick = (e) => {
+      const id = e.target.closest('[data-device]')?.dataset.device;
+      if (!id) return;
+      try {
+        api.setDeviceId(id);
+      } catch (err) {
+        $('#device-pick-error').textContent = err.message;
+        return;
+      }
+      done(id);
+    };
+    const onNew = () => done(api.deviceId()); // keeps this app's id, or makes a new one
+    const onClose = () => done(null);
+    list.addEventListener('click', onPick);
+    $('#btn-device-pick-new').addEventListener('click', onNew);
+    dlg.addEventListener('close', onClose);
+    dlg.showModal();
+  });
+}
+
+async function changeDevice() {
+  if (!api.getConfig()) {
+    $('#device-result').textContent = 'Save the server first.';
+    return;
+  }
+  const before = api.hasDeviceId() ? api.deviceId() : null;
+  const id = await pickDevice();
+  if (id && id !== before) {
+    live.reconnect();
+    $('#device-result').textContent = 'Done. This app is now that iPad.';
+  }
+  drawDevice();
+}
+
 // Saves a connection only once that server has answered as a TERRA server and taken the key, so a
 // mistyped address can't leave this iPad tied to a server that can't check the admin code.
 async function saveAndTest(config) {
@@ -236,10 +311,25 @@ async function saveAndTest(config) {
   try {
     checked = await api.checkServer(config);
   } catch (err) {
-    result.textContent = `Not saved: ${err.message}`;
-    return false;
+    // A setup QR made on the admin board holds the address that computer used (often localhost
+    // or its own name), which this iPad may not reach. When this app came from a TERRA server,
+    // try the key on that one before giving up.
+    const own = /^https?:/.test(location.origin) ? location.origin : '';
+    const tried = api.cleanUrl(config.url) || own;
+    if (own && tried !== own && err.status !== 401) {
+      try {
+        checked = await api.checkServer({ url: own, key: config.key });
+      } catch { /* report the first error */ }
+    }
+    if (!checked) {
+      result.textContent = `Not saved: ${err.message}`;
+      return false;
+    }
   }
   api.setConfig({ url: checked.url, key: config.key });
+  // A fresh app (home screen app, Safari, reinstall) is asked which iPad it is before it first
+  // talks to the server as a device, so it doesn't turn up as another new user.
+  if (!api.hasDeviceId()) await pickDevice({ url: checked.url, key: config.key });
   onConfigChanged(true);
   fillForm();
   live.reconnect();
@@ -295,12 +385,17 @@ async function startCamera() {
   const video = $('#server-video');
   try {
     await loadScript('js/vendor/jsQR.js');
-    // The same camera stream as the photo window, so it asks for the camera once.
-    const stream = await acquireCamera();
+    // Its own camera stream, fully stopped when scanning ends (battery).
+    const stream = await cameraOn();
+    // Closed (or a second tap) while iOS was asking: don't leave it running.
+    if (!dialog().open || scanStop) {
+      cameraOff(stream);
+      return;
+    }
     let running = true;
     scanStop = () => {
       running = false;
-      releaseCamera(); // never stop the shared stream's tracks here
+      cameraOff(stream);
       video.pause();
       video.hidden = true;
       video.srcObject = null;
@@ -311,13 +406,18 @@ async function startCamera() {
     await video.play();
     const canvas = document.createElement('canvas');
     const g = canvas.getContext('2d', { willReadFrequently: true });
-    const tick = () => {
+    // Each look is shrunk to at most 800 px and taken about 6 times a second, so the iPad keeps up
+    // and the picture stays smooth.
+    let last = 0;
+    const tick = (now = 0) => {
       if (!running) return;
-      if (video.readyState >= 2 && video.videoWidth) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        g.drawImage(video, 0, 0);
-        const hit = self.jsQR(g.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
+      if (now - last >= 150 && video.readyState >= 2 && video.videoWidth) {
+        last = now;
+        const scale = Math.min(1, 800 / Math.max(video.videoWidth, video.videoHeight));
+        canvas.width = Math.round(video.videoWidth * scale);
+        canvas.height = Math.round(video.videoHeight * scale);
+        g.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const hit = self.jsQR(g.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height, { inversionAttempts: 'dontInvert' });
         if (hit?.data && applySetupCode(hit.data)) return;
       }
       requestAnimationFrame(tick);
@@ -325,7 +425,7 @@ async function startCamera() {
     tick();
   } catch (err) {
     stopCamera();
-    $('#server-result').textContent = `Camera unavailable: ${err.message}`;
+    $('#server-result').textContent = `The live camera isn’t available here (${err?.message || err?.name || 'no camera'}). Use Take a photo of the QR instead.`;
   }
 }
 
@@ -333,25 +433,76 @@ function stopCamera() {
   scanStop?.();
 }
 
+// Reads a setup QR code from a photo taken with the iPad's own camera screen. This needs no camera
+// permission and works the same in the home screen app, where iOS is strictest about the live
+// camera (it can refuse it, or ask again on every launch).
+async function readQrPhoto(file) {
+  const result = $('#server-result');
+  if (!file) return;
+  stopCamera();
+  result.textContent = 'Reading the QR code…';
+  const url = URL.createObjectURL(file);
+  try {
+    await loadScript('js/vendor/jsQR.js');
+    const img = new Image();
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error('That photo couldn’t be opened.'));
+      img.src = url;
+    });
+    // A full-size iPad photo is far bigger than jsQR needs and slow to read: try it smaller first.
+    const canvas = document.createElement('canvas');
+    const g = canvas.getContext('2d', { willReadFrequently: true });
+    for (const max of [1200, 2000, 800]) {
+      const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      g.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const hit = self.jsQR(g.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height, { inversionAttempts: 'attemptBoth' });
+      if (hit?.data) {
+        if (!applySetupCode(hit.data)) result.textContent = 'That QR code isn’t a TERRA setup code.';
+        return;
+      }
+    }
+    result.textContent = 'No QR code found in that photo. Fill the screen with the code and try again.';
+  } catch (err) {
+    result.textContent = `Couldn’t read the photo: ${err.message}`;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 function bindDialog() {
   $('#btn-server').addEventListener('click', openServerSettings);
   $('#form-server').addEventListener('submit', (e) => {
     e.preventDefault();
-    saveAndTest({ url: $('#server-url').value, key: $('#server-key').value });
+    // A setup code in its box wins over the address and key fields.
+    if ($('#server-setup').value.trim()) applySetupCode($('#server-setup').value);
+    else saveAndTest({ url: $('#server-url').value, key: $('#server-key').value });
   });
-  // A keyboard-wedge scanner types the setup code and presses Enter.
+  // A keyboard-wedge scanner types the setup code and presses Enter. A pasted code is used as
+  // soon as it is complete, with no Enter needed.
   $('#server-setup').addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     e.preventDefault();
     applySetupCode(e.target.value);
   });
+  $('#server-setup').addEventListener('input', (e) => {
+    if (api.decodeSetup(e.target.value)) applySetupCode(e.target.value);
+  });
   $('#btn-server-camera').addEventListener('click', () => (scanStop ? stopCamera() : startCamera()));
+  $('#server-qr-photo').addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    readQrPhoto(file);
+  });
   $('#btn-server-qr').addEventListener('click', showQr);
   $('#btn-server-key-show').addEventListener('click', () => {
     const input = $('#server-key');
     input.type = input.type === 'password' ? 'text' : 'password';
   });
   $('#btn-server-close').addEventListener('click', () => dialog().close());
+  $('#btn-device-pick').addEventListener('click', changeDevice);
   $('#btn-admin-unlock').addEventListener('click', unlockAdmin);
   $('#btn-admin-board').addEventListener('click', openAdminBoard);
   $('#btn-admin-connection').addEventListener('click', openConnection);
@@ -383,4 +534,7 @@ function bindDialog() {
   });
   live.on('devices', () => { if (dialog().open) drawDevice(); });
   dialog().addEventListener('close', stopCamera);
+  // The app going to the background ends the scan, so the camera is off.
+  document.addEventListener('visibilitychange', () => { if (document.hidden) stopCamera(); });
+  window.addEventListener('pagehide', stopCamera);
 }

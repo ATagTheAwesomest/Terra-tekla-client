@@ -45,9 +45,11 @@ export function stackTotals(stack) {
 // piece left. PowerFab's QuantityRemaining already leaves out pieces assigned
 // to any load (checked on EPM-001), so a piece can never be added more times
 // than the job has it. Returns { row } or { reason } explaining why none is.
-export function pickRemaining(mark, remaining, loads) {
-  const row = remaining.filter((r) => r.mark === mark && r.remaining > 0)
-    .sort((a, b) => a.sequence.localeCompare(b.sequence, 'en', { numeric: true }))[0];
+// `sequence`, when given (a piece code's list says which), is taken first.
+export function pickRemaining(mark, remaining, loads, sequence = null) {
+  const left = remaining.filter((r) => r.mark === mark && r.remaining > 0);
+  const row = (sequence && left.find((r) => r.sequence === sequence))
+    || left.sort((a, b) => a.sequence.localeCompare(b.sequence, 'en', { numeric: true }))[0];
   if (row) return { row };
   const onLoads = loads.filter((l) => l.items.some((it) => it.mark === mark));
   if (!onLoads.length) return { reason: 'not-on-job' };

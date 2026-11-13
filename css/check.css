@@ -116,3 +116,30 @@ body.mode-check .topbar { border-bottom-color: var(--ok); }
   font-weight: 800;
 }
 .check-banner.draft { background: transparent; border: 2px dashed var(--flag); color: var(--flag); font-weight: 600; }
+
+/* By mark (phone layout): "1001-C1  12 / 40" with a bar; tap for its pieces */
+.mark-lines { list-style: none; margin: 0; padding: 0; }
+.mark-line + .mark-line { border-top: 1px solid var(--border); }
+.mark-line-head {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  grid-template-areas: "tick mark count" "tick bar bar";
+  align-items: center;
+  gap: 4px 10px;
+  width: 100%;
+  min-height: 60px;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.mark-line-head .check-tick { grid-area: tick; }
+.mark-line-head .check-mark { grid-area: mark; font-size: 1.15rem; }
+.mark-line-count { grid-area: count; font-variant-numeric: tabular-nums; font-size: 1.1rem; }
+.mark-line-bar { grid-area: bar; height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
+.mark-line-bar span { display: block; height: 100%; background: var(--ok); }
+.mark-line.done .mark-line-head { opacity: 0.6; }
+.mark-line.done .mark-line-count { color: var(--ok); }
+.mark-line .check-rows { padding-left: 12px; }

@@ -27,7 +27,7 @@ export async function checkForUpdate() {
 
 // Drops the service worker and every app cache, installs a fresh service
 // worker, then reloads. The new worker downloads every app file past the
-// browser's HTTP cache (GitHub Pages lets files sit there for 10 minutes), so
+// browser's HTTP cache, so
 // the page can't start from a mix of old and new files. Server settings in
 // localStorage are not touched.
 export async function reloadFresh() {

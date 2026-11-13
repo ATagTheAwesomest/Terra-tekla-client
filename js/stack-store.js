@@ -16,7 +16,7 @@
 import * as api from './api.js';
 import { addCheckScan, emptyCheck, palletCheckQty, removeCheckScan } from './check.js';
 import * as live from './live.js';
-import { applyOp, findEntry, lastPlainStack, MAX_PALLET, newId, newState, stepTarget, syncPieces } from './stack-ops.js';
+import { applyOp, findCode, findEntry, lastPlainStack, MAX_PALLET, newId, newState, stepTarget, syncPieces } from './stack-ops.js';
 
 export { findEntry };
 
@@ -53,9 +53,6 @@ function write(key, value) {
 function restore() {
   for (const s of Object.values(read(CACHE_KEY, {}))) if (s?.loadId && Array.isArray(s.stacks)) servers.set(s.loadId, s);
   queue = read(QUEUE_KEY, []).filter((q) => q?.loadId && q.op);
-  // The local-only stacks of v0.12 and older are not used any more: the server keeps them now,
-  // and every piece PowerFab has loaded is put back in a stack on the first read.
-  try { localStorage.removeItem('terra.local-stacks.v1'); } catch { /* blocked */ }
 }
 
 let saveTimer = null;
@@ -179,7 +176,13 @@ function send(load, op) {
   return changed;
 }
 
-// Sends the queue to the server, one at a time and in order.
+// How many queued changes to one load go to the server in one request.
+const BATCH = 100;
+let batchOk = true; // false once the server turned out to be too old for /ops/batch
+
+// Sends the queue to the server in order. Changes queued for the same load go together in one
+// request (fast scanning, or catching up after being offline); one the server refuses is dropped
+// with a warning and the rest still apply.
 export function flush() {
   if (sending) return sending;
   if (!queue.length || !api.getConfig()) return Promise.resolve();
@@ -187,6 +190,36 @@ export function flush() {
     while (queue.length) {
       const q = queue[0];
       const { loadId, ...body } = q;
+      let n = 1;
+      while (batchOk && n < BATCH && queue[n]?.loadId === loadId) n++;
+      if (n > 1) {
+        const batch = queue.slice(0, n);
+        try {
+          const reply = await api.sendOps(loadId, { job: q.job, loadNumber: q.loadNumber, ops: batch.map(({ loadId: _, ...op }) => op) });
+          queue.splice(0, n);
+          saveQueue();
+          status = { offline: false, error: '' };
+          if (!takeServer(reply.state)) emit({ loadId });
+          for (const r of reply.results ?? []) {
+            if (!r.error) continue;
+            status = { ...status, error: r.error };
+            emit({ loadId, refused: r.error });
+          }
+          continue;
+        } catch (err) {
+          if (err.status === 404 || err.status === 405) {
+            batchOk = false;
+            continue;
+          }
+          if (!(err.status >= 400 && err.status < 500 && err.status !== 401 && err.status !== 408 && err.status !== 429)) {
+            status = { offline: true, error: err.status === 401 ? err.message : '' };
+            emit({ loadId });
+            retryLater();
+            break;
+          }
+          // The whole batch was refused (not one op of it): send them one at a time to find which.
+        }
+      }
       try {
         const reply = await api.sendOp(loadId, body);
         queue.shift();
@@ -352,13 +385,30 @@ export function moveEntryTo(load, entryId, stackId, index) {
 
 // A scan about to go to PowerFab: a "sending" row at the bottom of this iPad's active stack, on
 // every iPad at once. Returns its id for finishScan / failScan.
-export function beginScan(load, mark, { manual = false } = {}) {
+// `code`: the piece code scanned (jobs with piece codes), kept on the row.
+export function beginScan(load, mark, { manual = false, code = null } = {}) {
   assertEditable(load);
   const entryId = newId();
   // Only pallets left (the plain stacks were deleted): a plain stack for the scan first.
   if (activeStack(get(load)).pallet) addStack(load);
-  send(load, { op: 'beginScan', entryId, mark, manual, stackId: activeStack(get(load)).id });
+  send(load, { op: 'beginScan', entryId, mark, manual, stackId: activeStack(get(load)).id, ...(code ? { code } : {}) });
   return entryId;
+}
+
+// The load (number) and row a piece code is on, among the loads of `job` this device has, or null.
+export function codeOnLoads(job, code) {
+  const c = String(code ?? '').toUpperCase();
+  if (!c) return null;
+  const loads = new Set([...servers.keys(), ...queue.map((q) => q.loadId)]);
+  for (const loadId of loads) {
+    const m = meta.get(loadId);
+    const base = servers.get(loadId);
+    if (String(m?.job ?? base?.job ?? '').toUpperCase() !== String(job ?? '').toUpperCase()) continue;
+    const state = m ? view({ id: loadId, number: m.number, job: m.job }) : base;
+    const hit = findCode(state, c);
+    if (hit) return { loadId, loadNumber: m?.number ?? state.loadNumber, ...hit };
+  }
+  return null;
 }
 
 // An entry id, or a list of them (a pallet's pieces), as an operation's fields.
@@ -470,17 +520,18 @@ export function resetCheck(load) {
 
 // Returns the scan { id, mark, manual, scannedAt, scannedBy, qty? }, or null for an empty mark.
 // A mark whose next unchecked piece is on a pallet checks the whole pallet (js/check.js palletCheckQty).
-export function addCheck(load, rawMark, { manual = false } = {}) {
-  const qty = palletCheckQty(get(load), rawMark);
+// `code`: a piece code (jobs with piece codes), which checks off that exact piece.
+export function addCheck(load, rawMark, { manual = false, code = null } = {}) {
+  const qty = code ? 1 : palletCheckQty(get(load), rawMark);
   if (checkMode(load) === 'draft') {
-    const scan = addCheckScan(draft.check, rawMark, { manual, qty });
+    const scan = addCheckScan(draft.check, rawMark, { manual, qty, code });
     emit({ loadId: load.id });
     return scan;
   }
-  if (checkMode(load) === 'solo') return updateSolo(load, (check) => addCheckScan(check, rawMark, { manual, qty }));
-  const probe = addCheckScan(emptyCheck(), rawMark, { manual, qty });
+  if (checkMode(load) === 'solo') return updateSolo(load, (check) => addCheckScan(check, rawMark, { manual, qty, code }));
+  const probe = addCheckScan(emptyCheck(), rawMark, { manual, qty, code });
   if (!probe) return null;
-  send(load, { op: 'addCheck', scanId: probe.id, mark: probe.mark, manual, ...(qty > 1 ? { qty } : {}) });
+  send(load, { op: 'addCheck', scanId: probe.id, mark: probe.mark, manual, ...(qty > 1 ? { qty } : {}), ...(code ? { code } : {}) });
   return get(load).truckCheck.scans.find((s) => s.id === probe.id) ?? probe;
 }
 

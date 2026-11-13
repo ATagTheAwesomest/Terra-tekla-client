@@ -7,7 +7,7 @@
 // Stack  { id, name, createdBy, pallet|null, items: Entry[] }
 // Pallet { mark, photos, manual }: a stack of one mark scanned once with a quantity. It still has
 //          one Entry per piece, so totals, sync, export and the truck check work as for any stack.
-// Entry  { id, mark, sequence, manual, scannedAt, scannedBy, pending, removing, addedAt, rev,
+// Entry  { id, mark, sequence, manual, code?, scannedAt, scannedBy, pending, removing, addedAt, rev,
 //          ...PowerFab details: weight, description, partNumber, remark, shape, dimensions, grade, length }
 //
 // Every operation is { op, opId, ...fields } and names rows and stacks by ids the app made up, so
@@ -57,6 +57,17 @@ export function findEntry(state, entryId) {
     const stack = state.stacks[si];
     const index = stack.items.findIndex((entry) => entry.id === entryId);
     if (index !== -1) return { stack, stackIndex: si, index, entry: stack.items[index] };
+  }
+  return null;
+}
+
+// { stack, entry } of the row loaded with a piece code (any case), or null.
+export function findCode(state, code) {
+  const c = String(code ?? '').toUpperCase();
+  if (!c) return null;
+  for (const stack of state.stacks) {
+    const entry = stack.items.find((e) => e.code && String(e.code).toUpperCase() === c);
+    if (entry) return { stack, entry };
   }
   return null;
 }
@@ -140,12 +151,15 @@ const OPS = {
       state.stacks.push(stack);
     }
     if (stack.pallet && !sameMark(op.mark, stack.pallet.mark)) return false;
+    // A piece code is one piece: the server refuses one already on this load (or another).
+    const code = String(op.code ?? '').trim();
+    if (code && !findEntry(state, op.entryId) && findCode(state, code)) return false;
     let added = false;
     for (const id of idsOf(op)) {
       if (findEntry(state, id)) continue;
       stack.items.push({
         id, mark: op.mark, sequence: '', manual: Boolean(op.manual), scannedAt: ctx.now, scannedBy: ctx.deviceId,
-        pending: true, removing: false, addedAt: ctx.now, rev: state.rev,
+        pending: true, removing: false, addedAt: ctx.now, rev: state.rev, ...(code ? { code } : {}),
       });
       added = true;
     }
@@ -202,9 +216,12 @@ const OPS = {
   addCheck(state, op, ctx) {
     state.truckCheck ??= { startedAt: ctx.now, updatedAt: ctx.now, scans: [] };
     if (state.truckCheck.scans.some((s) => s.id === op.scanId)) return false;
+    // A piece code checks off one piece, once.
+    const code = String(op.code ?? '').trim();
+    if (code && state.truckCheck.scans.some((s) => sameMark(s.code ?? '', code))) return false;
     state.truckCheck.scans.push({
       id: op.scanId, mark: op.mark, manual: Boolean(op.manual), scannedAt: ctx.now, scannedBy: ctx.deviceId,
-      qty: Math.min(MAX_PALLET, Math.max(1, Math.floor(Number(op.qty)) || 1)),
+      qty: code ? 1 : Math.min(MAX_PALLET, Math.max(1, Math.floor(Number(op.qty)) || 1)), ...(code ? { code } : {}),
     });
     state.truckCheck.updatedAt = ctx.now;
     return true;

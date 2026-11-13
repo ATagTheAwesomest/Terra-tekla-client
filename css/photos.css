@@ -45,7 +45,6 @@
 
 /* Server settings switch */
 .modal.server .photos-toggle { margin-top: 16px; justify-content: flex-start; }
-.modal.server .camera-ready-toggle { margin-top: 10px; justify-content: flex-start; }
 .photos-setting-note { margin: 6px 0 0; font-size: 0.85rem; }
 
 @media print { .btn-photo, [data-action="photos"] { display: none !important; } }
@@ -60,33 +59,16 @@
 
 .photo-by { margin: 2px 0; }
 
-/* Rapid-fire camera (js/camera.js) */
-/* A fixed height, not just max-height: Safari sizes an auto-height flex column
-   from flex-basis, so a flex:1 live view with no height of its own came out 0 px
-   tall there (no preview at all) while Chrome showed it fine. */
-.modal.camera { width: min(1100px, 98vw); height: 96vh; height: 96dvh; max-height: none; padding: 16px; display: none; flex-direction: column; gap: 10px; }
-.modal.camera[open] { display: flex; }
+/* Needed photos with the iPad's own camera (js/camera.js) */
+.modal.camera { width: min(640px, 96vw); max-height: 92vh; overflow-y: auto; }
 .camera-note { margin: 4px 0 0; }
-.camera-view { position: relative; flex: 1 1 auto; height: 0; min-height: 160px; display: flex; justify-content: center; align-items: center; background: #000; border-radius: var(--radius); overflow: hidden; }
-.camera-view video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; cursor: pointer; background: #000; }
-.camera-view .camera-message { z-index: 1; }
-.modal.camera > :not(.camera-view) { flex: 0 0 auto; }
-.camera-view::after { content: ''; position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
-.camera-view.flash::after { animation: camera-flash 0.25s ease-out; }
-@keyframes camera-flash { from { opacity: 0.7; } to { opacity: 0; } }
-.camera-message { position: absolute; inset: auto 12px 12px; margin: 0; padding: 10px 12px; border-radius: var(--radius); background: rgba(0, 0, 0, 0.8); font-weight: 600; }
-.camera-shots { list-style: none; margin: 0; padding: 0; display: flex; gap: 8px; overflow-x: auto; min-height: 76px; }
+.camera-shots { list-style: none; margin: 14px 0 0; padding: 0; display: flex; gap: 8px; overflow-x: auto; }
+.camera-shots:empty { display: none; }
 .camera-shot { position: relative; flex: 0 0 auto; }
-.camera-shot img { display: block; height: 76px; width: auto; border-radius: 6px; background: #000; }
+.camera-shot img { display: block; height: 96px; width: auto; border-radius: 6px; background: #000; }
 .camera-shot-remove { position: absolute; top: -2px; right: -2px; width: 34px; height: 34px; border: 0; border-radius: 50%; background: rgba(0, 0, 0, 0.75); color: #fff; font-size: 1.3rem; line-height: 1; cursor: pointer; }
-.camera-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--gap); flex-wrap: wrap; }
-.camera-count { flex: 1; min-width: 140px; color: var(--text-muted); }
-.camera-count strong { color: var(--flag); }
-.camera-shutter { width: 88px; height: 88px; flex: 0 0 auto; border: 6px solid #fff; border-radius: 50%; background: var(--accent); cursor: pointer; touch-action: none; -webkit-user-select: none; user-select: none; }
-.camera-shutter:active { transform: scale(0.92); }
-.camera-shutter:disabled { opacity: 0.35; }
-.camera-actions .btn-primary { min-width: 140px; }
-.modal.camera .camera-fallback { position: relative; overflow: hidden; margin: 0; align-items: center; }
+.camera-count { margin: 12px 0; font-weight: 600; color: var(--flag); }
+.modal.camera .camera-take { position: relative; overflow: hidden; display: flex; width: 100%; min-height: 88px; margin: 0; font-size: 1.3rem; color: var(--accent-text); }
 .modal.camera [hidden] { display: none; }
 
 /* Photos explorer (js/photo-browser.js): a full-screen dialog like Piece lookup. */

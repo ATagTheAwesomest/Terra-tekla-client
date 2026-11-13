@@ -7,7 +7,7 @@
 // unlocked by the scan itself (the scanner's Enter key, see js/scanner.js), the keypad's Add, the
 // Truck check button and Test sounds in Server settings. It is not done on every tap and key:
 // starting audio during a tap on the installed iPad app can stop the tapped text field from taking
-// focus or typing (v0.11.0).
+// focus or typing.
 //
 // They can be turned off per iPad (Server settings), kept as terra.sounds.
 

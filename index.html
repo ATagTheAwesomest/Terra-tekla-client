@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TERRA">
   <meta name="format-detection" content="telephone=no">
-  <meta name="terra-version" content="0.20.0">
+  <meta name="terra-version" content="0.25.0">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -97,7 +97,10 @@
     <button class="btn btn-lg btn-primary" id="btn-new-stack" type="button">+ New Stack</button>
     <button class="btn btn-lg btn-primary" id="btn-pallet" type="button" title="A pallet of one mark: scan it once, type how many, take photos">+ Pallet</button>
     <button class="btn btn-lg btn-primary" id="btn-check-done" type="button" hidden>Done checking</button>
+    <button class="btn btn-lg" id="btn-code" type="button" hidden title="Scan a custom barcode you put on a piece, then its mark">+ Code</button>
+    <button class="btn btn-lg" id="btn-pair-cancel" type="button" hidden>Cancel new code</button>
   </section>
+  <section class="last-scan" id="last-scan" hidden aria-live="polite"></section>
   <div class="colhead" id="colhead" hidden aria-hidden="true">
     <span></span><span>#</span><span>Mark</span><span>Description</span><span class="colhead-num">Weight</span><span></span>
   </div>
@@ -191,6 +194,7 @@
         <legend>This iPad</legend>
         <p class="device-who" id="device-who"></p>
         <p class="muted" id="device-result" role="status">Its name and colour are set on the admin board (Devices), with the admin code.</p>
+        <button class="btn" type="button" id="btn-device-pick">Wrong iPad? Pick which one this is</button>
       </fieldset>
       <button class="btn btn-block menu-toggle sounds-toggle" id="btn-sounds-toggle" type="button" aria-pressed="true">
         <span class="icon" aria-hidden="true">&#128264;</span><span>Sounds when a scan is added or refused</span><span class="toggle-state" id="sounds-toggle-state">On</span>
@@ -200,10 +204,6 @@
         <span class="icon" aria-hidden="true">&#128247;</span><span>Send photos to the server</span><span class="toggle-state" id="photos-toggle-state">Off</span>
       </button>
       <p class="muted photos-setting-note" id="photos-setting-note"></p>
-      <button class="btn btn-block menu-toggle camera-ready-toggle" id="btn-camera-ready" type="button" aria-pressed="false">
-        <span class="icon" aria-hidden="true">&#127909;</span><span>Keep the camera ready</span><span class="toggle-state" id="camera-ready-state">Off</span>
-      </button>
-      <p class="muted photos-setting-note" id="camera-ready-note"></p>
 
       <fieldset class="device-settings admin-box" id="admin-box">
         <legend>Admin <span class="admin-lock" id="admin-lock-state">&#128274; Locked</span></legend>
@@ -237,11 +237,24 @@
         <p class="server-result" id="server-result" role="status"></p>
         <div class="modal-actions server-actions">
           <button class="btn" type="button" id="btn-server-camera">Scan QR with camera</button>
+          <label class="btn" id="btn-server-qr-photo">&#128247; Take a photo of the QR
+            <input id="server-qr-photo" type="file" accept="image/*" capture="environment" class="photos-input">
+          </label>
           <button class="btn" type="button" id="btn-server-qr">Show setup QR</button>
           <button class="btn btn-primary" type="submit">Save &amp; test</button>
         </div>
       </fieldset>
     </form>
+  </dialog>
+
+  <dialog class="modal device-pick" id="dlg-device-pick" aria-labelledby="device-pick-title">
+    <h2 id="device-pick-title">Which iPad is this?</h2>
+    <p class="muted" id="device-pick-note">The app on the home screen, Safari and a reinstall each start fresh. Pick this iPad so it stays one entry on the server, with its name, colour and history.</p>
+    <ul class="device-pick-list" id="device-pick-list"></ul>
+    <p class="field-error" id="device-pick-error" role="alert"></p>
+    <div class="modal-actions">
+      <button class="btn" type="button" id="btn-device-pick-new">It’s a new iPad</button>
+    </div>
   </dialog>
 
   <dialog class="modal photos" id="dlg-photos">
@@ -255,7 +268,9 @@
     <label for="photos-of">Photo of</label>
     <select id="photos-of" class="photos-of"></select>
     <div class="photos-take">
-      <button class="btn btn-lg btn-primary photos-pick" type="button" id="btn-photos-camera">&#128247; Take photos</button>
+      <label class="btn btn-lg btn-primary photos-pick">&#128247; Take a photo
+        <input id="photos-camera" type="file" accept="image/*" capture="environment" class="photos-input">
+      </label>
       <label class="btn btn-lg photos-pick">&#128444; From library
         <input id="photos-library" type="file" accept="image/*" multiple class="photos-input">
       </label>
@@ -273,25 +288,16 @@
   <dialog class="modal camera" id="dlg-camera" aria-labelledby="camera-title">
     <div class="server-head">
       <div>
-        <h2 id="camera-title">Take photos</h2>
+        <h2 id="camera-title">Take a photo</h2>
         <p class="muted camera-note" id="camera-note" hidden></p>
       </div>
       <button class="btn btn-ghost" type="button" id="btn-camera-cancel">Cancel</button>
     </div>
-    <div class="camera-view" id="camera-view">
-      <video id="camera-video" playsinline muted autoplay></video>
-      <p class="camera-message" id="camera-message" role="status" hidden></p>
-    </div>
     <ul class="camera-shots" id="camera-shots"></ul>
-    <div class="camera-actions">
-      <span class="camera-count" id="camera-count" role="status"></span>
-      <label class="btn btn-lg camera-fallback" id="camera-fallback" hidden>&#128247; iPad camera
-        <input id="camera-input" type="file" accept="image/*" capture="environment" class="photos-input">
-      </label>
-      <button class="btn btn-lg" type="button" id="btn-camera-undo" disabled>Undo</button>
-      <button class="camera-shutter" type="button" id="btn-camera-shutter" aria-label="Take a photo (hold for several)"></button>
-      <button class="btn btn-lg btn-primary" type="button" id="btn-camera-done">Done</button>
-    </div>
+    <p class="camera-count" id="camera-count" role="status"></p>
+    <label class="btn btn-lg btn-primary camera-take">&#128247; <span id="camera-take-text">Take photo</span>
+      <input id="camera-input" type="file" accept="image/*" capture="environment" class="photos-input">
+    </label>
   </dialog>
 
   <dialog class="modal photo-view" id="dlg-photo-view">

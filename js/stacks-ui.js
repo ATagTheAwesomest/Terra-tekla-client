@@ -10,6 +10,8 @@
 // through ctx.deleteEntry and ctx.deleteStack (js/shipping-ui.js).
 
 import { escapeHtml } from './app.js';
+import { startDrag } from './drag.js';
+import { shortCode } from './handheld.js';
 import { bindHold } from './hold.js';
 import { deviceInfo } from './live.js';
 import { focusScanner } from './scanner.js';
@@ -22,6 +24,11 @@ export const STACK_HOLD_MS = 4000;
 let ctx = null;
 // Entry ids showing their detail panel.
 const expanded = new Set();
+// Compact (phone and handheld) layout: stacks opened by a tap, and those showing every row.
+const openStacks = new Set();
+const allRows = new Set();
+// How many of the active stack's newest rows the compact layout shows.
+export const COMPACT_ROWS = 5;
 
 // ---- Rendering -----------------------------------------------------------
 
@@ -49,8 +56,10 @@ function formatLength(mm) {
   return `${Math.round(n)} mm (${(n / 304.8).toFixed(2)} ft)`;
 }
 
-function renderDetail(entry) {
+function renderDetail(entry, extra = []) {
   const rows = [
+    ...extra,
+    ['Piece code', entry.code ?? ''],
     ['Scanned', entry.scannedAt ? formatScanTime(entry.scannedAt) : 'Loaded in PowerFab, not scanned in the app'],
     ['Scanned by', entry.scannedBy ? deviceInfo(entry.scannedBy)?.name ?? 'Another iPad' : ''],
     ['Piece weight', formatWeight(entry.weight)],
@@ -86,7 +95,7 @@ function renderItem(entry, i, locked, count) {
     <li class="item${entry.manual ? ' flagged' : ''}${expanded.has(entry.id) ? ' expanded' : ''}${entry.pending ? ' pending' : ''}${entry.removing ? ' removing' : ''}${color ? ' by-device' : ''}" data-item-id="${escapeHtml(entry.id)}"${color ? ` style="--who:${escapeHtml(color)}"` : ''}>
       ${locked || busy ? '<span class="item-drag"></span>' : '<span class="item-drag" data-drag aria-label="Drag to move" title="Drag to move">&#10303;</span>'}
       <span class="item-index">${i + 1}</span>
-      <span class="item-mark">${escapeHtml(entry.mark)}</span>
+      <span class="item-mark">${escapeHtml(entry.mark)}${entry.code ? `<span class="item-code" title="Piece code ${escapeHtml(entry.code)}">${escapeHtml(shortCode(entry.code))}</span>` : ''}</span>
       <span class="item-desc">${busy ? '' : countBadge(entry, count)}${escapeHtml(desc)} ${whoBadge(entry.scannedBy)}</span>
       <span class="item-weight">${formatWeight(entry.weight)}</span>
       <span class="item-actions">
@@ -109,28 +118,60 @@ function renderPallet(stack, locked) {
   const t = stackTotals(stack);
   const each = Number(first?.weight) || 0;
   const busy = pending || removing;
+  const open = expanded.has(palletKey(stack.id));
   const status = pending ? `Sending ${pending} to PowerFab…` : removing ? `Taking ${removing} off the load…` : '';
   const color = first ? whoColor(first) : '';
   const desc = [first?.description, each ? `${formatWeight(each)} each` : ''].filter(Boolean).join(' · ');
   return `
-      <div class="pallet-row${stack.pallet.manual ? ' flagged' : ''}${busy ? ' pending' : ''}${color ? ' by-device' : ''}"${color ? ` style="--who:${escapeHtml(color)}"` : ''}>
+      <div class="pallet-row${stack.pallet.manual ? ' flagged' : ''}${busy ? ' pending' : ''}${color ? ' by-device' : ''}${open ? ' expanded' : ''}" data-pallet-row${color ? ` style="--who:${escapeHtml(color)}"` : ''}>
         <span class="pallet-mark">${escapeHtml(stack.pallet.mark)}</span>
         <span class="pallet-qty">&times; ${items.length}</span>
         <span class="item-desc">${escapeHtml(status || desc)} ${first ? whoBadge(first.scannedBy) : ''}</span>
         <span class="item-weight">${formatWeight(t.weight)}</span>
         <span class="item-actions">${locked || busy ? '' : '<button class="btn" type="button" data-action="pallet-count">Change count</button>'}</span>
       </div>
-      <p class="pallet-note">&#128247; ${stack.pallet.photos} photo${stack.pallet.photos === 1 ? '' : 's'} of this pallet${stack.pallet.manual ? ' &middot; mark typed on keypad' : ''}</p>`;
+      <p class="pallet-note">&#128247; ${stack.pallet.photos} photo${stack.pallet.photos === 1 ? '' : 's'} of this pallet${stack.pallet.manual ? ' &middot; mark typed on keypad' : ''}</p>
+      ${open && first ? `<div class="pallet-detail">${renderDetail(first, palletRows(stack))}</div>` : ''}`;
 }
 
-function renderStack(stack, state, locked, counts) {
+// What the pallet's details add above the piece's own: the count, the
+// sequences its pieces came from and the pallet's photos.
+function palletRows(stack) {
+  const seqs = [...new Set(stack.items.map((e) => e.sequence).filter(Boolean))].sort();
+  return [
+    ['Pieces on pallet', String(stack.items.length)],
+    ['Sequences', seqs.join(', ')],
+    ['Pallet photos', String(stack.pallet.photos ?? 0)],
+  ];
+}
+
+// The pallet's details are open: keyed by stack, since its rows come and go.
+const palletKey = (stackId) => `pallet:${stackId}`;
+
+// The rows a stack shows. In the compact layout a stack other than the one being scanned into is
+// closed until tapped, and the one being scanned into shows its newest rows only, so a long load
+// doesn't have to be scrolled (or drawn) on a small screen.
+function shownRows(stack, active, compact) {
+  const all = stack.items.map((entry, i) => [entry, i]);
+  if (!compact) return { rows: all, closed: false, hidden: 0 };
+  if (!active && !openStacks.has(stack.id)) return { rows: [], closed: true, hidden: all.length };
+  if (allRows.has(stack.id) || all.length <= COMPACT_ROWS) return { rows: all, closed: false, hidden: 0 };
+  return { rows: all.slice(-COMPACT_ROWS), closed: false, hidden: all.length - COMPACT_ROWS };
+}
+
+function renderStack(stack, state, locked, counts, compact) {
   const t = stackTotals(stack);
   const seqs = stackSequences(stack);
   const manual = stack.items.filter((entry) => entry.manual).length;
   const active = stacks.activeStack(state) === stack;
   const pallet = Boolean(stack.pallet);
+  const { rows, closed, hidden } = shownRows(stack, active, compact && !pallet);
+  const more = !compact || pallet || !stack.items.length ? ''
+    : closed ? `<button class="btn stack-more" type="button" data-action="open-stack">Show ${t.pieces} piece${t.pieces === 1 ? '' : 's'}</button>`
+    : hidden ? `<button class="btn stack-more" type="button" data-action="all-rows">Show all ${t.pieces} (${hidden} older)</button>`
+    : !active || allRows.has(stack.id) ? `<button class="btn stack-more" type="button" data-action="close-stack">Show less</button>` : '';
   return `
-    <section class="stack${active ? ' active' : ''}${pallet ? ' pallet' : ''}" data-stack-id="${escapeHtml(stack.id)}"${pallet ? ' data-pallet' : ''}>
+    <section class="stack${active ? ' active' : ''}${pallet ? ' pallet' : ''}${closed ? ' closed' : ''}" data-stack-id="${escapeHtml(stack.id)}"${pallet ? ' data-pallet' : ''}>
       <header class="stack-head">
         <div class="stack-title">
           ${pallet ? '<span class="badge badge-pallet">Pallet</span>' : ''}
@@ -145,7 +186,7 @@ function renderStack(stack, state, locked, counts) {
         ${locked ? '' : `<button class="btn btn-icon btn-hold" type="button" data-hold="stack" data-hold-ms="${STACK_HOLD_MS}" aria-label="Hold 4 seconds to delete stack" title="Hold 4 seconds to delete stack">&#128465;</button>`}
       </header>
       ${pallet ? renderPallet(stack, locked) : stack.items.length
-        ? `<ol class="items">${stack.items.map((entry, i) => renderItem(entry, i, locked, counts.get(entry.id))).join('')}</ol>`
+        ? (hidden && !closed ? more : '') + (rows.length ? `<ol class="items">${rows.map(([entry, i]) => renderItem(entry, i, locked, counts.get(entry.id))).join('')}</ol>` : '') + (hidden && !closed ? '' : more)
         : `<p class="stack-empty">${locked ? 'No pieces.' : 'No pieces yet. Scan, or drag pieces here.'}</p>`}
     </section>`;
 }
@@ -153,9 +194,10 @@ function renderStack(stack, state, locked, counts) {
 // Every stack of the load. `locked` (a shipped load) leaves only viewing: no
 // drag, move, rename, scan-here or delete. js/stack-store.js refuses those
 // changes on a shipped load too.
-export function renderStacks(state, { locked = false } = {}) {
+// `compact` (the phone and handheld layout) closes the stacks not being scanned into.
+export function renderStacks(state, { locked = false, compact = false } = {}) {
   const counts = pieceCounts(state);
-  return state.stacks.map((stack) => renderStack(stack, state, locked, counts)).join('');
+  return state.stacks.map((stack) => renderStack(stack, state, locked, counts, compact)).join('');
 }
 
 // ---- Rename --------------------------------------------------------------
@@ -212,16 +254,7 @@ function completeHold(btn) {
 }
 
 // ---- Drag and drop -------------------------------------------------------
-// Pointer-based so it works with touch on iPad Safari, where HTML5 drag and
-// drop is unreliable.
-
-let drag = null; // { itemId, ghost, pointerId, target, offsetY, lastY }
-
-function clearDropMarks() {
-  document.querySelectorAll('.drop-before, .drop-after, .drop-into').forEach((el) => {
-    el.classList.remove('drop-before', 'drop-after', 'drop-into');
-  });
-}
+// The drag itself (ghost, pointer tracking, clean-up) is js/drag.js.
 
 // Where a drop at (x, y) would land: { stackId, index, el, cls } or null.
 function dropTargetAt(x, y) {
@@ -242,53 +275,20 @@ function dropTargetAt(x, y) {
   return { stackId, index: rows.length, el: rows[rows.length - 1] ?? stackEl, cls: rows.length ? 'drop-after' : 'drop-into' };
 }
 
-function startDrag(handle, e) {
+function beginDrag(handle, e) {
   if (ctx.load()?.shipped) return;
   const row = handle.closest('[data-item-id]');
   if (!row) return;
   e.preventDefault();
-  const r = row.getBoundingClientRect();
-  const ghost = row.cloneNode(true);
-  ghost.classList.add('drag-ghost');
-  ghost.style.width = `${r.width}px`;
-  ghost.style.left = `${r.left}px`;
-  ghost.style.top = `${r.top}px`;
-  document.body.appendChild(ghost);
-  row.classList.add('dragging');
-  handle.setPointerCapture?.(e.pointerId);
-  drag = { itemId: row.dataset.itemId, ghost, pointerId: e.pointerId, offsetY: e.clientY - r.top, target: null, lastY: e.clientY };
-  autoScroll();
-}
-
-function moveDrag(e) {
-  if (!drag || e.pointerId !== drag.pointerId) return;
-  drag.ghost.style.top = `${e.clientY - drag.offsetY}px`;
-  drag.lastY = e.clientY;
-  clearDropMarks();
-  drag.target = dropTargetAt(e.clientX, e.clientY);
-  drag.target?.el.classList.add(drag.target.cls);
-}
-
-// Scrolls the workspace while a drag is held near its top or bottom edge.
-function autoScroll() {
-  if (!drag) return;
-  const ws = document.getElementById('workspace');
-  const r = ws.getBoundingClientRect();
-  const edge = 70;
-  if (drag.lastY < r.top + edge) ws.scrollTop -= 12;
-  else if (drag.lastY > r.bottom - edge) ws.scrollTop += 12;
-  requestAnimationFrame(autoScroll);
-}
-
-function endDrag(e, commit = true) {
-  if (!drag || (e && e.pointerId !== drag.pointerId)) return;
-  const { itemId, ghost, target } = drag;
-  drag = null;
-  ghost.remove();
-  clearDropMarks();
-  document.querySelector(`[data-item-id="${CSS.escape(itemId)}"]`)?.classList.remove('dragging');
-  const load = ctx.load();
-  if (commit && target && load && safely(() => stacks.moveEntryTo(load, itemId, target.stackId, target.index))) ctx.render();
+  const itemId = row.dataset.itemId;
+  startDrag(row, handle, e, {
+    targetAt: dropTargetAt,
+    scrollEl: document.getElementById('workspace'),
+    onDrop: (target) => {
+      const load = ctx.load();
+      if (load && safely(() => stacks.moveEntryTo(load, itemId, target.stackId, target.index))) ctx.render();
+    },
+  });
 }
 
 // ---- Wiring --------------------------------------------------------------
@@ -311,9 +311,9 @@ export function initStacks(context) {
     if (!stackEl) return;
     if (!btn) {
       // Tapping a row anywhere but its controls opens or closes its details.
-      const row = e.target.closest('[data-item-id]');
+      const row = e.target.closest('[data-item-id], [data-pallet-row]');
       if (!row || e.target.closest('button, [data-drag]')) return;
-      const id = row.dataset.itemId;
+      const id = row.hasAttribute('data-pallet-row') ? palletKey(stackEl.dataset.stackId) : row.dataset.itemId;
       if (!expanded.delete(id)) expanded.add(id);
       ctx.render();
       return;
@@ -343,6 +343,20 @@ export function initStacks(context) {
       case 'pallet-count':
         ctx.palletCount?.(stackEl.dataset.stackId);
         break;
+      case 'open-stack':
+        openStacks.add(stackEl.dataset.stackId);
+        ctx.render();
+        break;
+      case 'all-rows':
+        allRows.add(stackEl.dataset.stackId);
+        openStacks.add(stackEl.dataset.stackId);
+        ctx.render();
+        break;
+      case 'close-stack':
+        allRows.delete(stackEl.dataset.stackId);
+        openStacks.delete(stackEl.dataset.stackId);
+        ctx.render();
+        break;
     }
   });
 
@@ -356,13 +370,9 @@ export function initStacks(context) {
   ws.addEventListener('pointerdown', (e) => {
     if (e.target.closest('[data-hold]')) return;
     const handle = e.target.closest('[data-drag]');
-    if (handle) startDrag(handle, e);
+    if (handle) beginDrag(handle, e);
   });
   ws.addEventListener('contextmenu', (e) => {
     if (e.target.closest('[data-drag]')) e.preventDefault();
   });
-
-  document.addEventListener('pointermove', moveDrag);
-  document.addEventListener('pointerup', (e) => endDrag(e));
-  document.addEventListener('pointercancel', (e) => endDrag(e, false));
 }

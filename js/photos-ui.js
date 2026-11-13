@@ -5,7 +5,7 @@
 
 import { escapeHtml, toast } from './app.js';
 import * as api from './api.js';
-import { READY_CHOICES, cameraPermission, cameraReadySetting, initCamera, openCamera, setCameraReadySetting } from './camera.js';
+import { initCamera } from './camera.js';
 import { bindHold } from './hold.js';
 import * as live from './live.js';
 import * as photos from './photos.js';
@@ -269,21 +269,6 @@ async function addFiles(input) {
   queue(files);
 }
 
-// The rapid-fire camera: each photo is saved on the iPad as it is taken, so
-// closing the app mid-run loses nothing. Done closes it.
-async function takePhotos() {
-  if (!open) return;
-  const { job, load } = open;
-  const mark = $('#photos-of').value;
-  const n = await openCamera({
-    title: `Photos of ${mark || `load ${load}`}`,
-    note: 'Each photo is saved as it is taken.',
-    keep: (blob) => photos.queuePhotos({ job, load, mark, files: [blob] }),
-  });
-  if (n) toast(`${n} photo${n === 1 ? '' : 's'} of ${mark || `load ${load}`} saved, sending to the server`);
-  if (open?.job === job && open?.load === load) photos.sendQueued().then(readServer);
-}
-
 async function queue(files, mark = $('#photos-of').value) {
   if (!files.length || !open) return;
   const { job, load } = open;
@@ -325,27 +310,6 @@ async function drawSetting({ test = false } = {}) {
   }
 }
 
-// ---- Keep the camera ready (tap to cycle) -----------------------------------------
-
-const PERMISSION_TEXT = {
-  granted: 'The iPad has allowed the camera for this app.',
-  prompt: 'The iPad asks before giving the camera to this app.',
-  denied: 'The iPad has blocked the camera for this app: allow it in Settings > Apps > Safari > Camera.',
-};
-
-async function drawCameraReady() {
-  const c = cameraReadySetting();
-  $('#btn-camera-ready').setAttribute('aria-pressed', String(c.ms > 0));
-  $('#camera-ready-state').textContent = c.label;
-  const what = c.ms === Infinity ? 'The camera stays on while the app is open, so the iPad asks for it once per app start.'
-    : c.ms ? `The camera stays on for ${c.label} after the last photo, so the iPad doesn’t ask again for each one.`
-    : 'The camera turns off when the camera window closes; the iPad may ask each time.';
-  const note = $('#camera-ready-note');
-  note.textContent = `${what} While it is on the iPad shows a green dot and uses a little more battery.`;
-  const perm = await cameraPermission();
-  if (perm && PERMISSION_TEXT[perm]) note.textContent += ` ${PERMISSION_TEXT[perm]}`;
-}
-
 // ---- Wiring -----------------------------------------------------------------------
 
 export function initPhotos(context) {
@@ -357,13 +321,8 @@ export function initPhotos(context) {
     if (dialog().open) draw();
   });
 
-  $('#btn-photos-camera').addEventListener('click', takePhotos);
-  $('#btn-camera-ready').addEventListener('click', () => {
-    const i = READY_CHOICES.findIndex((c) => c.value === cameraReadySetting().value);
-    setCameraReadySetting(READY_CHOICES[(i + 1) % READY_CHOICES.length].value);
-    drawCameraReady();
-  });
-  drawCameraReady();
+  // The iPad's own camera: one photo per tap, saved as soon as it is taken.
+  $('#photos-camera').addEventListener('change', (e) => addFiles(e.target));
   $('#photos-library').addEventListener('change', (e) => addFiles(e.target));
   $('#photos-of').addEventListener('change', (e) => { if (open) open.mark = e.target.value; });
   $('#btn-photos-refresh').addEventListener('click', () => { photos.sendQueued(); readServer(); });
@@ -417,6 +376,5 @@ export function initPhotos(context) {
 
 // Server settings opened: show the switch, and check the server when it's on.
 export function drawPhotoSetting() {
-  drawCameraReady(); // the permission may have changed since
   return drawSetting({ test: photos.photosEnabled() });
 }
