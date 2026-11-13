@@ -74,6 +74,10 @@ let checking = false;
 let palletArmed = false;
 // A piece code not on the job's list was scanned: { code, manual } waits for its piece's mark.
 let pairing = null;
+// "+ Code" pressed: the next scan is a custom barcode (a sticker of our own, any text), whatever the
+// job's code pattern says. A barcode already on the list loads its piece; a new one then asks for
+// its mark, like any new code.
+let codeArmed = false;
 let queue = Promise.resolve();
 let readSeq = 0;
 
@@ -177,6 +181,7 @@ export function openJob(job) {
   if (number === ship.job && ship.readAt) return read();
   Object.assign(ship, { job: number, pcid: null, loads: [], remaining: [], selectedId: null, readAt: null, error: '' });
   pairing = null;
+  codeArmed = false;
   clearResult();
   render();
   if (number) codes.refresh(number).then(() => render());
@@ -251,6 +256,11 @@ async function assignOne(load, mark, sequence = null) {
 // stack. A mark PowerFab has none left of is refused with the reason.
 // A manual entry (typed, not scanned) needs a photo first while photos are on.
 export function scan(raw, { manual = false } = {}) {
+  if (codeArmed) {
+    codeArmed = false;
+    renderScanbar();
+    return customCode(raw, { manual });
+  }
   if (palletArmed && !checking) {
     setPalletArmed(false);
     return startPallet(raw, { manual });
@@ -299,6 +309,40 @@ function newCode(code, { manual = false } = {}) {
   showResult({ kind: 'ask', title: 'New code', code, text: 'Scan the piece’s mark tag (or type the mark on the Keypad) to pair this code with it.' });
   toast(`New code ${shortCode(code)}: scan its mark to pair it`, 4000);
   return null;
+}
+
+function setCodeArmed(on) {
+  codeArmed = on;
+  if (on) {
+    setPalletArmed(false);
+    setPairing(null);
+    showResult({ kind: 'ask', title: 'Custom barcode', text: 'Scan the barcode you put on the piece. Then scan its mark: one piece of that mark loads in PowerFab.' });
+  } else {
+    clearResult();
+  }
+  renderScanbar();
+  focusScanner();
+}
+
+function customCode(raw, { manual = false } = {}) {
+  const code = String(raw ?? '').trim();
+  if (!code) return null;
+  const c = codes.classify(ship.job, code, { isMark: isJobMark });
+  if (c.kind === 'code') {
+    const opts = { manual, code: c.code, sequence: c.sequence };
+    return checking ? submitCheck(c.mark, opts) : scanNow(c.mark, opts);
+  }
+  if (isJobMark(cleanMark(code))) {
+    flashFeedback('bad');
+    showResult({ kind: 'bad', mark: cleanMark(code), title: 'That’s a part mark', text: 'Tap + Code again and scan the custom barcode first, then the mark.' });
+    return null;
+  }
+  if (code.length > 200) {
+    flashFeedback('bad');
+    showResult({ kind: 'bad', title: 'Barcode too long', text: 'A piece code is at most 200 characters.' });
+    return null;
+  }
+  return newCode(code, { manual });
 }
 
 async function pairWith(raw, { manual = false } = {}) {
@@ -961,7 +1005,18 @@ function renderScanbar() {
   $('#scanbar').classList.toggle('pairing', Boolean(pairing));
   $('#scan-label').textContent = pairing ? `New code ${shortCode(pairing.code)}` : ship.busy ? 'Sending to PowerFab…' : checking ? 'Truck check' : viewOnly ? 'Shipped, view only' : palletArmed ? 'New pallet' : 'Scanning into';
   $('#scan-stack').textContent = pairing ? 'Scan its mark' : checking ? `Load ${load.number}` : viewOnly ? 'Tap Truck check to scan' : palletArmed ? 'Scan the mark (or Keypad)' : stackName;
-  $('#btn-pair-cancel').hidden = !pairing;
+  $('#btn-pair-cancel').hidden = !pairing && !codeArmed;
+  // "+ Code": on jobs with piece codes that pair new codes on the devices.
+  const canCode = codes.codesOn(ship.job) && codes.settings(ship.job).learn && !viewOnly;
+  if (!canCode) codeArmed = false;
+  $('#btn-code').hidden = !canCode || Boolean(pairing) || codeArmed || palletArmed;
+  if (codeArmed) {
+    $('#scan-label').textContent = 'Custom barcode';
+    $('#scan-stack').textContent = 'Scan its barcode';
+    $('#btn-new-stack').hidden = true;
+    $('#btn-pallet').hidden = true;
+  }
+  $('#btn-pair-cancel').textContent = codeArmed ? 'Cancel' : 'Cancel new code';
   $('#btn-new-stack').hidden = checking || load.shipped || palletArmed || Boolean(pairing);
   $('#btn-pallet').hidden = checking || load.shipped || Boolean(pairing);
   $('#btn-pallet').textContent = palletArmed ? 'Cancel pallet' : '+ Pallet';
@@ -1096,6 +1151,7 @@ function setChecking(on, { draft = false } = {}) {
   const wasDraft = stacks.isDraft(load);
   checking = on;
   pairing = null;
+  codeArmed = false;
   clearResult();
   if (!on || !draft) stacks.endDraft();
   if (on) {
@@ -1212,6 +1268,7 @@ export function initShipping() {
     ship.selectedId = id;
     palletArmed = false;
     pairing = null;
+    codeArmed = false;
     clearResult();
     setPanel(false);
     render();
@@ -1235,8 +1292,10 @@ export function initShipping() {
   $('#btn-new-stack').addEventListener('click', newStack);
   $('#btn-pallet').addEventListener('click', armPallet);
   $('#btn-check-done').addEventListener('click', () => setChecking(false));
+  $('#btn-code').addEventListener('click', () => setCodeArmed(true));
   $('#btn-pair-cancel').addEventListener('click', () => {
     if (pairing) toast(`Code ${shortCode(pairing.code)} not paired`);
+    codeArmed = false;
     setPairing(null);
     clearResult();
     focusScanner();
