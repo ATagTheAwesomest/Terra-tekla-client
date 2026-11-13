@@ -25,7 +25,7 @@
 // fast scanner can't race two writes.
 
 import { escapeHtml, toast } from './app.js';
-import { findCode as lookupCode, getConfig } from './api.js';
+import { fetchParts, findCode as lookupCode, getConfig } from './api.js';
 import { getCurrentJob, onCurrentJobChange, openJobPicker } from './current-job.js';
 import { checkSummary } from './check.js';
 import { initCheck, primeSound, renderCheck, submitCheck } from './check-ui.js';
@@ -44,7 +44,7 @@ import { initStacks, renderStacks } from './stacks-ui.js';
 import { initPhotos, openPhotos, photoButton, photoOfButton, photosOn } from './photos-ui.js';
 import { askPhotos } from './camera.js';
 import { queuePhotos } from './photos.js';
-import { claimsText, cleanMark, findLoad, formatWeight, lastLoaded, leftToLoad, loadSequences, loadTotals, pickRemaining, takeRemaining, toLoad } from './shipping.js';
+import { claimsText, cleanMark, transmittalCounts, findLoad, formatWeight, lastLoaded, leftToLoad, loadSequences, loadTotals, pickRemaining, takeRemaining, toLoad } from './shipping.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -186,7 +186,18 @@ export function openJob(job) {
   render();
   if (number) codes.refresh(number).then(() => render());
   if (number) bom.refresh(number);
+  if (number) readParts(number);
   return number ? read({ remaining: true }) : null;
+}
+
+// The job's part list marks (PowerFab's assemblies), read in the background: only to tell "none
+// left to ship" from "not in PowerFab at all" when a scan is refused.
+async function readParts(job) {
+  ship.parts = null;
+  try {
+    const entry = await fetchParts(job);
+    if (ship.job === job) ship.parts = new Set(entry.parts.map((p) => cleanMark(p.mark)));
+  } catch { /* stays null: the refusal says less */ }
 }
 
 export function refresh() {
@@ -267,7 +278,15 @@ export function scan(raw, { manual = false } = {}) {
   }
   // A draft check is a throwaway practice run: typed marks need no photo there.
   const needsPhoto = manual && photosOn() && !(checking && stacks.isDraft(selectedLoad()));
-  // Jobs with piece codes (js/piece-codes.js): a code stands for one piece of its mark.
+  // A barcode on the job's code list (js/piece-codes.js) stands for one piece of its mark, whether
+  // or not piece codes are switched on for the job: PowerFab doesn't know barcodes, so it is
+  // turned into its mark here, before anything goes to PowerFab.
+  const known = !pairing && codes.knownCode(ship.job, raw);
+  if (known) {
+    const opts = { manual, code: known.code, sequence: known.sequence ?? null };
+    return needsPhoto ? manualWithPhoto(known.mark, opts) : scanNow(known.mark, opts);
+  }
+  // Jobs with piece codes switched on: new codes are paired, and so on.
   if (codes.codesOn(ship.job)) {
     const c = codes.classify(ship.job, raw, { isMark: isJobMark });
     if (pairing && c.kind === 'mark') return pairWith(raw, { manual });
@@ -278,8 +297,32 @@ export function scan(raw, { manual = false } = {}) {
       return needsPhoto ? manualWithPhoto(c.mark, opts) : scanNow(c.mark, opts);
     }
   }
+  // Not a mark this job has: it may be a barcode this device hasn't read yet (the list changed, or
+  // it was offline). Ask the server before calling it unknown.
+  if (!pairing && !isJobMark(cleanMark(raw)) && getConfig()) {
+    return serverCode(raw).then((hit) => {
+      if (!hit) return needsPhoto ? manualWithPhoto(raw) : scanNow(raw, { manual });
+      const opts = { manual, code: hit.code, sequence: hit.sequence ?? null };
+      return needsPhoto ? manualWithPhoto(hit.mark, opts) : scanNow(hit.mark, opts);
+    });
+  }
   if (needsPhoto) return manualWithPhoto(raw);
   return scanNow(raw, { manual });
+}
+
+// The server's answer for a scan that may be a barcode: { code, mark, sequence } or null. Gives up
+// after 2.5 s (offline): the scan then goes on as a mark.
+async function serverCode(raw) {
+  const text = String(raw ?? '').trim();
+  if (!text || text.length > 200) return null;
+  try {
+    const r = await Promise.race([lookupCode(ship.job, text), new Promise((resolve) => { setTimeout(() => resolve(null), 2500); })]);
+    if (!r?.mark) return null;
+    codes.refresh(ship.job);
+    return { code: r.code ?? text, mark: cleanMark(r.mark), sequence: r.sequence ?? null };
+  } catch {
+    return null;
+  }
 }
 
 // Whether the open job has this mark (on a load, or left to ship).
@@ -327,7 +370,8 @@ function setCodeArmed(on) {
 function customCode(raw, { manual = false } = {}) {
   const code = String(raw ?? '').trim();
   if (!code) return null;
-  const c = codes.classify(ship.job, code, { isMark: isJobMark });
+  const k = codes.knownCode(ship.job, code);
+  const c = k ? { kind: 'code', code: k.code, mark: k.mark, sequence: k.sequence ?? null } : codes.classify(ship.job, code, { isMark: isJobMark });
   if (c.kind === 'code') {
     const opts = { manual, code: c.code, sequence: c.sequence };
     return checking ? submitCheck(c.mark, opts) : scanNow(c.mark, opts);
@@ -653,6 +697,8 @@ function scanNow(raw, { manual = false, code = null, sequence = null } = {}) {
       done(`${mark} loaded on load ${load.number}${item.sequence ? ` (seq ${item.sequence})` : ''}`);
       showLoaded(load, mark, code, item.sequence);
     } catch (err) {
+      // Say which mark a barcode stood for: PowerFab only knows the mark.
+      if (code && !err.barcode) Object.assign(err, { barcode: true, message: `Barcode ${code} is ${mark} on the code list. ${err.message}` });
       if (entryId) stacks.failScan(open, entryId, { mark, title: err.title ?? 'PowerFab refused that', message: err.message });
       throw err;
     }
@@ -678,12 +724,36 @@ function showLoaded(load, mark, code, sequence) {
   let onLoad = 0;
   try { onLoad = stacks.get(load).stacks.reduce((n, st) => n + st.items.filter((e) => e.mark === mark && !e.pending).length, 0); } catch { /* storage blocked */ }
   const of = jobTotal(mark);
+  // The transmittal from the job's BOM (js/job-bom.js), when it has one: information only. A small
+  // TL (under 100,000 lbs) also says how many of its pieces are on this load.
+  const tl = bom.transmittalOf(ship.job, mark);
+  const count = tl ? tlCounts(load).find((c) => c.tl === tl) : null;
+  const tlText = count ? `${tl}: ${count.onLoad} of ${count.of} on this load` : bom.transmittalText(ship.job, mark);
   showResult({
     kind: 'ok', mark, code,
-    // The transmittal from the job's BOM (js/job-bom.js), when it has one: information only.
-    text: `Loaded on load ${load.number}${sequence ? ` · seq ${sequence}` : ''}${bom.transmittalText(ship.job, mark) ? ` · ${bom.transmittalText(ship.job, mark)}` : ''}`,
+    text: `Loaded on load ${load.number}${sequence ? ` · seq ${sequence}` : ''}${tlText ? ` · ${tlText}` : ''}`,
     progress: of ? { n: Math.min(onLoad, of), of, label: `on this load, of the job’s ${mark}` } : null,
   });
+}
+
+// Pieces of each small transmittal on a load (js/shipping.js transmittalCounts).
+// Counts the pieces scanned onto the load's stacks (one row = one piece), which is up to date the
+// moment a scan lands; PowerFab's own list of the load is read again a little later.
+function tlCounts(load) {
+  if (!load || !bom.hasBom(ship.job)) return [];
+  let items = load.items;
+  try {
+    const rows = stacks.get(load).stacks.flatMap((st) => st.items.filter((e) => !e.pending));
+    if (rows.length) items = rows.map((e) => ({ mark: e.mark, qty: 1 }));
+  } catch { /* storage blocked: PowerFab's list */ }
+  return transmittalCounts({ items }, (m) => bom.transmittalOf(ship.job, m), bom.transmittalTotals(ship.job));
+}
+
+function tlLine(load) {
+  const counts = tlCounts(load);
+  if (!counts.length) return '';
+  return `<p class="ship-tls" title="Transmittals under 100,000 lbs: pieces on this load, of the TL">${counts.map((c) =>
+    `<span class="ship-tl${c.of && c.onLoad >= c.of ? ' done' : ''}">${escapeHtml(c.tl)} <b>${c.onLoad}</b>${c.of ? ` of ${c.of}` : ''}</span>`).join('')}</p>`;
 }
 
 // Takes the piece a stack row stands for off the truck and off the load, then
@@ -784,7 +854,12 @@ function done(message) {
 function blocked(mark, reason) {
   const where = claimsText(mark, ship.loads);
   const messages = {
-    'not-on-job': [`Not on job ${ship.job}`, `${mark} isn’t a piece PowerFab has left to ship on ${ship.job}.`],
+    'not-on-job': ship.parts?.has(mark)
+      ? ['None left to ship', `${mark} is on ${ship.job}’s part list in PowerFab, but PowerFab has none of it left to ship: it isn’t in production control yet, or none are ready to ship.`]
+      : ship.parts
+        ? ['Not in PowerFab', `PowerFab doesn’t have ${mark} on job ${ship.job} at all (not on its part list or any load).`]
+        : [`Not on job ${ship.job}`, `${mark} isn’t a piece PowerFab has left to ship on ${ship.job}, and isn’t on any of its loads.`],
+    'none-left': ['None left to ship', `PowerFab has ${mark} on ${ship.job}, but none left to ship and none on a load.`],
     shipped: ['Already shipped', `Every ${mark} on ${ship.job} has shipped.${where ? ` ${where}.` : ''}`],
     'on-other-loads': ['Already on other loads', `There are no more ${mark} to load: every one the job has left is already on another load.${where ? ` ${where}.` : ''}`],
   };
@@ -938,6 +1013,7 @@ function renderLoad(load) {
       <div>
         <h2>Load ${escapeHtml(load.number)}</h2>
         <p class="muted">${load.shipped ? `Shipped${load.shipDate ? ` ${escapeHtml(shortDate(load.shipDate))}` : ''} · ` : ''}${t.pieces} pcs · ${formatWeight(t.weight)}</p>
+        ${tlLine(load)}
       </div>
       <div class="ship-actions">
         ${photoButton(ship.job, load.number)}

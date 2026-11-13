@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 
 import { LB_PER_KG } from '../js/api.js';
 import { parseLoads, parseRemaining } from '../js/pf-loads.js';
-import { claimsText, cleanMark, lastLoaded, loadSequences, loadTotals, pickRemaining, stackTotals, takeRemaining, toLoad } from '../js/shipping.js';
+import { claimsText, cleanMark, lastLoaded, loadSequences, loadTotals, pickRemaining, transmittalCounts, stackTotals, takeRemaining, toLoad } from '../js/shipping.js';
 
 const live = JSON.parse(readFileSync(new URL('./fixtures/epm001_live.json', import.meta.url), 'utf8'));
 const lbs = (kg) => Math.round(kg * LB_PER_KG * 100) / 100;
@@ -58,7 +58,8 @@ test('a scan picks the lowest sequence PowerFab still has left, never more than 
   // A30 has one left: after assigning it there is none.
   const a30 = pickRemaining('A30', remaining, loads).row;
   remaining = takeRemaining(remaining, a30);
-  assert.equal(pickRemaining('A30', remaining, loads).reason, 'not-on-job');
+  assert.equal(pickRemaining('A30', remaining, loads).reason, 'none-left');
+  assert.equal(pickRemaining('NOPE9', remaining, loads).reason, 'not-on-job');
 
   // A1 is on Load 1 and PowerFab has none left to assign.
   const a1 = pickRemaining('A1', remaining, loads);
@@ -96,4 +97,13 @@ test('deleting a stack row takes off the last loaded, not returned, piece of tha
 
 test('stack totals count each scanned row once', () => {
   assert.deepEqual(stackTotals({ items: [{ weight: 10 }, { weight: 2.5 }, { weight: undefined }] }), { pieces: 3, weight: 12.5 });
+});
+
+test('small transmittals count their pieces on a load; big ones are left out', () => {
+  const load = { items: [{ mark: 'A1', qty: 2 }, { mark: 'A2', qty: 1 }, { mark: 'B1', qty: 4 }, { mark: 'X', qty: 1 }] };
+  const tl = { A1: 'TL2', A2: 'TL2', B1: 'TL10', X: '' };
+  const totals = new Map([['TL2', { pieces: 10, weight: 20000 }], ['TL10', { pieces: 4, weight: 150000 }]]);
+  assert.deepEqual(transmittalCounts(load, (m) => tl[m], totals), [{ tl: 'TL2', onLoad: 3, of: 10 }]);
+  totals.set('TL10', { pieces: 4, weight: 99999 });
+  assert.deepEqual(transmittalCounts(load, (m) => tl[m], totals).map((c) => c.tl), ['TL2', 'TL10']);
 });
