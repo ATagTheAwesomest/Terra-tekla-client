@@ -311,6 +311,8 @@ h1, h2, h3 { margin: 0 0 var(--gap); font-weight: 700; letter-spacing: 0.02em; }
   gap: var(--gap);
 }
 .drawer.open { transform: none; }
+/* The right-hand menu is longer than a phone screen: it scrolls on its own. */
+.drawer-right { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 .drawer-right {
   left: auto;
   right: 0;
