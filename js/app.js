@@ -5,7 +5,8 @@ import { getCurrentJob, initCurrentJob, jobsChanged, requireCurrentJob } from '.
 import { getConfig } from './api.js';
 import { cancelDrag } from './drag.js';
 import { initHandheld, stayAwake } from './handheld.js';
-import { shareLoadFile, printLoad } from './export.js';
+import { shareLoadFile } from './export.js';
+import { initPrint, refreshPrinters, startPrint } from './print-ui.js';
 import { readJob } from './pf-loads.js';
 import * as live from './live.js';
 import { initJobBom } from './job-bom.js';
@@ -62,6 +63,7 @@ export function openShipping() {
 
 // Right-hand menu: lookup, share, print, server, update.
 export function setMenu(open) {
+  if (open) refreshPrinters();
   $('#menu').classList.toggle('open', open);
   $('#menu').setAttribute('aria-hidden', String(!open));
   $('#btn-menu').setAttribute('aria-expanded', String(open));
@@ -159,7 +161,7 @@ function renderStatus() {
 function bindEvents() {
   initServer({
     jobsChanged: () => { jobsChanged(); renderStatus(); },
-    configChanged: () => { syncHomeServerTile(); live.reconnect(); },
+    configChanged: () => { syncHomeServerTile(); live.reconnect(); refreshPrinters({ force: true }); },
   });
   syncHomeServerTile();
   initLayout(renderShipping);
@@ -210,7 +212,7 @@ function bindEvents() {
   });
   $('#btn-print').addEventListener('click', () => {
     const load = loadWithPieces();
-    if (load) printLoad(load, ship.job);
+    if (load) startPrint(load, ship.job);
   });
   window.addEventListener('online', renderStatus);
   window.addEventListener('offline', renderStatus);
@@ -223,6 +225,7 @@ async function boot() {
   initCurrentJob({ refresh: () => refreshJobs(), check: async (number) => (await readJob(number)).number });
   renderShipping();
   live.initLive();
+  initPrint();
   renderStatus();
   if (getCurrentJob() && !document.body.classList.contains('at-home')) enterShipping();
   await registerServiceWorker();

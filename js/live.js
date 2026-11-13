@@ -17,7 +17,7 @@ let retry = 1000;
 let retryTimer = null;
 let pingTimer = null;
 let everLive = false;
-const handlers = { load: [], devices: [], status: [], photos: [], reconnect: [], 'client-updated': [], codes: [], 'codes-settings': [], 'codes-cleared': [], bom: [] };
+const handlers = { load: [], devices: [], status: [], photos: [], reconnect: [], 'client-updated': [], codes: [], 'codes-settings': [], 'codes-cleared': [], bom: [], printers: [] };
 
 export function on(type, fn) {
   handlers[type].push(fn);
@@ -131,6 +131,9 @@ export function connect() {
       emit(msg.type, msg);
     } else if (msg.type === 'photos') {
       emit('photos', msg.job, msg.load);
+    } else if (msg.type === 'printers') {
+      // The admin board changed which printers the iPads may use.
+      emit('printers');
     } else if (msg.type === 'client-updated') {
       // The server just got a newer app (Update the app on the server, on any iPad).
       emit('client-updated', msg.version);

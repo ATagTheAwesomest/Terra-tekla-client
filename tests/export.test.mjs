@@ -65,3 +65,40 @@ test('a pallet exports a line per piece under a {PALLET} line, and prints as one
   assert.match(text, /\{STACK: Pallet CL-1\}\n\{PALLET: CL-1 x 3\}\nCL-1\nCL-1\nCL-1\n$/);
   assert.equal(typeof renderPrintTicket, 'function');
 });
+
+test('the print ticket model: summary, a table per stack with subtotal, not-loaded pieces, sign-off', async () => {
+  const { ticketModel } = await import('../js/export.js');
+  const state = { stacks: [
+    { id: 's1', name: 'Stack 101 - 1', items: [
+      { id: 'a', mark: '1001-C1', sequence: '1', weight: 500, description: 'Column' },
+      { id: 'b', mark: '1099-X1-', sequence: '', weight: 0, manual: true },
+    ] },
+    { id: 'p', name: 'Pallet CL-1', pallet: { mark: 'CL-1', photos: 3 }, items: [{ mark: 'CL-1', sequence: '1', weight: 12.5, description: 'Clip' }, { mark: 'CL-1', sequence: '1', weight: 12.5 }] },
+  ] };
+  const m = ticketModel(load, 'EPM-001', new Date(2026, 9, 19, 11, 15), state);
+  assert.equal(m.title, 'Shipping Ticket');
+  assert.equal(m.job, 'EPM-001');
+  assert.equal(m.load, '101');
+  assert.deepEqual(m.summary[0], ['Load', '101']);
+  assert.deepEqual(m.summary.find(([k]) => k === 'Printed'), ['Printed', '2026-10-19 11:15']);
+  assert.equal(m.sections.length, 3);
+  const [first, pallet, waiting] = m.sections;
+  assert.equal(first.heading, 'Stack 101 - 1');
+  assert.deepEqual(first.columns.map((c) => c.kind), ['num', 'mark', 'text', 'text', 'num', 'check']);
+  assert.deepEqual(first.rows[0].cells, ['1', '1001-C1', '1', 'Column', '500', '']);
+  assert.equal(first.rows[1].manual, true);
+  assert.deepEqual(first.foot, [{ text: 'Stack subtotal', span: 4 }, { text: '500' }, { text: '' }]);
+  assert.equal(pallet.rows.length, 1);
+  assert.equal(pallet.rows[0].cells[1], 'CL-1 × 2');
+  assert.equal(waiting.heading, 'Not loaded');
+  assert.deepEqual(waiting.rows.map((r) => r.cells[1]), ['1003-W2']);
+  // Everything is text (the server takes it as JSON).
+  for (const s of m.sections) for (const r of s.rows) for (const c of r.cells) assert.equal(typeof c, 'string');
+  assert.equal(m.signoff.length, 3);
+
+  const plain = ticketModel(load, 'EPM-001', new Date(), null);
+  assert.equal(plain.sections.length, 1);
+  assert.equal(plain.sections[0].heading, null);
+  assert.equal(plain.sections[0].rows.length, 3);
+  assert.deepEqual(plain.sections[0].foot.at(-2), { text: '1350' });
+});

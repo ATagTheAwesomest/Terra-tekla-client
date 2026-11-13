@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TERRA">
   <meta name="format-detection" content="telephone=no">
-  <meta name="terra-version" content="0.24.2">
+  <meta name="terra-version" content="0.25.0">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -352,6 +352,23 @@
     <div class="modal-actions">
       <button class="btn btn-lg" type="button" id="keypad-cancel">Cancel</button>
       <button class="btn btn-lg btn-primary" type="button" id="keypad-ok">Add</button>
+    </div>
+  </dialog>
+
+  <!-- Print shipping ticket: the shop's printers (through the server, chosen on the admin board) or AirPrint. js/print-ui.js -->
+  <dialog class="modal print-pick" id="dlg-print" aria-labelledby="print-title">
+    <h2 id="print-title">Print shipping ticket</h2>
+    <p class="muted" id="print-sub"></p>
+    <div class="print-copies">
+      <span>Copies</span>
+      <button class="btn btn-icon" type="button" id="print-less" aria-label="Fewer copies">&minus;</button>
+      <output id="print-copies" aria-live="polite">1</output>
+      <button class="btn btn-icon" type="button" id="print-more" aria-label="More copies">+</button>
+    </div>
+    <div class="print-list" id="print-list"></div>
+    <p class="print-status" id="print-status" aria-live="polite"></p>
+    <div class="modal-actions">
+      <button class="btn btn-lg" type="button" id="print-cancel">Cancel</button>
     </div>
   </dialog>
 
