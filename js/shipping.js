@@ -52,7 +52,7 @@ export function pickRemaining(mark, remaining, loads, sequence = null) {
     || left.sort((a, b) => a.sequence.localeCompare(b.sequence, 'en', { numeric: true }))[0];
   if (row) return { row };
   const onLoads = loads.filter((l) => l.items.some((it) => it.mark === mark));
-  if (!onLoads.length) return { reason: 'not-on-job' };
+  if (!onLoads.length) return { reason: remaining.some((r) => r.mark === mark) ? 'none-left' : 'not-on-job' };
   return { reason: onLoads.every((l) => l.shipped) ? 'shipped' : 'on-other-loads' };
 }
 
@@ -77,6 +77,23 @@ export function claimsText(mark, loads, exceptId = null) {
     const qty = l.items.filter((it) => it.mark === mark).reduce((n, it) => n + it.qty, 0);
     return qty ? `Load ${l.number}: ${qty}${l.shipped ? ` (shipped${l.shipDate ? ` ${l.shipDate}` : ''})` : ''}` : '';
   }).filter(Boolean).join('; ');
+}
+
+// Transmittals under this many lbs get a piece count on the load (shipping often takes a small TL whole).
+export const SMALL_TL_LBS = 100000;
+
+// How many pieces of each small transmittal are on a load: [{ tl, onLoad, of }], in TL order.
+// tlOf(mark) is the mark's TL ('' for none); totals is Map(TL -> { pieces, weight }) from the BOM.
+export function transmittalCounts(load, tlOf, totals, limit = SMALL_TL_LBS) {
+  const on = new Map();
+  for (const it of load?.items ?? []) {
+    const tl = tlOf(it.mark);
+    if (tl) on.set(tl, (on.get(tl) ?? 0) + it.qty);
+  }
+  return [...on.entries()]
+    .filter(([tl]) => totals.get(tl)?.weight > 0 && totals.get(tl).weight < limit)
+    .sort(([a], [b]) => a.localeCompare(b, 'en', { numeric: true }))
+    .map(([tl, n]) => ({ tl, onLoad: n, of: totals.get(tl).pieces }));
 }
 
 // Totals for the header and the side panel.

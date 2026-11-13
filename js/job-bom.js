@@ -80,6 +80,30 @@ export function transmittalText(job, mark) {
     .join(', ');
 }
 
+// A mark's transmittal (the first the BOM has for it), or ''.
+export function transmittalOf(job, mark) {
+  return rowsFor(job, mark).find((r) => r.transmittal)?.transmittal ?? '';
+}
+
+// Each transmittal's size from the BOM: Map(TL -> { pieces, weight }), weight in lbs.
+const totalsCache = new WeakMap();
+export function transmittalTotals(job) {
+  if (!job) return new Map();
+  const e = entry(job);
+  if (totalsCache.has(e)) return totalsCache.get(e);
+  const totals = new Map();
+  for (const r of e.rows) {
+    if (!r.transmittal) continue;
+    const t = totals.get(r.transmittal) ?? { pieces: 0, weight: 0 };
+    const qty = Number(r.qty) || 0;
+    t.pieces += qty;
+    t.weight += qty * (Number(r.weight) || 0);
+    totals.set(r.transmittal, t);
+  }
+  totalsCache.set(e, totals);
+  return totals;
+}
+
 // Reads the job's BOM when the server has a newer one than this copy. Keeps the copy offline.
 export async function refresh(job) {
   if (!job || !api.getConfig()) return false;

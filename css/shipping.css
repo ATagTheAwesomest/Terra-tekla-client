@@ -159,6 +159,11 @@ body.at-home .colhead { visibility: hidden; }
 .ship-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--gap); flex-wrap: wrap; margin-bottom: 12px; }
 .ship-head h2 { margin: 0; color: var(--accent); }
 .ship-head p { margin: 4px 0 0; }
+/* Small transmittals: pieces on this load, of the TL. */
+.ship-tls { display: flex; flex-wrap: wrap; gap: 6px; }
+.ship-tl { padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: .85em; color: var(--text-muted); white-space: nowrap; }
+.ship-tl b { color: var(--text); }
+.ship-tl.done { border-color: var(--ok); }
 .ship-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .btn-ship:not([disabled]) { border-color: var(--accent); color: var(--accent); }
 .btn-ship[disabled] { opacity: 0.4; }
