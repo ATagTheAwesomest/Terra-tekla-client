@@ -211,6 +211,23 @@ The older `Load`, `Ship` and `Return` commands (by job and truck number, with
 `CommitType`) are not used: on EPM-001 `Ship` rejected every `CommitType` and
 `Return` refuses loads shipped to the jobsite.
 
+### Scan speed
+
+PowerFab answers one command at a time (the conversion layer has one session), and the two reads of
+the whole job (`ProductionControlLoad_Get`, `ProductionControlLoadRemaining_Get`) grow with every
+load the job ships. So a scan makes only the two writes it needs: assign and load. Both answer with
+the load they changed, and the piece's row is taken from that answer (`mergeLoadRows` in
+`js/shipping.js`); only if an answer lacks it are the loads read as before. The job is read once
+1.5 s after scanning stops; any other change reads first if that read is still owed. Another
+device's changes make this one read PowerFab's numbers 4 s after the last of them (its stacks arrive
+live at once), not while the app is in the background. The server shares identical reads between
+devices (terra-tekla-server docs/SPEED.md).
+
+**Scan timing**: tap the version number at the bottom right. Each scan's time from the scan to
+loaded, how long it waited behind the scans before it, and each call it made (`js/scan-timing.js`,
+last 50 kept on the device). They are also sent to the server: admin board › Server › Speed shows
+every device's next to PowerFab's call times.
+
 ### Export and shipping ticket
 
 Menu → **Share load file** sends the open load as text through the iPad share

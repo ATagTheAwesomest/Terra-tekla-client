@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TERRA">
   <meta name="format-detection" content="telephone=no">
-  <meta name="terra-version" content="0.25.1">
+  <meta name="terra-version" content="0.26.0">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -124,7 +124,7 @@
     <button class="status-device" id="status-device" type="button" title="This iPad: its number, name and colour (set on the admin board)"><span class="who-dot" aria-hidden="true"></span><span id="status-device-name">This iPad</span></button>
     <span id="status-offline">Starting&hellip;</span>
     <span id="status-parts"></span>
-    <span id="status-version"></span>
+    <button class="status-version" id="status-version" type="button" title="Scan timing: how long the last scans took"></button>
   </footer>
 
   <div class="scrim" id="scrim" hidden></div>
@@ -326,6 +326,17 @@
         <button class="btn btn-lg btn-primary" value="cancel" id="btn-ship-block-ok">OK</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog class="modal scan-times" id="dlg-scan-times" aria-labelledby="scan-times-title">
+    <h2 id="scan-times-title">Scan timing</h2>
+    <p class="muted" id="scan-times-summary"></p>
+    <div class="scan-times-list" id="scan-times-list"></div>
+    <p class="muted">The server’s admin board (Server page) shows every device’s scans next to PowerFab’s own call times.</p>
+    <div class="modal-actions">
+      <button class="btn" type="button" id="btn-scan-times-clear">Clear</button>
+      <button class="btn btn-primary" type="button" id="btn-scan-times-close">Close</button>
+    </div>
   </dialog>
 
   <dialog class="modal" id="dlg-update">

@@ -70,6 +70,35 @@ export function takeRemaining(remaining, row, qty = 1) {
   return remaining.map((r) => (r === row ? { ...r, remaining: Math.max(0, r.remaining - qty) } : r));
 }
 
+// A load with some of its rows taken from `fresh`, the same load as a PowerFab write answered it
+// (ProductionControlLoadMaterial_Add and _Load answer the load they changed, with its material):
+// the rows `pick(row)` chooses are updated, or added when the load didn't have them yet. Saves
+// reading every load of the job again after each scan. Rows a write answered without a load count
+// (QuantityLoaded) keep the count this device had.
+export function mergeLoadRows(load, fresh, pick) {
+  if (!load || !fresh) return load;
+  const items = load.items.map((it) => ({ ...it }));
+  for (const f of fresh.items.filter(pick)) {
+    const have = items.find((it) => it.truckId === f.truckId);
+    if (!have) items.push({ ...f });
+    else Object.assign(have, { qty: f.qty }, f.loads.length || f.loaded ? { loaded: f.loaded, loads: f.loads } : {});
+  }
+  return {
+    ...load,
+    items,
+    pieces: items.reduce((n, it) => n + it.qty, 0),
+    loaded: items.reduce((n, it) => n + it.loaded, 0),
+    weight: Math.round(items.reduce((n, it) => n + it.qty * it.weightEach, 0) * 100) / 100,
+  };
+}
+
+// One more piece of a row loaded, when PowerFab's answer didn't say (see mergeLoadRows).
+export function markLoaded(load, truckId, qty = 1) {
+  if (!load) return load;
+  const items = load.items.map((it) => (it.truckId === truckId ? { ...it, loaded: Math.min(it.qty, it.loaded + qty) } : it));
+  return { ...load, items, loaded: items.reduce((n, it) => n + it.loaded, 0) };
+}
+
 // Where the job's pieces of `mark` sit on loads other than `exceptId`:
 // "Load 3: 2 (shipped Oct 2); Load 5: 1".
 export function claimsText(mark, loads, exceptId = null) {

@@ -44,7 +44,8 @@ import { initStacks, renderStacks } from './stacks-ui.js';
 import { initPhotos, openPhotos, photoButton, photoOfButton, photosOn } from './photos-ui.js';
 import { askPhotos } from './camera.js';
 import { queuePhotos } from './photos.js';
-import { claimsText, cleanMark, transmittalCounts, findLoad, formatWeight, lastLoaded, leftToLoad, loadSequences, loadTotals, pickRemaining, takeRemaining, toLoad } from './shipping.js';
+import * as timing from './scan-timing.js';
+import { claimsText, cleanMark, transmittalCounts, findLoad, formatWeight, lastLoaded, leftToLoad, loadSequences, loadTotals, markLoaded, mergeLoadRows, pickRemaining, takeRemaining, toLoad } from './shipping.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -210,26 +211,82 @@ export function refresh() {
 
 // Runs one PowerFab change, then re-reads. Changes queue behind each other.
 // Resolves true when the write went through.
-function change(fn, { remaining = false } = {}) {
+//
+// `settle` (scans): the change has already put what PowerFab answered into ship.loads, so the job
+// isn't read again after it. One read follows once the scanning stops for SETTLE_MS: reading every
+// load and everything left on the job after every scan took several PowerFab calls each (PowerFab
+// answers one call at a time, and those replies grow with every load the job ships), which is what
+// made fast scanning fall further and further behind. Any other change reads first while a settle
+// read is still owed, so it never works from numbers older than before.
+const SETTLE_MS = 1500;
+let settleTimer = null;
+let settleRemaining = false;
+let pendingWrites = 0;
+
+function settleLater(remaining) {
+  settleRemaining ||= remaining;
+  clearTimeout(settleTimer);
+  settleTimer = setTimeout(() => {
+    if (ship.busy || pendingWrites) return settleLater(false);
+    const r = takeSettle();
+    if (r !== null) read({ remaining: r });
+  }, SETTLE_MS);
+}
+
+// Whether a settle read is owed (null when not) and with `remaining`; it is then cancelled.
+function takeSettle() {
+  if (!settleTimer) return null;
+  clearTimeout(settleTimer);
+  settleTimer = null;
+  const r = settleRemaining;
+  settleRemaining = false;
+  return r;
+}
+
+function change(fn, { remaining = false, settle = false, timed = null } = {}) {
+  pendingWrites++;
   const run = async () => {
+    pendingWrites--;
     ship.busy++;
+    timing.began(timed);
     renderScanbar();
     try {
+      if (!settle) {
+        const owed = takeSettle();
+        if (owed !== null) await read({ remaining: owed });
+      }
       await fn();
+      timing.finish(timed);
       return true;
     } catch (err) {
+      timing.finish(timed, { ok: false, error: err.message });
       flashFeedback('bad');
       // Checks made here carry their own title; anything else came back from PowerFab.
       showBlock({ title: err.title ?? 'PowerFab refused that', mark: err.mark ?? '', message: err.message });
+      if (settle) settleLater(remaining);
       return false;
     } finally {
       ship.busy--;
-      await read({ remaining });
+      if (settle) {
+        settleLater(remaining);
+        render();
+      } else {
+        const owed = takeSettle();
+        await read({ remaining: remaining || Boolean(owed) });
+      }
     }
   };
   const p = queue.then(run, run);
   queue = p.catch(() => {});
   return p;
+}
+
+// Puts a load as PowerFab answered a write into ship.loads (rows `pick` chooses).
+function takeAnswer(loadId, reply, pick) {
+  const fresh = pf.loadInReply(reply, loadId);
+  if (!fresh) return false;
+  ship.loads = ship.loads.map((l) => (l.id === loadId ? mergeLoadRows(l, fresh, pick) : l));
+  return true;
 }
 
 // Checks the load picked when a change was queued is still the one to change.
@@ -248,16 +305,45 @@ function openLoadFor(jobThen, mark = '') {
 // one already on the load and not loaded yet, or else one assigned now from
 // what the job has left (lowest sequence first).
 // A piece code's list may say which sequence the piece is: that one is taken first.
-async function assignOne(load, mark, sequence = null) {
+// PowerFab's answer to the assign has the load with its rows, so the job's loads aren't read
+// again; only when the answer doesn't have the new row (an older bridge) are they.
+// What is left on the job may be out of date (another device took the last one): a refused
+// assign reads it again and tries once more.
+async function assignOne(load, mark, sequence = null, rec = null) {
   const waiting = (sequence && toLoad(load, mark, sequence)) || toLoad(load, mark);
   if (waiting) return waiting;
-  const pick = pickRemaining(mark, ship.remaining, ship.loads, sequence);
+  let pick = pickRemaining(mark, ship.remaining, ship.loads, sequence);
+  // (Not for a mark the job's part list doesn't have at all: a typo is refused at once.)
+  const onJob = !ship.parts || ship.parts.has(mark);
+  if (!pick.row && onJob && ship.readAt && Date.now() - ship.readAt > 2000) {
+    await timing.step(rec, 'read left to ship', read({ remaining: true }));
+    pick = pickRemaining(mark, ship.remaining, ship.loads, sequence);
+  }
   if (!pick.row) throw blocked(mark, pick.reason);
-  await pf.addMaterial(load.id, pick.row);
+  let reply;
+  try {
+    reply = await timing.step(rec, 'PowerFab assign', pf.addMaterial(load.id, pick.row));
+  } catch (err) {
+    if (!(err.status >= 400 && err.status < 500) || err.status === 401) throw err;
+    // Refused: maybe it was taken a moment ago. Read what is left and try once more.
+    await timing.step(rec, 'read left to ship', read({ remaining: true }));
+    const current = findLoad(ship.loads, load.id) ?? load;
+    const again = (sequence && toLoad(current, mark, sequence)) || toLoad(current, mark);
+    if (again) return again;
+    pick = pickRemaining(mark, ship.remaining, ship.loads, sequence);
+    if (!pick.row) throw blocked(mark, pick.reason);
+    reply = await timing.step(rec, 'PowerFab assign', pf.addMaterial(load.id, pick.row));
+  }
   ship.remaining = takeRemaining(ship.remaining, pick.row);
-  ship.loads = await pf.readLoads(ship.pcid);
-  const fresh = findLoad(ship.loads, load.id);
-  const item = toLoad(fresh, mark, pick.row.sequence) ?? toLoad(fresh, mark);
+  const row = pick.row;
+  const ours = (it) => it.itemId === row.itemId && (!row.sequence || !it.sequence || it.sequence === row.sequence);
+  let fresh = takeAnswer(load.id, reply, ours) ? findLoad(ship.loads, load.id) : null;
+  let item = fresh && (toLoad(fresh, mark, row.sequence) ?? toLoad(fresh, mark));
+  if (!item) {
+    ship.loads = await timing.step(rec, 'read loads', pf.readLoads(ship.pcid));
+    fresh = findLoad(ship.loads, load.id);
+    item = toLoad(fresh, mark, row.sequence) ?? toLoad(fresh, mark);
+  }
   if (!item) throw new Error(`${mark} was put on load ${load.number} but PowerFab didn’t list it to load. Refresh and scan it again.`);
   return item;
 }
@@ -674,6 +760,7 @@ function scanNow(raw, { manual = false, code = null, sequence = null } = {}) {
     }
   }
   const jobThen = ship.job;
+  const rec = timing.start(code ? `${mark} (${code})` : mark, { ahead: ship.busy + pendingWrites });
   // The row shows (as "sending") on every iPad straight away, in this iPad's
   // active stack; it waits its turn behind any scans still going to PowerFab.
   const entryId = safely(() => stacks.beginScan(open, mark, { manual, code }));
@@ -683,11 +770,16 @@ function scanNow(raw, { manual = false, code = null, sequence = null } = {}) {
     try {
       const load = openLoadFor(jobThen, mark);
       if (load.id !== open.id) throw Object.assign(new Error(`The open load changed before ${mark} was sent. Scan it again.`), { title: 'Load changed', mark });
-      if (code) await codeNotElsewhere(code, load, mark);
+      if (code) await timing.step(rec, 'code check', codeNotElsewhere(code, load, mark));
       const wasWaiting = Boolean(toLoad(load, mark));
-      const item = await assignOne(load, mark, sequence);
+      const item = await assignOne(load, mark, sequence, rec);
       try {
-        await pf.loadMaterial(load.id, item);
+        const reply = await timing.step(rec, 'PowerFab load', pf.loadMaterial(load.id, item));
+        // PowerFab answers with the load: take this row's load count from it, or count it here.
+        const loadedNow = () => findLoad(ship.loads, load.id)?.items.find((it) => it.truckId === item.truckId)?.loaded ?? 0;
+        const before = loadedNow();
+        takeAnswer(load.id, reply, (it) => it.truckId === item.truckId);
+        if (loadedNow() <= before) ship.loads = ship.loads.map((l) => (l.id === load.id ? markLoaded(l, item.truckId) : l));
       } catch (err) {
         // Assigning and loading are one step: don't leave it assigned but not loaded.
         if (!wasWaiting) await pf.removeMaterial(load.id, item, 1).catch(() => {});
@@ -702,7 +794,7 @@ function scanNow(raw, { manual = false, code = null, sequence = null } = {}) {
       if (entryId) stacks.failScan(open, entryId, { mark, title: err.title ?? 'PowerFab refused that', message: err.message });
       throw err;
     }
-  }, { remaining: true });
+  }, { remaining: true, settle: true, timed: rec });
 }
 
 // The server's word on where a piece code is (another device may have loaded it
@@ -1285,14 +1377,26 @@ function renderSoon() {
   }, 60);
 }
 
-// Another iPad changed PowerFab (loaded, took off, deleted): read the numbers again.
+// Another iPad changed PowerFab (loaded, took off, deleted): read the numbers again, once it has
+// been quiet for a few seconds. Its stacks arrive live anyway; these are PowerFab's counts, and
+// reading them after every scan another device makes slowed that device's scans down (PowerFab
+// answers one call at a time). The server also shares one read between devices asking at once.
+const REREAD_MS = 4000;
 function rereadSoon() {
   clearTimeout(rereadTimer);
   rereadTimer = setTimeout(() => {
-    if (ship.busy || ship.reading) rereadSoon();
+    if (ship.busy || ship.reading || pendingWrites) rereadSoon();
+    else if (document.hidden) rereadPending = true;
     else read({ remaining: true });
-  }, 1200);
+  }, REREAD_MS);
 }
+let rereadPending = false;
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && rereadPending) {
+    rereadPending = false;
+    rereadSoon();
+  }
+});
 
 const POWERFAB_OPS = new Set(['finishScan', 'removeEntry', 'clear']);
 

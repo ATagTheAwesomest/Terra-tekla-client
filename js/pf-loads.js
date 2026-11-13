@@ -82,6 +82,15 @@ export function parseLoads(reply) {
   return loads.sort((a, b) => a.number.localeCompare(b.number, 'en', { numeric: true }));
 }
 
+// The load a write answered (Material_Add and _Load answer the load they changed), or null.
+export function loadInReply(reply, loadId) {
+  try {
+    return parseLoads(reply).find((l) => l.id === String(loadId)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // Remaining { itemId, sequenceId, sequence, mark, remaining, total, weightEach, description }
 // One row per piece and sequence that still has something to ship.
 export function parseRemaining(reply) {

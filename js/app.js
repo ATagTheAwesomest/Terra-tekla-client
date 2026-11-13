@@ -9,6 +9,7 @@ import { shareLoadFile } from './export.js';
 import { initPrint, refreshPrinters, startPrint } from './print-ui.js';
 import { readJob } from './pf-loads.js';
 import * as live from './live.js';
+import * as scanTiming from './scan-timing.js';
 import { initJobBom } from './job-bom.js';
 import { initPieceCodes } from './piece-codes.js';
 import { initLayout } from './mobile.js';
@@ -158,6 +159,28 @@ function renderStatus() {
 
 // ---- Boot ----------------------------------------------------------------
 
+// Scan timing (tap the version number at the bottom): the last scans on this device, how long each
+// took from the scan to PowerFab having it loaded, how long it waited behind the scans before it, and
+// each PowerFab call it made (js/scan-timing.js).
+const msText = (ms) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`);
+function drawScanTimes() {
+  const s = scanTiming.summary(20);
+  $('#scan-times-summary').textContent = s.count
+    ? `Last ${s.count} scans: ${msText(s.avgMs)} on average, slowest ${msText(s.maxMs)}, waited ${msText(s.avgWaitMs)} on average behind earlier scans.`
+    : 'No scans timed on this device yet.';
+  $('#scan-times-list').innerHTML = scanTiming.recent().slice(0, 30).map((r) => `
+    <div class="scan-time${r.ok === false ? ' bad' : ''}${r.totalMs >= 3000 ? ' slow' : ''}">
+      <b>${escapeHtml(r.mark ?? '')}</b> <span class="t">${r.totalMs == null ? '' : msText(r.totalMs)}</span>
+      <span class="muted">${escapeHtml(new Date(r.at).toLocaleTimeString())}${r.waitMs ? ` · waited ${msText(r.waitMs)}${r.ahead ? ` (${r.ahead} ahead)` : ''}` : ''}</span>
+      <span class="muted steps">${r.steps.map((st) => `${escapeHtml(st.name)} ${msText(st.ms)}`).join(' · ')}${r.ok === false ? ` · ${escapeHtml(r.error)}` : ''}</span>
+    </div>`).join('');
+}
+
+function showScanTimes() {
+  drawScanTimes();
+  $('#dlg-scan-times').showModal();
+}
+
 function bindEvents() {
   initServer({
     jobsChanged: () => { jobsChanged(); renderStatus(); },
@@ -175,6 +198,10 @@ function bindEvents() {
   live.on('devices', renderStatus);
   onStacksChange(renderStatus);
   $('#status-device').addEventListener('click', openServerSettings);
+  $('#status-version').addEventListener('click', showScanTimes);
+  $('#btn-scan-times-close').addEventListener('click', () => $('#dlg-scan-times').close());
+  $('#btn-scan-times-clear').addEventListener('click', () => { scanTiming.clear(); drawScanTimes(); });
+  scanTiming.onRecord(() => { if ($('#dlg-scan-times').open) drawScanTimes(); });
   $('#scrim').addEventListener('click', () => { setMenu(false); setHomeMenu(false); });
   $('#btn-menu').addEventListener('click', () => setMenu(true));
   $('#btn-menu-close').addEventListener('click', () => setMenu(false));
