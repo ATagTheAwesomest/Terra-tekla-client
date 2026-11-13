@@ -144,3 +144,38 @@ body.layout-mobile .check-row > :last-child { grid-area: undo; }
 
 /* Toasts sit near the top on phones, clear of the big bottom buttons. */
 body.layout-mobile .toast { bottom: auto; top: calc(72px + env(safe-area-inset-top)); }
+
+/* ---- 25% smaller on phones and handhelds -----------------------------------
+   Text sizes are in rem, so the root size scales them; the fixed pixel sizes
+   (bars, buttons, rows) are scaled to match below. More of the load fits
+   between the top bar and the scan bar. */
+html:has(body.layout-mobile) { font-size: 13.5px; }
+body.layout-mobile {
+  font-size: 12px;
+  --tap: 36px;
+  --gap: 9px;
+  --item-pad: 10px;
+  --jobbar-h: 36px;
+}
+body.layout-mobile .btn { min-height: var(--tap); }
+body.layout-mobile .jobbar { gap: 8px; padding-left: 10px; padding-right: 10px; }
+body.layout-mobile .topbar { padding: 3px 4px; gap: 4px; }
+body.layout-mobile .topbar .btn { min-height: 36px; }
+body.layout-mobile .stat-sub { display: none; }
+body.layout-mobile .scanbar { gap: 6px; padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px)); }
+body.layout-mobile .scan-field { min-height: 40px; }
+body.layout-mobile #scan-input { height: 34px; }
+body.layout-mobile .scanbar .btn-lg { min-height: 48px; }
+body.layout-mobile #btn-keypad { flex-basis: 48px; }
+body.layout-mobile .last-scan { margin: 4px 6px 0; padding: 7px 9px; border-width: 2px; }
+body.layout-mobile .last-scan-icon { width: 30px; height: 30px; }
+body.layout-mobile .last-scan-progress { margin-top: 5px; }
+body.layout-mobile .last-scan-progress .bar { height: 8px; }
+body.layout-mobile .ship-actions .btn { min-height: 40px; }
+body.layout-mobile .item .item-actions .btn { min-height: 40px; }
+body.layout-mobile .workspace { padding: 6px; }
+body.layout-mobile .menu-item, body.layout-mobile .load-row, body.layout-mobile .device-pick-list .btn { min-height: 48px; }
+body.layout-mobile .key { min-height: 44px; }
+body.layout-mobile .keypad-display { min-height: 44px; }
+body.layout-mobile .stack-more { min-height: 36px; }
+body.layout-mobile .check-row { grid-template-columns: 30px minmax(0, 1fr) auto var(--tap); }
