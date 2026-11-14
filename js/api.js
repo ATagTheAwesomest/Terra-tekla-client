@@ -328,6 +328,11 @@ export function sendOps(loadId, { job, loadNumber, ops }) {
   return request(`/api/loads/${encodeURIComponent(loadId)}/ops/batch`, { method: 'POST', body: { job, loadNumber, ops } });
 }
 
+// How long this device's last scans took (js/scan-timing.js), for the admin board's Server page.
+export function sendScanTimes(scans) {
+  return request('/api/diag/scans', { method: 'POST', body: { scans } });
+}
+
 // ---- Piece codes (js/piece-codes.js) --------------------------------------------------
 
 // { settings, count, codes: [{ id, code, mark, sequence }], last }: codes added after `since`.

@@ -577,3 +577,13 @@ body.at-home .topbar, body.at-home .scanbar, body.at-home .ship-body { visibilit
 .device-pick-list .device-pick-name { font-size: 1.1rem; }
 .device-pick-list .device-pick-meta { margin-left: auto; color: var(--text-muted); font-weight: 400; font-size: 0.9rem; }
 .device-pick-list .device-pick-current { border-color: var(--accent); }
+
+/* Scan timing (tap the version number at the bottom) */
+.status-version { background: none; border: 0; color: inherit; font: inherit; padding: 8px 4px; min-height: 0; cursor: pointer; }
+.modal.scan-times { width: min(640px, 96vw); }
+.scan-times-list { max-height: 55vh; overflow-y: auto; display: grid; gap: 6px; margin: 8px 0; }
+.scan-time { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 8px 10px; border: 1px solid #333; border-radius: 8px; }
+.scan-time .t { font-weight: 700; text-align: right; }
+.scan-time .muted { grid-column: 1 / -1; font-size: 0.85rem; }
+.scan-time.slow .t { color: #ff9f43; }
+.scan-time.bad { border-color: #c0392b; }
