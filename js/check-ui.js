@@ -201,10 +201,10 @@ export function submitCheck(raw, { manual = false, code = null } = {}) {
   if (!load || !cleanMark(raw)) return null;
   const before = checkStatus(stacks.get(load));
   const wasComplete = before.complete;
+  // A piece's own code checked again is harmless: nothing changes, so scan away.
   if (code && codeChecked(stacks.get(load), code)) {
-    flashFeedback('bad');
-    showResult({ kind: 'bad', mark: cleanMark(raw), code, title: 'Already checked', text: 'This piece’s code was checked already.' });
-    ctx.toast(`${cleanMark(raw)} (code ${shortCode(code)}) was checked already`, 4000);
+    flashFeedback('ok');
+    showResult({ kind: 'ok', mark: cleanMark(raw), code, text: `Already checked · ${before.checked} of ${before.total} on the load. Nothing changed.` });
     return null;
   }
   let scan;
