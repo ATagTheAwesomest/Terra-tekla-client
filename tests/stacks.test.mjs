@@ -182,13 +182,18 @@ test('changes queued while offline go to the server together, in one request', a
   assert.equal(server.state.stacks[0].name, 'Three');
 });
 
-test('a piece code is one piece: kept on its row, refused twice, and found on any load of the job', async () => {
+test('a piece code is one piece: kept on its row, a repeat adds no row, and found on any load of the job', async () => {
   const l = load([], { id: 'L30', number: '30' });
   const id = stacks.beginScan(l, 'A1', { code: 'CODE00000001' });
   assert.equal(ops.findEntry(stacks.get(l), id).entry.code, 'CODE00000001');
   const s = stacks.get(l);
   assert.equal(ops.applyOp(s, { op: 'beginScan', entryId: 'again', mark: 'A1', code: 'code00000001' }, ctx), false);
   assert.equal(stacks.codeOnLoads('J1', 'code00000001').loadNumber, '30');
+  // Shipping ignores a repeat on the same load: it finds the row even while it is still sending.
+  const where = stacks.codeOnLoads('J1', 'code00000001');
+  assert.equal(where.loadId, 'L30');
+  assert.equal(where.entry.id, id);
+  assert.equal(where.entry.pending, true);
   assert.equal(stacks.codeOnLoads('J2', 'CODE00000001'), null);
   await stacks.flush();
   assert.equal(sent.filter((x) => x.body?.code === 'CODE00000001').length, 1);

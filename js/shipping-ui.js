@@ -729,8 +729,9 @@ async function manualWithPhoto(raw, opts = {}) {
   return result;
 }
 
-// `code` (jobs with piece codes): the piece's own code, kept on its row; one
-// already on this load or another is refused before anything goes to PowerFab.
+// `code` (jobs with piece codes): the piece's own code, kept on its row. One
+// already on this load is ignored (nothing changes); one on another load is
+// refused before anything goes to PowerFab.
 // `sequence`: the sequence the code's list gives, taken first.
 function scanNow(raw, { manual = false, code = null, sequence = null } = {}) {
   if (checking) return submitCheck(raw, { manual, code });
@@ -753,6 +754,16 @@ function scanNow(raw, { manual = false, code = null, sequence = null } = {}) {
   }
   if (code) {
     const where = stacks.codeOnLoads(ship.job, code);
+    // A piece's own code is one piece: scanning it again on this load (even while
+    // the first scan is still going to PowerFab) is harmless and changes nothing,
+    // so operators can scan away. Plain marks and QR codes are not affected.
+    if (where && where.loadId === open.id) {
+      const row = document.querySelector(`[data-item-id="${CSS.escape(where.entry.id)}"]`);
+      row?.scrollIntoView({ block: 'nearest' });
+      flashFeedback('ok', row);
+      showResult({ kind: 'ok', mark: where.entry.mark || mark, code, text: `Already on this load, in ${where.stack.name}${where.entry.pending ? ' (still sending)' : ''}. Nothing changed.` });
+      return null;
+    }
     if (where) {
       flashFeedback('bad');
       showBlock({ title: 'Piece already loaded', mark: code, message: `This ${where.entry.mark} (code ${code}) is already on ${where.loadId === open.id ? 'this load' : `load ${where.loadNumber}`}, in ${where.stack.name}.` });
